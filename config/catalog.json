@@ -1,5 +1,6 @@
 {
   "appName": "Challenge Lab",
+  "evaluationKey": "scoring/profiles/landing-evaluation-key.json",
   "modes": [
     {
       "id": "hardcore_landings",

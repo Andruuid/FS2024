@@ -1,0 +1,254 @@
+{
+  "id": "landing-evaluation-key",
+  "version": 1,
+  "description": "Phase-weighted landing score. Each metric scores 0–100% from its curve/params; phase % = weighted avg of its metrics; final % = sum(phase% × phaseWeight). Gear is a safety gate, not a phase metric. Piecewise points use s as percent (0–100), not 0–1.",
+  "formula": "metricScore 0–100%; phase = Σ(metricScore × importance/100); final = Σ(phase × phaseWeight/100); then gear-up gate if required",
+  "example": {
+    "touchdown": 95,
+    "approach": 60,
+    "rollout": 90,
+    "calculation": "(95×0.70)+(60×0.25)+(90×0.05) = 66.5+15+4.5 = 86"
+  },
+  "settle": {
+    "groundSpeedKts": 50,
+    "holdSeconds": 1.0
+  },
+  "timing": {
+    "groundTrackWindowBeforeSeconds": 3,
+    "groundTrackWindowAfterSeconds": 3,
+    "postTouchdownAlignmentDelaySeconds": 2,
+    "flareAglFeet": 50
+  },
+  "gates": {
+    "gear": {
+      "id": "gear",
+      "type": "overallMultiplierIfFailed",
+      "requireFlag": "requireGearDown",
+      "failWhenGearUp": true,
+      "multiplierOnFail": 0.1,
+      "penaltyDescription": "If gear required and up: final score × 0.1 (~90% cut). Gear down: no credit, not scored as a metric."
+    }
+  },
+  "phases": [
+    {
+      "id": "approach",
+      "displayName": "Approach",
+      "weightPercent": 25,
+      "note": "Path quality into the landing. Only one metric for now → 100% of this phase.",
+      "metrics": [
+        {
+          "id": "approach_path",
+          "displayName": "Approach path quality",
+          "importancePercent": 100,
+          "levels": ["strict"],
+          "unit": "ft RMS",
+          "evaluator": "target",
+          "metric": "approachPathRms",
+          "params": { "ideal": 0, "tolerance": 80, "maxError": 400 }
+        }
+      ]
+    },
+    {
+      "id": "touchdown",
+      "displayName": "Touchdown",
+      "weightPercent": 70,
+      "note": "Includes path/motion around touchdown (ground track ±3 s). Peak G removed (duplicates vertical speed).",
+      "metrics": [
+        {
+          "id": "touchdown_vs",
+          "displayName": "Vertical speed (firmness)",
+          "importancePercent": 75,
+          "levels": ["easy", "strict"],
+          "unit": "fpm",
+          "evaluator": "piecewise",
+          "metric": "touchdownVerticalSpeedFpm",
+          "note": "s = metric score 0–100%. v = vertical speed fpm (negative = descending).",
+          "points": [
+            { "v": -600, "s": 70 },
+            { "v": -500, "s": 75 },
+            { "v": -400, "s": 80 },
+            { "v": -320, "s": 82 },
+            { "v": -250, "s": 90 },
+            { "v": -180, "s": 95 },
+            { "v": -100, "s": 100 },
+            { "v": -60, "s": 95 },
+            { "v": -20, "s": 90 },
+            { "v": 0, "s": 85 },
+            { "v": 50, "s": 50 }
+          ]
+        },
+        {
+          "id": "airspeed",
+          "displayName": "Indicated airspeed vs target",
+          "importancePercent": 10,
+          "levels": ["easy", "strict"],
+          "unit": "kts",
+          "evaluator": "piecewise",
+          "metric": "touchdownIasErrorKts",
+          "note": "s = metric score 0–100%. v = IAS error kts (actual − target); target TD IAS = VAPP − 5 kt.",
+          "points": [
+            { "v": -30, "s": 70 },
+            { "v": -15, "s": 80 },
+            { "v": -10, "s": 90 },
+            { "v": -5, "s": 100 },
+            { "v": 0, "s": 100 },
+            { "v": 5, "s": 95 },
+            { "v": 10, "s": 75 },
+            { "v": 15, "s": 60 },
+            { "v": 25, "s": 20 },
+            { "v": 35, "s": 10 }
+          ]
+        },
+        {
+          "id": "centerline",
+          "displayName": "Centerline offset",
+          "importancePercent": 5,
+          "levels": ["easy", "strict"],
+          "unit": "m",
+          "evaluator": "centerline",
+          "metric": "centerlineDeviationM",
+          "params": {
+            "easyTolerance": 4,
+            "easyZeroAt": 18,
+            "easyExponent": 1.7,
+            "strictTolerance": 1.5,
+            "strictZeroAt": 10,
+            "strictExponent": 1.3
+          }
+        },
+        {
+          "id": "ground_track",
+          "displayName": "Ground track (CG path)",
+          "importancePercent": 3,
+          "levels": ["easy", "strict"],
+          "unit": "deg",
+          "evaluator": "target",
+          "metric": "groundTrackErrorMeanDeg",
+          "sampleAt": "touchdownWindow",
+          "note": "3 s before TD → 3 s after; CG motion vs runway, not crab.",
+          "params": { "ideal": 0, "tolerance": 2, "maxError": 12 }
+        },
+        {
+          "id": "excess_speed",
+          "displayName": "Excess speed over VAPP",
+          "importancePercent": 3,
+          "levels": ["easy", "strict"],
+          "unit": "kts",
+          "evaluator": "piecewise",
+          "metric": "excessSpeedOverVappKts",
+          "note": "s = metric score 0–100%. v = kts over VAPP.",
+          "points": [
+            { "v": 0, "s": 100 },
+            { "v": 3, "s": 95 },
+            { "v": 5, "s": 85 },
+            { "v": 10, "s": 55 },
+            { "v": 15, "s": 30 },
+            { "v": 20, "s": 15 },
+            { "v": 30, "s": 0 }
+          ]
+        },
+        {
+          "id": "bank",
+          "displayName": "Bank at touchdown",
+          "importancePercent": 2,
+          "levels": ["easy", "strict"],
+          "unit": "deg",
+          "evaluator": "target",
+          "metric": "bankAtTouchdownDeg",
+          "params": { "ideal": 0, "tolerance": 1.5, "maxError": 8 }
+        },
+        {
+          "id": "alignment",
+          "displayName": "Heading vs runway",
+          "importancePercent": 1,
+          "levels": ["easy", "strict"],
+          "unit": "deg",
+          "evaluator": "target",
+          "metric": "alignmentDeg",
+          "params": { "ideal": 0, "tolerance": 2, "maxError": 12 }
+        },
+        {
+          "id": "flaps",
+          "displayName": "Flaps setting",
+          "importancePercent": 1,
+          "levels": ["easy", "strict"],
+          "unit": "index",
+          "evaluator": "range",
+          "metric": "flapsIndex",
+          "params": { "min": 3, "max": 5, "zeroBelow": 1, "zeroAbove": 6 }
+        }
+      ]
+    },
+    {
+      "id": "rollout",
+      "displayName": "Rollout",
+      "weightPercent": 5,
+      "note": "Four metrics share the phase equally (25% each of rollout).",
+      "metrics": [
+        {
+          "id": "post_td_alignment",
+          "displayName": "Rollout heading alignment",
+          "importancePercent": 25,
+          "levels": ["easy", "strict"],
+          "unit": "deg",
+          "evaluator": "target",
+          "metric": "postTouchdownAlignmentMeanDeg",
+          "note": "From TD+2 s until ~50 kt.",
+          "params": { "ideal": 0, "tolerance": 2, "maxError": 12 }
+        },
+        {
+          "id": "rollout_path",
+          "displayName": "Rollout centerline path",
+          "importancePercent": 25,
+          "levels": ["easy", "strict"],
+          "unit": "m",
+          "evaluator": "target",
+          "metric": "rolloutLateralMeanM",
+          "params": { "ideal": 0, "tolerance": 3, "maxError": 18 }
+        },
+        {
+          "id": "rollout_weave",
+          "displayName": "Rollout weave (S-turns)",
+          "importancePercent": 25,
+          "levels": ["easy", "strict"],
+          "unit": "m/m",
+          "evaluator": "target",
+          "metric": "rolloutWeaveIndex",
+          "params": { "ideal": 0, "tolerance": 0.02, "maxError": 0.25 }
+        },
+        {
+          "id": "max_centerline",
+          "displayName": "Max lateral deviation (rollout)",
+          "importancePercent": 25,
+          "levels": ["strict"],
+          "unit": "m",
+          "evaluator": "target",
+          "metric": "rolloutLateralPeakM",
+          "params": { "ideal": 0, "tolerance": 6, "maxError": 30 }
+        }
+      ]
+    }
+  ],
+  "removed": [
+    {
+      "id": "peak_g",
+      "reason": "Overlaps vertical speed / firmness; not used for now."
+    }
+  ],
+  "weightCheck": {
+    "phasesSum": 100,
+    "touchdownMetricsSum": 100,
+    "approachMetricsSum": 100,
+    "rolloutMetricsSum": 100,
+    "touchdownBreakdown": {
+      "touchdown_vs": 75,
+      "airspeed": 10,
+      "centerline": 5,
+      "ground_track": 3,
+      "excess_speed": 3,
+      "bank": 2,
+      "alignment": 1,
+      "flaps": 1
+    }
+  }
+}

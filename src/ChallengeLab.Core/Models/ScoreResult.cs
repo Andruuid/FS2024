@@ -17,6 +17,9 @@ public sealed class ScoreResult
     /// <summary>True when gear was required and up — overall score was heavily reduced.</summary>
     public bool GearUpPenaltyApplied { get; init; }
 
+    /// <summary>Per-phase scores (0–100) before phase weights are applied.</summary>
+    public IReadOnlyList<PhaseScore> PhaseScores { get; init; } = Array.Empty<PhaseScore>();
+
     public static string GradeFromPercent(double percent) => percent switch
     {
         >= 95 => "S",
@@ -26,4 +29,14 @@ public sealed class ScoreResult
         >= 40 => "D",
         _ => "F"
     };
+}
+
+public sealed class PhaseScore
+{
+    public required string PhaseId { get; init; }
+    public required string DisplayName { get; init; }
+    public double WeightPercent { get; init; }
+    public double ScorePercent { get; init; }
+    public bool Used { get; init; }
+    public string? Note { get; init; }
 }

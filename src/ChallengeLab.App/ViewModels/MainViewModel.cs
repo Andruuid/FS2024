@@ -11,6 +11,7 @@ using ChallengeLab.Core.Highscores;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scoring;
 using ChallengeLab.SimConnect;
+// LandingEvaluationKey lives in ChallengeLab.Core.Config
 
 namespace ChallengeLab.App.ViewModels;
 
@@ -18,7 +19,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 {
     private readonly ConfigLoader _configLoader;
     private readonly HighscoreStore _highscores;
-    private readonly ScoreEngine _scoreEngine = new();
+    private readonly ScoreEngine _scoreEngine;
+    private readonly LandingEvaluationKey? _evaluationKey;
+    private readonly string? _evaluationKeyPath;
     private readonly ISimBridge _sim;
     private readonly DispatcherTimer _reconnectTimer;
 
@@ -51,6 +54,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _configLoader = configLoader ?? new ConfigLoader();
         _highscores = highscores ?? new HighscoreStore();
 
+        // Load phase-weighted evaluation key from repo JSON at startup (finetune without code changes).
+        var (key, keyPath, keyError) = _configLoader.LoadEvaluationKeyWithPath();
+        _evaluationKey = key;
+        _evaluationKeyPath = keyPath;
+        _scoreEngine = new ScoreEngine(_evaluationKey);
+
         Challenges = new ObservableCollection<ChallengeCardViewModel>();
         Highscores = new ObservableCollection<HighscoreEntry>();
         CriterionResults = new ObservableCollection<CriterionResultViewModel>();
@@ -82,7 +91,32 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _reconnectTimer.Start();
 
         LoadCatalog();
+        LogEvaluationKeyStatus(keyError);
         RefreshHighscores();
+    }
+
+    private void LogEvaluationKeyStatus(string? loadError)
+    {
+        if (_evaluationKey is { Phases.Count: > 0 } key)
+        {
+            var phaseSummary = string.Join(" + ",
+                key.Phases.Select(p => $"{p.DisplayName} {p.WeightPercent:0}%"));
+            var metricCount = key.Phases.Sum(p => p.Metrics.Count);
+            AppendLog(
+                $"Evaluation key loaded: {key.Id} v{key.Version} · {metricCount} metrics · " +
+                $"{phaseSummary}");
+            if (!string.IsNullOrEmpty(_evaluationKeyPath))
+                AppendLog($"  path: {_evaluationKeyPath}");
+            AppendLog("  Edit config/scoring/profiles/landing-evaluation-key.json to finetune (no rebuild needed if you restart the app).");
+        }
+        else
+        {
+            AppendLog(
+                "WARNING: Evaluation key missing or empty — scoring falls back to flat profile criteria. " +
+                (loadError ?? "Check catalog.json → evaluationKey."));
+            if (!string.IsNullOrEmpty(_evaluationKeyPath))
+                AppendLog($"  last path tried: {_evaluationKeyPath}");
+        }
     }
 
     public event Action? RequestConnect;
@@ -404,6 +438,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             var profilePath = challenge.ScoringProfile;
             _activeProfile = _configLoader.LoadScoringProfile(profilePath);
+            // Overlay settle/timing/gear-gate values from evaluation key (JSON is source of truth).
+            _evaluationKey?.ApplyToProfile(_activeProfile);
             _activeChallenge = challenge;
 
             _session?.Reset();

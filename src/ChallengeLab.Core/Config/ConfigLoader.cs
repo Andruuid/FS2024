@@ -67,6 +67,57 @@ public sealed class ConfigLoader
         return LoadJson<ScoringProfileConfig>(path);
     }
 
+    /// <summary>
+    /// Load the phase-weighted evaluation key used for final landing %.
+    /// Path defaults from catalog.json → evaluationKey, else landing-evaluation-key.json.
+    /// Returns (key, absolutePathLoaded) for diagnostics.
+    /// </summary>
+    public (LandingEvaluationKey? Key, string? Path, string? Error) LoadEvaluationKeyWithPath(
+        string? relativeOrAbsolutePath = null)
+    {
+        string rel;
+        if (!string.IsNullOrWhiteSpace(relativeOrAbsolutePath))
+        {
+            rel = relativeOrAbsolutePath;
+        }
+        else
+        {
+            try
+            {
+                var catalog = LoadCatalog();
+                rel = string.IsNullOrWhiteSpace(catalog.EvaluationKey)
+                    ? "scoring/profiles/landing-evaluation-key.json"
+                    : catalog.EvaluationKey;
+            }
+            catch
+            {
+                rel = "scoring/profiles/landing-evaluation-key.json";
+            }
+        }
+
+        try
+        {
+            var path = ResolvePath(rel);
+            if (!File.Exists(path))
+            {
+                var alt = Path.Combine(RootPath, rel.Replace('/', Path.DirectorySeparatorChar));
+                if (File.Exists(alt)) path = alt;
+                else
+                    return (null, path, $"Evaluation key not found: {rel} (config root: {RootPath})");
+            }
+
+            var key = LoadJson<LandingEvaluationKey>(path);
+            return (key, Path.GetFullPath(path), null);
+        }
+        catch (Exception ex)
+        {
+            return (null, null, ex.Message);
+        }
+    }
+
+    public LandingEvaluationKey? LoadEvaluationKey(string? relativeOrAbsolutePath = null)
+        => LoadEvaluationKeyWithPath(relativeOrAbsolutePath).Key;
+
     public IReadOnlyList<ChallengeConfig> LoadAllChallenges(CatalogConfig? catalog = null)
     {
         catalog ??= LoadCatalog();

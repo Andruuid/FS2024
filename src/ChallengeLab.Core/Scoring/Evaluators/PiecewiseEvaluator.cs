@@ -4,8 +4,10 @@ using ChallengeLab.Core.Models;
 namespace ChallengeLab.Core.Scoring.Evaluators;
 
 /// <summary>
-/// Linear interpolation across ordered control points (value → score).
-/// Ideal for multi-zone touchdown VS curves (firm ideal, float + hard penalties).
+/// Linear interpolation across ordered control points (metric value → score).
+/// JSON convention: <c>s</c> is the metric score in percent 0–100
+/// (e.g. <c>{ "v": -100, "s": 100 }</c> = perfect). Engine returns 0–1 for blending.
+/// Legacy 0–1 fractions are still accepted if every point has s ≤ 1.
 /// </summary>
 public sealed class PiecewiseEvaluator : IEvaluator
 {
@@ -42,18 +44,22 @@ public sealed class PiecewiseEvaluator : IEvaluator
         return 0;
     }
 
+    /// <summary>
+    /// Convert control points to (v, score01). Preferred JSON: s = 0–100 percent.
+    /// If any s &gt; 1, the whole series is treated as percent (÷100).
+    /// If all s ≤ 1, treated as legacy 0–1 fractions.
+    /// </summary>
     private static List<(double V, double S)> Normalize(List<ScorePoint>? raw)
     {
         if (raw is null || raw.Count == 0)
             return new List<(double, double)>();
 
-        // Allow scores entered as 0–100 percent
-        var pts = raw
-            .Select(p => (V: p.V, S: p.S > 1.0 ? p.S / 100.0 : p.S))
+        // Prefer 0–100% in JSON. If any control point uses s > 1, treat the series as percent.
+        var asPercent = raw.Any(p => p.S > 1.0);
+        return raw
+            .Select(p => (V: p.V, S: asPercent ? p.S / 100.0 : p.S))
             .OrderBy(p => p.V)
             .ToList();
-
-        return pts;
     }
 
     private static double Clamp01(double v) => v < 0 ? 0 : v > 1 ? 1 : v;

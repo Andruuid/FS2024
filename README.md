@@ -58,21 +58,45 @@ flights/                      .FLT scenario files
 tests/                        Unit tests (no sim required)
 ```
 
-## Configuring scoring
+## Configuring scoring (finetune without code)
 
-Edit:
+**Primary file — edit this, then restart the app:**
 
-- `config/challenges/barcelona-crosswind-final.json` — spawn, weather, runway, tips
-- `config/scoring/profiles/hardcore-crosswind-landing.json` — weighted criteria
+`config/scoring/profiles/landing-evaluation-key.json`
 
-Each criterion has:
+Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, VS piecewise curves, gear gate, settle GS, and timing windows all live here. Session log confirms load:
+
+```
+Evaluation key loaded: landing-evaluation-key v1 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%
+  path: ...\config\scoring\profiles\landing-evaluation-key.json
+```
+
+### Formula
+
+```
+final % = (touchdown × 0.70) + (approach × 0.25) + (rollout × 0.05)
+then gear-up gate (if required): final × multiplierOnFail (default 0.1)
+```
+
+Within each phase, metrics are weighted by `importancePercent` (renormalized for the active difficulty).
+
+### Also editable
+
+| File | Purpose |
+|------|---------|
+| `config/catalog.json` | Points at the evaluation key path |
+| `config/challenges/*.json` | Spawn, weather, runway, tips, `requireGearDown` |
+| `config/scoring/profiles/hardcore-crosswind-landing.json` | **Legacy** flat criteria (used only if evaluation key fails to load) |
+
+### Metric fields in the evaluation key
 
 - `metric` — e.g. `touchdownVerticalSpeedFpm`, `centerlineDeviationM`
-- `evaluator` — `band` | `range` | `target` | `boolean`
-- `levels` — `easy` / `strict` (Strict evaluates all; Easy only those tagged for easy)
-- `weight` — relative importance
+- `evaluator` — `piecewise` | `target` | `band` | `range` | `boolean`
+- `levels` — `easy` / `strict` (Strict evaluates all; Easy only metrics tagged for easy)
+- `importancePercent` — share of that phase (not free points for gear)
+- `points` — piecewise curve: `v` = measured value, `s` = **metric score 0–100%** (e.g. `{ "v": -100, "s": 100 }`). Each metric always reports 0–100%; phase weights (`importancePercent`) only blend them.
 
-**Band evaluator** (crosswind firmness): peak score inside `peakMin`…`peakMax` (e.g. −180…−80 fpm); butter and hard landings both score lower.
+**Gear** is a safety gate under `gates.gear`, not a phase metric: gear down = no credit; gear up = overall score cut.
 
 ## Modes (vision)
 

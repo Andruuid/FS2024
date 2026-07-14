@@ -7,6 +7,13 @@ namespace ChallengeLab.Core.Tests;
 
 public class ScoreEngineTests
 {
+    private static ScoreEngine CreateEngine()
+    {
+        var root = FindRepoConfig();
+        var loader = new ConfigLoader(root);
+        return new ScoreEngine(loader.LoadEvaluationKey());
+    }
+
     private static ScoringProfileConfig LoadProfile()
     {
         var root = FindRepoConfig();
@@ -35,7 +42,44 @@ public class ScoreEngineTests
     }
 
     [Fact]
-    public void Piecewise_A330TouchdownVs_Curve()
+    public void Piecewise_AcceptsPercentScale_0to100()
+    {
+        // Preferred JSON: s is metric score percent (0–100), same as the report UI.
+        var criterion = new CriterionConfig
+        {
+            Evaluator = "piecewise",
+            Points = new List<ScorePoint>
+            {
+                new() { V = -600, S = 70 },
+                new() { V = -500, S = 75 },
+                new() { V = -400, S = 80 },
+                new() { V = -320, S = 82 },
+                new() { V = -250, S = 90 },
+                new() { V = -180, S = 95 },
+                new() { V = -100, S = 100 },
+                new() { V = -60, S = 95 },
+                new() { V = -20, S = 90 },
+                new() { V = 0, S = 85 },
+                new() { V = 50, S = 50 }
+            }
+        };
+
+        var ideal = PiecewiseEvaluator.Instance.Evaluate(-100, criterion);
+        var firm = PiecewiseEvaluator.Instance.Evaluate(-180, criterion);
+        var hard = PiecewiseEvaluator.Instance.Evaluate(-400, criterion);
+        var climb = PiecewiseEvaluator.Instance.Evaluate(50, criterion); // rare / bounce
+        var butter = PiecewiseEvaluator.Instance.Evaluate(-20, criterion);
+
+        Assert.Equal(1.0, ideal, 3);          // s:100 → 1.0 internal
+        Assert.Equal(0.95, firm, 3);         // s:95
+        Assert.Equal(0.80, hard, 3);         // s:80
+        Assert.Equal(0.50, climb, 3);        // s:50 — yes, possible on curve
+        Assert.Equal(0.90, butter, 3);
+        Assert.True(ideal > hard);
+    }
+
+    [Fact]
+    public void Piecewise_LegacyFractionScale_StillWorks()
     {
         var criterion = new CriterionConfig
         {
@@ -43,40 +87,19 @@ public class ScoreEngineTests
             Points = new List<ScorePoint>
             {
                 new() { V = -600, S = 0.00 },
-                new() { V = -500, S = 0.10 },
-                new() { V = -400, S = 0.40 },
-                new() { V = -320, S = 0.70 },
-                new() { V = -250, S = 0.90 },
-                new() { V = -180, S = 1.00 },
                 new() { V = -100, S = 1.00 },
-                new() { V = -60, S = 0.90 },
-                new() { V = -20, S = 0.35 },
-                new() { V = 0, S = 0.15 },
                 new() { V = 50, S = 0.00 }
             }
         };
 
-        var ideal = PiecewiseEvaluator.Instance.Evaluate(-150, criterion);
-        var softEdge = PiecewiseEvaluator.Instance.Evaluate(-80, criterion);
-        var firmEdge = PiecewiseEvaluator.Instance.Evaluate(-220, criterion);
-        var butter = PiecewiseEvaluator.Instance.Evaluate(-20, criterion);
-        var hard = PiecewiseEvaluator.Instance.Evaluate(-400, criterion);
-        var veryHard = PiecewiseEvaluator.Instance.Evaluate(-500, criterion);
-
-        Assert.Equal(1.0, ideal, 3);
-        Assert.InRange(softEdge, 0.90, 1.0);   // between -100 and -60
-        Assert.InRange(firmEdge, 0.90, 1.0);   // between -250 and -180
-        Assert.InRange(butter, 0.30, 0.45);    // float penalty
-        Assert.InRange(hard, 0.35, 0.45);      // hard landing ~40%
-        Assert.True(veryHard < hard);
-        Assert.True(ideal > butter);
-        Assert.True(ideal > hard);
+        Assert.Equal(1.0, PiecewiseEvaluator.Instance.Evaluate(-100, criterion), 3);
+        Assert.Equal(0.0, PiecewiseEvaluator.Instance.Evaluate(-600, criterion), 3);
     }
 
     [Fact]
     public void Easy_OmitsStrictOnlyCriteria()
     {
-        var engine = new ScoreEngine();
+        var engine = CreateEngine();
         var challenge = LoadChallenge();
         var profile = LoadProfile();
         var snap = FirmCrosswindSnapshot();
@@ -84,7 +107,7 @@ public class ScoreEngineTests
         var easy = engine.Evaluate(challenge, profile, snap, DifficultyLevel.Easy);
         var strict = engine.Evaluate(challenge, profile, snap, DifficultyLevel.Strict);
 
-        Assert.Contains(easy.Criteria, c => c.Id == "approach_path" && !c.Applied);
+        Assert.DoesNotContain(easy.Criteria, c => c.Id == "approach_path" && c.Applied);
         Assert.Contains(strict.Criteria, c => c.Id == "approach_path" && c.Applied);
         Assert.True(easy.Criteria.Count(c => c.Applied) < strict.Criteria.Count(c => c.Applied));
     }
@@ -92,7 +115,7 @@ public class ScoreEngineTests
     [Fact]
     public void FirmLanding_ScoresHigherThanButter_OnCrosswindProfile()
     {
-        var engine = new ScoreEngine();
+        var engine = CreateEngine();
         var challenge = LoadChallenge();
         var profile = LoadProfile();
 
@@ -102,6 +125,76 @@ public class ScoreEngineTests
         Assert.True(firm.ScorePercent > butter.ScorePercent,
             $"Expected firm {firm.ScorePercent} > butter {butter.ScorePercent}");
         Assert.True(firm.ScorePercent >= 70);
+    }
+
+    [Fact]
+    public void Hierarchical_Example_Touchdown95_Approach60_Rollout90_Is86()
+    {
+        // Structural check: phase weights 70/25/5 → (95*0.7)+(60*0.25)+(90*0.05)=86
+        var expected = 95 * 0.70 + 60 * 0.25 + 90 * 0.05;
+        Assert.Equal(86.0, expected, 3);
+
+        var engine = CreateEngine();
+        var challenge = LoadChallenge();
+        var profile = LoadProfile();
+        var result = engine.Evaluate(challenge, profile, FirmCrosswindSnapshot(), DifficultyLevel.Strict);
+        Assert.NotEmpty(result.PhaseScores);
+        Assert.Contains(result.PhaseScores, p => p.PhaseId == "touchdown" && p.WeightPercent == 70);
+        Assert.Contains(result.PhaseScores, p => p.PhaseId == "approach" && p.WeightPercent == 25);
+        Assert.Contains(result.PhaseScores, p => p.PhaseId == "rollout" && p.WeightPercent == 5);
+        Assert.DoesNotContain(result.Criteria, c => c.Id == "peak_g");
+    }
+
+    [Fact]
+    public void EvaluationKey_LoadsFromRepoJson_AtStartup()
+    {
+        var root = FindRepoConfig();
+        var loader = new ConfigLoader(root);
+        var (key, path, error) = loader.LoadEvaluationKeyWithPath();
+
+        Assert.Null(error);
+        Assert.NotNull(key);
+        Assert.NotNull(path);
+        Assert.True(File.Exists(path));
+        Assert.Equal("landing-evaluation-key", key!.Id);
+        Assert.NotEmpty(key.Phases);
+        Assert.Equal(100, key.Phases.Sum(p => p.WeightPercent), 1);
+        Assert.NotNull(key.Settle);
+        Assert.Equal(50, key.Settle!.GroundSpeedKts);
+        Assert.NotNull(key.Timing);
+        Assert.Equal(3, key.Timing!.GroundTrackWindowBeforeSeconds);
+        Assert.NotNull(key.Gates?.Gear);
+        Assert.Equal(0.1, key.Gates!.Gear!.MultiplierOnFail);
+    }
+
+    [Fact]
+    public void EvaluationKey_ApplyToProfile_OverlaysSettleTimingAndGear()
+    {
+        var root = FindRepoConfig();
+        var loader = new ConfigLoader(root);
+        var key = loader.LoadEvaluationKey();
+        Assert.NotNull(key);
+
+        var profile = new ScoringProfileConfig
+        {
+            SettledGroundSpeedKts = 99,
+            SettledHoldSeconds = 9,
+            GroundTrackWindowBeforeSeconds = 9,
+            GroundTrackWindowAfterSeconds = 9,
+            PostTouchdownAlignmentDelaySeconds = 9,
+            FlareAglFeet = 9,
+            GearUpScoreMultiplier = 0.99
+        };
+
+        key!.ApplyToProfile(profile);
+
+        Assert.Equal(key.Settle!.GroundSpeedKts, profile.SettledGroundSpeedKts);
+        Assert.Equal(key.Settle.HoldSeconds, profile.SettledHoldSeconds);
+        Assert.Equal(key.Timing!.GroundTrackWindowBeforeSeconds, profile.GroundTrackWindowBeforeSeconds);
+        Assert.Equal(key.Timing.GroundTrackWindowAfterSeconds, profile.GroundTrackWindowAfterSeconds);
+        Assert.Equal(key.Timing.PostTouchdownAlignmentDelaySeconds, profile.PostTouchdownAlignmentDelaySeconds);
+        Assert.Equal(key.Timing.FlareAglFeet, profile.FlareAglFeet);
+        Assert.Equal(key.Gates!.Gear!.MultiplierOnFail, profile.GearUpScoreMultiplier);
     }
 
     [Fact]
@@ -271,7 +364,7 @@ public class ScoreEngineTests
     [Fact]
     public void GearDown_DoesNotInflateScore_GearUpAppliesHeavyPenalty()
     {
-        var engine = new ScoreEngine();
+        var engine = CreateEngine();
         var challenge = LoadChallenge();
         challenge.RequireGearDown = true;
         var profile = LoadProfile();
@@ -300,7 +393,7 @@ public class ScoreEngineTests
     [Fact]
     public void GearUp_NoPenalty_WhenChallengeDoesNotRequireGear()
     {
-        var engine = new ScoreEngine();
+        var engine = CreateEngine();
         var challenge = LoadChallenge();
         challenge.RequireGearDown = false; // water / belly landing
         var profile = LoadProfile();
@@ -320,7 +413,7 @@ public class ScoreEngineTests
     [Fact]
     public void RolloutWeave_SteadyPathScoresBetterThanSTurns()
     {
-        var engine = new ScoreEngine();
+        var engine = CreateEngine();
         var challenge = LoadChallenge();
         var profile = LoadProfile();
 
@@ -351,7 +444,7 @@ public class ScoreEngineTests
     [Fact]
     public void TouchdownIas_ScoredRelativeToVappTarget()
     {
-        var engine = new ScoreEngine();
+        var engine = CreateEngine();
         var challenge = LoadChallenge();
         var profile = LoadProfile();
 

@@ -8,6 +8,12 @@ public sealed class CatalogConfig
     public string AppName { get; set; } = "Challenge Lab";
     public List<ModeConfig> Modes { get; set; } = new();
     public List<string> ChallengeFiles { get; set; } = new();
+
+    /// <summary>
+    /// Path under config/ to the phase-weighted evaluation key JSON (editable without recompiling).
+    /// Default: scoring/profiles/landing-evaluation-key.json
+    /// </summary>
+    public string EvaluationKey { get; set; } = "scoring/profiles/landing-evaluation-key.json";
 }
 
 public sealed class ModeConfig
@@ -172,12 +178,16 @@ public sealed class CriterionConfig
     }
 }
 
-/// <summary>Control point: metric value → score in [0, 1].</summary>
+/// <summary>Control point: metric value → metric score percent.</summary>
 public sealed class ScorePoint
 {
-    /// <summary>Metric value (e.g. vertical speed fpm).</summary>
+    /// <summary>Metric value (e.g. vertical speed fpm, IAS error kts).</summary>
     public double V { get; set; }
 
-    /// <summary>Score at this value, 0–1 (or 0–100 if &gt; 1, auto-normalized).</summary>
+    /// <summary>
+    /// Metric score at this value, preferably 0–100 (percent).
+    /// Example: <c>{ "v": -100, "s": 100 }</c> = perfect. Engine converts to 0–1 internally.
+    /// Legacy 0–1 fractions still work if every point has s ≤ 1.
+    /// </summary>
     public double S { get; set; }
 }
