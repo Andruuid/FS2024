@@ -269,6 +269,55 @@ public class ScoreEngineTests
     }
 
     [Fact]
+    public void GearDown_DoesNotInflateScore_GearUpAppliesHeavyPenalty()
+    {
+        var engine = new ScoreEngine();
+        var challenge = LoadChallenge();
+        challenge.RequireGearDown = true;
+        var profile = LoadProfile();
+        profile.GearUpScoreMultiplier = 0.1;
+
+        var gearDown = FirmCrosswindSnapshot();
+        gearDown.GearDownAtTouchdown = true;
+        var gearUp = FirmCrosswindSnapshot();
+        gearUp.GearDownAtTouchdown = false;
+
+        var ok = engine.Evaluate(challenge, profile, gearDown, DifficultyLevel.Easy);
+        var bad = engine.Evaluate(challenge, profile, gearUp, DifficultyLevel.Easy);
+
+        // Gear OK must never be "strongest" free points
+        Assert.DoesNotContain(ok.Criteria, c => c.Id == "gear" && c.Applied && c.Weight > 0);
+        Assert.False(ok.GearUpPenaltyApplied);
+        Assert.DoesNotContain(ok.Summary ?? "", "Gear down (100%)");
+
+        // Gear up: score roughly 10% of pre-gate score
+        Assert.True(bad.GearUpPenaltyApplied);
+        Assert.InRange(bad.ScorePercent, ok.ScorePercent * 0.05, ok.ScorePercent * 0.15 + 0.5);
+        Assert.Contains(bad.Criteria, c => c.Id == "gear" && c.DisplayName.Contains("UP", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("GEAR UP", bad.Summary ?? "", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GearUp_NoPenalty_WhenChallengeDoesNotRequireGear()
+    {
+        var engine = new ScoreEngine();
+        var challenge = LoadChallenge();
+        challenge.RequireGearDown = false; // water / belly landing
+        var profile = LoadProfile();
+
+        var gearUp = FirmCrosswindSnapshot();
+        gearUp.GearDownAtTouchdown = false;
+        var withGear = FirmCrosswindSnapshot();
+        withGear.GearDownAtTouchdown = true;
+
+        var a = engine.Evaluate(challenge, profile, gearUp, DifficultyLevel.Easy);
+        var b = engine.Evaluate(challenge, profile, withGear, DifficultyLevel.Easy);
+
+        Assert.False(a.GearUpPenaltyApplied);
+        Assert.Equal(b.ScorePercent, a.ScorePercent);
+    }
+
+    [Fact]
     public void RolloutWeave_SteadyPathScoresBetterThanSTurns()
     {
         var engine = new ScoreEngine();

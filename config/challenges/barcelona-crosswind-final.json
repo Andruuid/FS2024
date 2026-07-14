@@ -6,6 +6,7 @@
   "description": "TEMPORARY TEST: spawn/position taken from AutoSaveReal/Autosave_2026-07-14_20-55-38.FLT (near Marseille LFML, ~3600 ft, ~270 kts). Once teleport/load works we switch back to Barcelona LEBL final.",
   "difficultyBlurb": "Default is Strict (full criteria). Easy evaluates a smaller safety subset.",
   "available": true,
+  "requireGearDown": true,
   "aircraftTitles": [
     "A330-200 (RR)",
     "Airbus A330-200",

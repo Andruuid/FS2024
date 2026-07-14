@@ -11,6 +11,12 @@ public sealed class ScoreResult
     public DateTimeOffset ScoredAtUtc { get; init; } = DateTimeOffset.UtcNow;
     public string? Summary { get; init; }
 
+    /// <summary>Weighted average before safety gates (e.g. gear-up multiplier).</summary>
+    public double ScoreBeforeGatesPercent { get; init; }
+
+    /// <summary>True when gear was required and up — overall score was heavily reduced.</summary>
+    public bool GearUpPenaltyApplied { get; init; }
+
     public static string GradeFromPercent(double percent) => percent switch
     {
         >= 95 => "S",

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text;
 using System.Windows.Input;
 using System.Windows.Threading;
 using Application = System.Windows.Application;
@@ -39,6 +40,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private int _selectedTab;
     private HighscoreEntry? _selectedHighscore;
     private LandingReportViewModel? _landingReport;
+    private string _reportStatus = "";
+    private string _reportBodyText = "";
+    private ObservableCollection<ReportMetricViewModel> _reportMetrics = new();
+    private string _windowTitle = "Challenge Lab — BUILD 2220";
 
     public MainViewModel(ISimBridge sim, ConfigLoader? configLoader = null, HighscoreStore? highscores = null)
     {
@@ -104,7 +109,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         set
         {
             SetProperty(ref _selectedHighscore, value);
-            LandingReport = value is null ? null : new LandingReportViewModel(value);
+            RebuildLandingReport(value);
         }
     }
 
@@ -114,7 +119,111 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         private set => SetProperty(ref _landingReport, value);
     }
 
+    /// <summary>
+    /// Flat list bound by Highscores UI. Replaced as a NEW collection each rebuild
+    /// so WPF always rebinds ItemsSource (Clear/Add alone can fail to remeasure).
+    /// </summary>
+    public ObservableCollection<ReportMetricViewModel> ReportMetrics
+    {
+        get => _reportMetrics;
+        private set => SetProperty(ref _reportMetrics, value);
+    }
+
+    public string ReportStatus
+    {
+        get => _reportStatus;
+        private set => SetProperty(ref _reportStatus, value);
+    }
+
+    /// <summary>Plain-text dump of all metrics — cannot be hidden by ItemsControl layout bugs.</summary>
+    public string ReportBodyText
+    {
+        get => _reportBodyText;
+        private set => SetProperty(ref _reportBodyText, value);
+    }
+
+    public string WindowTitle
+    {
+        get => _windowTitle;
+        private set => SetProperty(ref _windowTitle, value);
+    }
+
     public bool HasLandingReport => LandingReport is not null;
+
+    private void RebuildLandingReport(HighscoreEntry? value)
+    {
+        if (value is null)
+        {
+            LandingReport = null;
+            ReportMetrics = new ObservableCollection<ReportMetricViewModel>();
+            ReportStatus = "";
+            ReportBodyText = "";
+            WindowTitle = "Challenge Lab — BUILD 2220";
+            return;
+        }
+
+        try
+        {
+            // Criteria null-safety
+            value.Criteria ??= new List<HighscoreCriterionDetail>();
+
+            var report = new LandingReportViewModel(value);
+            LandingReport = report;
+
+            // Brand-new collection instance
+            ReportMetrics = new ObservableCollection<ReportMetricViewModel>(report.Metrics);
+
+            var criteriaCount = value.Criteria.Count;
+            var metricCount = ReportMetrics.Count;
+
+            ReportStatus =
+                $"BUILD 2220 | METRICS LOADED: {metricCount} | stored criteria: {criteriaCount} | " +
+                $"score {value.ScorePercent:0.0}% {value.Grade} | SCROLL DOWN";
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"=== FULL BREAKDOWN ({metricCount} metrics, {criteriaCount} stored) ===");
+            sb.AppendLine();
+            if (metricCount == 0)
+            {
+                sb.AppendLine("NO METRICS IN UI COLLECTION.");
+                sb.AppendLine($"HighscoreEntry.Criteria.Count = {criteriaCount}");
+                sb.AppendLine($"VS fpm = {value.VerticalSpeedFpm?.ToString("0") ?? "null"}");
+                if (criteriaCount > 0)
+                {
+                    sb.AppendLine("Raw criteria from store:");
+                    foreach (var c in value.Criteria)
+                        sb.AppendLine($"  - {c.Id}: {c.DisplayName} = {c.ScorePercent:0}% raw={c.RawValue}");
+                }
+            }
+            else
+            {
+                var n = 0;
+                foreach (var m in ReportMetrics)
+                {
+                    n++;
+                    sb.AppendLine($"#{n}  {m.DisplayName}");
+                    sb.AppendLine($"    Score: {m.ScorePercent:0}%   Verdict: {m.Verdict}   Weight: {m.Weight:0.##}");
+                    sb.AppendLine($"    Value: {m.RawDisplay}");
+                    sb.AppendLine($"    {m.Note}");
+                    sb.AppendLine();
+                }
+            }
+
+            ReportBodyText = sb.ToString();
+            WindowTitle = $"Challenge Lab — BUILD 2220 | metrics={metricCount} criteria={criteriaCount}";
+
+            AppendLog(
+                $"Report opened: {value.ChallengeTitle} {value.ScorePercent:0.0}% · " +
+                $"stored criteria={criteriaCount} · UI metrics={metricCount}");
+        }
+        catch (Exception ex)
+        {
+            ReportStatus = "BUILD 2220 ERROR: " + ex.Message;
+            ReportBodyText = ex.ToString();
+            WindowTitle = "Challenge Lab — BUILD 2220 ERROR";
+            AppendLog("RebuildLandingReport ERROR: " + ex);
+        }
+    }
 
     public IEnumerable<DifficultyLevel> Difficulties { get; } =
         new[] { DifficultyLevel.Easy, DifficultyLevel.Strict };
@@ -383,11 +492,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             ResultVisible = true;
             _highscores.Add(result);
             RefreshHighscores();
-            HudTip = $"Score {result.ScorePercent:0.#}% · Grade {result.Grade}";
+            // Auto-open the newest highscore report with full metrics
+            SelectedHighscore = Highscores.FirstOrDefault();
+            SelectedTab = 1; // Highscores tab
+            HudTip = $"Score {result.ScorePercent:0.#}% · Grade {result.Grade} — full report on Highscores tab";
             PhaseLabel = "Scored";
             ScoreComputed?.Invoke(result);
             RequestShowHud?.Invoke();
-            AppendLog($"Scored {result.ScorePercent}% ({result.Grade}) on {result.ChallengeTitle} [{result.Level}]");
+            AppendLog($"Scored {result.ScorePercent}% ({result.Grade}) on {result.ChallengeTitle} [{result.Level}] — {result.Criteria.Count} metrics stored");
         });
     }
 
@@ -415,9 +527,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void RefreshHighscores()
     {
+        var selectedId = SelectedHighscore?.Id;
         Highscores.Clear();
         foreach (var e in _highscores.Entries)
             Highscores.Add(e);
+
+        // Keep selection on same entry after refresh when possible
+        if (selectedId is Guid id && id != Guid.Empty)
+        {
+            var match = Highscores.FirstOrDefault(h => h.Id == id);
+            if (match is not null && !ReferenceEquals(SelectedHighscore, match))
+                SelectedHighscore = match;
+        }
     }
 
     private void AppendLog(string line)

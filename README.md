@@ -87,6 +87,7 @@ Each criterion has:
 | Wrong aircraft | Config lists `A330-200 (RR)` (from this machine’s CustomFlight). Change `aircraftTitles` / FLT `[Sim.0]` if your title differs |
 | FlightLoad fails | App teleports using spawn lat/lon/alt/heading from challenge JSON |
 | Weather not strong | METAR is applied via SimConnect; if the sim ignores it, set a custom wind preset manually once as fallback |
+| Highscores report empty / no metric cards | See **AGENTS.md** — usually `ProgressBar` TwoWay on a read-only property, or list binding/layout. Prefer `Mode=OneWay` on progress bars and code-behind paint for the report panel. |
 
 Highscores are stored in:
 

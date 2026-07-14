@@ -72,29 +72,77 @@
             </Style>
 
             <Style TargetType="TabControl">
-                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Background" Value="{StaticResource BrushBgDeep}"/>
                 <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="TabControl">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <!-- Dark tab strip so labels stay readable -->
+                                <Border Grid.Row="0" Background="{StaticResource BrushBgPanel}"
+                                        BorderBrush="#22FFFFFF" BorderThickness="0,0,0,1"
+                                        CornerRadius="10,10,0,0" Padding="8,4,8,0">
+                                    <TabPanel IsItemsHost="True" Background="Transparent"/>
+                                </Border>
+                                <Border Grid.Row="1" Background="{StaticResource BrushBgDeep}"
+                                        Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter x:Name="PART_SelectedContentHost"
+                                                      ContentSource="SelectedContent"
+                                                      Margin="{TemplateBinding Padding}"/>
+                                </Border>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
 
             <Style TargetType="TabItem">
-                <Setter Property="Foreground" Value="{StaticResource BrushTextMuted}"/>
-                <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="Padding" Value="16,10"/>
+                <Setter Property="Foreground" Value="#FFC5D0E6"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="Padding" Value="18,12"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="TabItem">
-                            <Border x:Name="tabBd" Background="Transparent" Padding="{TemplateBinding Padding}"
-                                    BorderThickness="0,0,0,2" BorderBrush="Transparent" Margin="0,0,8,0">
-                                <ContentPresenter ContentSource="Header" HorizontalAlignment="Center"/>
+                            <Border x:Name="tabBd"
+                                    Background="Transparent"
+                                    Padding="{TemplateBinding Padding}"
+                                    BorderThickness="0,0,0,3"
+                                    BorderBrush="Transparent"
+                                    Margin="0,0,6,0"
+                                    CornerRadius="8,8,0,0"
+                                    Cursor="Hand">
+                                <ContentPresenter x:Name="header"
+                                                  ContentSource="Header"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}"
+                                                  TextElement.FontWeight="{TemplateBinding FontWeight}"
+                                                  TextElement.FontSize="{TemplateBinding FontSize}"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsSelected" Value="True">
-                                    <Setter TargetName="tabBd" Property="BorderBrush" Value="{StaticResource BrushAccentCyan}"/>
-                                    <Setter Property="Foreground" Value="{StaticResource BrushAccentCyan}"/>
+                                    <Setter TargetName="tabBd" Property="BorderBrush" Value="#FF2DE2E6"/>
+                                    <Setter TargetName="tabBd" Property="Background" Value="#222DE2E6"/>
+                                    <Setter Property="Foreground" Value="#FF2DE2E6"/>
                                 </Trigger>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Foreground" Value="{StaticResource BrushTextPrimary}"/>
+                                    <Setter TargetName="tabBd" Property="Background" Value="#18FFFFFF"/>
+                                    <Setter Property="Foreground" Value="#FFFFFFFF"/>
                                 </Trigger>
+                                <MultiTrigger>
+                                    <MultiTrigger.Conditions>
+                                        <Condition Property="IsSelected" Value="True"/>
+                                        <Condition Property="IsMouseOver" Value="True"/>
+                                    </MultiTrigger.Conditions>
+                                    <Setter Property="Foreground" Value="#FF7AFFFF"/>
+                                </MultiTrigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>

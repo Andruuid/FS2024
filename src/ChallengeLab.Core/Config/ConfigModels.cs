@@ -36,6 +36,12 @@ public sealed class ChallengeConfig
     public List<string> HudTips { get; set; } = new();
     public RunwayConfig Runway { get; set; } = new();
 
+    /// <summary>
+    /// When true (default), gear-down is a safety gate: no score credit if down;
+    /// gear-up applies a heavy overall score multiplier. Set false for belly/water landings.
+    /// </summary>
+    public bool RequireGearDown { get; set; } = true;
+
     [JsonIgnore]
     public ChallengeMode ModeEnum => ChallengeModeExtensions.FromConfigKey(Mode);
 }
@@ -122,6 +128,11 @@ public sealed class ScoringProfileConfig
 
     /// <summary>When estimating VAPP from DESIGN SPEED VS0: VAPP ≈ Vs0 × factor.</summary>
     public double Vs0ToVappFactor { get; set; } = 1.3;
+
+    /// <summary>
+    /// If gear is required and up at touchdown, final score is multiplied by this (default 0.1 = 90% cut).
+    /// </summary>
+    public double GearUpScoreMultiplier { get; set; } = 0.1;
 
     public List<CriterionConfig> Criteria { get; set; } = new();
 

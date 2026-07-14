@@ -54,7 +54,8 @@ public static class MetricExplanations
         "bank" =>
             "Wing bank angle at touchdown. Keep wings level to protect engine pods in crosswind.",
         "gear" =>
-            "Landing gear must be down at touchdown. Up is a hard fail for this criterion.",
+            "Safety gate: gear-down is required baseline and awards no points. " +
+            "Gear-up applies a heavy overall score cut (~90%) unless the challenge allows gear-up landings.",
         "flaps" =>
             "Flaps handle index in the expected landing range for this challenge setup.",
         "approach_path" =>
