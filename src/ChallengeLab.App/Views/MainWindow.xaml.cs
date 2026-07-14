@@ -23,7 +23,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         _vm = new MainViewModel(new SimConnectClient());
         DataContext = _vm;
-        Title = "Challenge Lab — BUILD 2220";
+        Title = AppBuild.WindowTitleDefault;
 
         _vm.RequestConnect += ConnectToSim;
         _vm.RequestShowHud += ShowHud;
@@ -67,7 +67,7 @@ public partial class MainWindow : Window
         try
         {
             Title = string.IsNullOrWhiteSpace(_vm.WindowTitle)
-                ? "Challenge Lab — BUILD 2220"
+                ? AppBuild.WindowTitleDefault
                 : _vm.WindowTitle;
 
             var report = _vm.LandingReport;
@@ -85,7 +85,7 @@ public partial class MainWindow : Window
             if (ReportStatusText is not null)
             {
                 ReportStatusText.Text = string.IsNullOrWhiteSpace(_vm.ReportStatus)
-                    ? $"BUILD 2220 FALLBACK | metrics={_vm.ReportMetrics.Count} | bodyLen={_vm.ReportBodyText?.Length ?? 0}"
+                    ? $"{AppBuild.Tag} FALLBACK | metrics={_vm.ReportMetrics.Count} | bodyLen={_vm.ReportBodyText?.Length ?? 0}"
                     : _vm.ReportStatus;
                 ReportStatusText.Foreground = MediaBrushes.Black;
                 ReportStatusText.Background = MediaBrushes.Transparent;
@@ -132,7 +132,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Title = "Challenge Lab — BUILD 2220 PAINT ERROR";
+            Title = $"Challenge Lab — {AppBuild.Tag} PAINT ERROR";
             if (ReportStatusText is not null)
                 ReportStatusText.Text = "PAINT ERROR: " + ex.Message;
             if (ReportBodyBlock is not null)

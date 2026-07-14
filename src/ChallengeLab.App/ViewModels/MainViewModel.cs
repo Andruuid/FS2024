@@ -47,7 +47,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _reportStatus = "";
     private string _reportBodyText = "";
     private ObservableCollection<ReportMetricViewModel> _reportMetrics = new();
-    private string _windowTitle = "Challenge Lab — BUILD 2220";
+    private string _windowTitle = AppBuild.WindowTitleDefault;
 
     public MainViewModel(ISimBridge sim, ConfigLoader? configLoader = null, HighscoreStore? highscores = null)
     {
@@ -101,6 +101,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _reconnectTimer.Start();
 
         LoadCatalog();
+        AppendLog($"{AppBuild.Tag} started");
         LogEvaluationKeyStatus();
         RefreshHighscores();
     }
@@ -205,7 +206,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             ReportMetrics = new ObservableCollection<ReportMetricViewModel>();
             ReportStatus = "";
             ReportBodyText = "";
-            WindowTitle = "Challenge Lab — BUILD 2220";
+            WindowTitle = AppBuild.WindowTitleDefault;
             return;
         }
 
@@ -224,7 +225,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             var metricCount = ReportMetrics.Count;
 
             ReportStatus =
-                $"LANDING RESULT | score {value.ScorePercent:0.0}% grade {value.Grade} | {metricCount} metrics";
+                $"{AppBuild.Tag} | score {value.ScorePercent:0.0}% grade {value.Grade} | {metricCount} metrics";
 
             // Primary view: hierarchical Total / phases / metrics
             var sb = new StringBuilder();
@@ -243,7 +244,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             }
 
             ReportBodyText = sb.ToString();
-            WindowTitle = $"Challenge Lab — {value.ScorePercent:0.0}% {value.Grade}";
+            WindowTitle = $"Challenge Lab — {AppBuild.Tag} · {value.ScorePercent:0.0}% {value.Grade}";
 
             AppendLog(
                 $"Report opened: {value.ChallengeTitle} {value.ScorePercent:0.0}% · " +
@@ -251,9 +252,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            ReportStatus = "BUILD 2220 ERROR: " + ex.Message;
+            ReportStatus = $"{AppBuild.Tag} ERROR: " + ex.Message;
             ReportBodyText = ex.ToString();
-            WindowTitle = "Challenge Lab — BUILD 2220 ERROR";
+            WindowTitle = $"Challenge Lab — {AppBuild.Tag} ERROR";
             AppendLog("RebuildLandingReport ERROR: " + ex);
         }
     }
