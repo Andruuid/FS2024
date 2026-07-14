@@ -77,7 +77,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         StartChallengeCommand = new RelayCommand(async () => await StartChallengeAsync(), () =>
             SelectedChallenge is { Available: true } && HasValidScoringConfiguration && !IsLoading);
         RestartCommand = new RelayCommand(async () => await RestartAsync(), () =>
-            _activeChallenge is not null && HasValidScoringConfiguration && !IsLoading);
+            (_activeChallenge is not null || SelectedChallenge is { Available: true })
+            && HasValidScoringConfiguration && !IsLoading);
         ConnectCommand = new RelayCommand(TriggerConnect);
         DismissResultCommand = new RelayCommand(() => ResultVisible = false);
         ClearHighscoreSelectionCommand = new RelayCommand(() => SelectedHighscore = null);
@@ -412,8 +413,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private async Task RestartAsync()
     {
-        if (_activeChallenge is null) return;
-        await RunLoadAsync(_activeChallenge);
+        var challenge = _activeChallenge ?? SelectedChallenge?.Config;
+        if (challenge is null) return;
+        await RunLoadAsync(challenge);
     }
 
     private async Task RunLoadAsync(ChallengeConfig challenge)

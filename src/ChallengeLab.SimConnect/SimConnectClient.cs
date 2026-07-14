@@ -25,7 +25,8 @@ public sealed class SimConnectClient : ISimBridge
     {
         Telemetry = 1,
         InitPosition = 2,
-        AircraftTitle = 3
+        AircraftTitle = 3,
+        PoseSet = 4
     }
 
     private enum Requests
@@ -41,10 +42,9 @@ public sealed class SimConnectClient : ISimBridge
         FlapsSet = 3,
         PauseOff = 4,
         PauseOn = 5,
-        FreezeLat = 6,
-        FreezeLon = 7,
-        FreezeAlt = 8,
-        FreezeAtt = 9,
+        FreezeLatLon = 6,
+        FreezeAlt = 7,
+        FreezeAtt = 8,
         ClockHoursSet = 10,
         ClockMinutesSet = 11,
         ZuluHoursSet = 12,
@@ -86,6 +86,21 @@ public sealed class SimConnectClient : ISimBridge
     {
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string Title;
+    }
+
+    /// <summary>
+    /// Direct settable pose. Do NOT include AIRSPEED INDICATED — often not writable and
+    /// causes the whole SetDataOnSimObject to fail (position never moves).
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
+    private struct PoseSetStruct
+    {
+        public double Latitude;
+        public double Longitude;
+        public double AltitudeFeet;
+        public double PitchDeg;
+        public double BankDeg;
+        public double HeadingTrueDeg;
     }
 
     public SimConnectionState State
@@ -214,35 +229,71 @@ public sealed class SimConnectClient : ISimBridge
             Log($"Aircraft OK: '{actualTitle}'");
 
         // --- Safe apply: time + weather + teleport + gear (no FlightLoad) ---
+        // Always unpause/unfreeze in finally so the plane is never left stuck.
         progress?.Report("Setting time of day…");
-        PauseSim(true);
-        await Task.Delay(200, ct);
-        ApplyTimeOfDay(challenge.TimeOfDay);
-        await Task.Delay(250, ct);
+        try
+        {
+            PauseSim(true);
+            await Task.Delay(150, ct);
+            ApplyTimeOfDay(challenge.TimeOfDay);
+            await Task.Delay(200, ct);
 
-        progress?.Report("Applying weather…");
-        ApplyWeather(challenge.Weather);
-        await Task.Delay(300, ct);
+            progress?.Report("Applying weather…");
+            ApplyWeather(challenge.Weather);
+            await Task.Delay(250, ct);
 
-        progress?.Report("Positioning aircraft…");
-        Teleport(challenge.Spawn);
-        await Task.Delay(500, ct);
-        // Second apply — MSFS sometimes keeps prior velocity after the first InitPosition.
-        Teleport(challenge.Spawn);
-        await Task.Delay(350, ct);
+            progress?.Report("Positioning aircraft…");
+            await ApplySpawnAsync(challenge.Spawn, ct);
 
-        progress?.Report("Configuring gear and flaps…");
-        ConfigureAircraft(challenge.AircraftSetup);
-        await Task.Delay(300, ct);
-
-        if (challenge.AircraftSetup.Unpause)
-            PauseSim(false);
+            progress?.Report("Configuring gear and flaps…");
+            ConfigureAircraft(challenge.AircraftSetup);
+            await Task.Delay(250, ct);
+        }
+        finally
+        {
+            // Critical: never leave freeze/pause stuck — that looks like "Start does nothing".
+            FreezePose(false);
+            if (challenge.AircraftSetup.Unpause)
+                PauseSim(false);
+        }
 
         progress?.Report("Challenge armed.");
         var tod = challenge.TimeOfDay ?? new TimeOfDayConfig();
         Log(
             $"Scenario load complete (safe path). Spawn IAS {challenge.Spawn.AirspeedKts:0} kt · " +
+            $"alt {challenge.Spawn.AltitudeFeet:0} ft · hdg {challenge.Spawn.HeadingDeg:0}° · " +
             $"time {tod.Hour:00}:{tod.Minute:00} {(tod.UseZuluTime ? "Z" : "local")} · ac '{actualTitle ?? "?"}'.");
+    }
+
+    /// <summary>
+    /// Apply spawn without relying on freeze (freeze can stick and make Start look like a no-op).
+    /// InitPosition + direct lat/lon/alt/heading, repeated while paused.
+    /// </summary>
+    private async Task ApplySpawnAsync(SpawnConfig spawn, CancellationToken ct)
+    {
+        EnsureEvents();
+        EnsureDefinitions();
+
+        if (Math.Abs(spawn.Latitude) < 1e-8 && Math.Abs(spawn.Longitude) < 1e-8)
+            Log("WARNING: spawn lat/lon are ~0 — check challenge JSON loaded correctly.");
+
+        Log(
+            $"ApplySpawn target lat={spawn.Latitude:F5} lon={spawn.Longitude:F5} " +
+            $"alt={spawn.AltitudeFeet:F0} ft hdg={spawn.HeadingDeg:F1}° pitch={spawn.PitchDeg:F2} " +
+            $"bank={spawn.BankDeg:F2} ias={spawn.AirspeedKts:F0}");
+
+        PauseSim(true);
+        await Task.Delay(100, ct);
+
+        // Multiple applies — single InitPosition is often ignored for alt/heading in MSFS 2024.
+        for (var i = 1; i <= 4; i++)
+        {
+            Teleport(spawn);
+            SetPoseDirect(spawn);
+            ReceiveMessage(); // keep SimConnect queue moving during load
+            await Task.Delay(280, ct);
+            Log($"ApplySpawn pulse {i}/4 done");
+        }
     }
 
     public void ApplyTimeOfDay(TimeOfDayConfig? timeOfDay)
@@ -323,10 +374,17 @@ public sealed class SimConnectClient : ISimBridge
                 SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT,
                 0, 0, 0);
 
-            using var reg = ct.Register(() => tcs.TrySetCanceled(ct));
-            var completed = await Task.WhenAny(tcs.Task, Task.Delay(2500, ct));
-            if (completed != tcs.Task)
+            // Pump SimConnect ourselves — WndProc alone can miss packets during await on some hosts.
+            for (var i = 0; i < 40 && !tcs.Task.IsCompleted; i++)
             {
+                ct.ThrowIfCancellationRequested();
+                ReceiveMessage();
+                await Task.Delay(50, ct);
+            }
+
+            if (!tcs.Task.IsCompleted)
+            {
+                Log("Aircraft TITLE request timed out.");
                 _titleTcs = null;
                 return null;
             }
@@ -428,8 +486,7 @@ public sealed class SimConnectClient : ISimBridge
         {
             EnsureDefinitions();
 
-            // SIMCONNECT_DATA_INITPOSITION.Airspeed is knots (in-air). This is what
-            // challenge JSON spawn.airspeedKts controls — not the .FLT alone.
+            // SIMCONNECT_DATA_INITPOSITION: altitude feet MSL, heading degrees, airspeed knots.
             var ias = (uint)Math.Max(0, Math.Round(spawn.AirspeedKts));
             var init = new SIMCONNECT_DATA_INITPOSITION
             {
@@ -450,12 +507,73 @@ public sealed class SimConnectClient : ISimBridge
                 init);
 
             Log(
-                $"Teleport lat={spawn.Latitude:F5} lon={spawn.Longitude:F5} " +
+                $"Teleport (InitPosition) lat={spawn.Latitude:F5} lon={spawn.Longitude:F5} " +
                 $"alt={spawn.AltitudeFeet:F0} hdg={spawn.HeadingDeg:F0} ias={ias} kt");
         }
         catch (Exception ex)
         {
             Log($"Teleport: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Set lat/lon/alt/attitude via individual simvars (backup when InitPosition is flaky).
+    /// </summary>
+    private void SetPoseDirect(SpawnConfig spawn)
+    {
+        if (_sim is null) return;
+
+        try
+        {
+            EnsureDefinitions();
+            var pose = new PoseSetStruct
+            {
+                Latitude = spawn.Latitude,
+                Longitude = spawn.Longitude,
+                AltitudeFeet = spawn.AltitudeFeet,
+                PitchDeg = spawn.PitchDeg,
+                BankDeg = spawn.BankDeg,
+                HeadingTrueDeg = spawn.HeadingDeg
+            };
+
+            _sim.SetDataOnSimObject(
+                Definitions.PoseSet,
+                MsfsSc.SIMCONNECT_OBJECT_ID_USER,
+                SIMCONNECT_DATA_SET_FLAG.DEFAULT,
+                pose);
+
+            Log(
+                $"PoseSet lat={pose.Latitude:F5} lon={pose.Longitude:F5} " +
+                $"alt={pose.AltitudeFeet:F0} hdg={pose.HeadingTrueDeg:F0}");
+        }
+        catch (Exception ex)
+        {
+            Log($"SetPoseDirect: {ex.Message}");
+        }
+    }
+
+    private void FreezePose(bool freeze)
+    {
+        if (_sim is null) return;
+        try
+        {
+            EnsureEvents();
+            var v = freeze ? 1u : 0u;
+            _sim.TransmitClientEvent(
+                MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.FreezeLatLon, v,
+                Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+            _sim.TransmitClientEvent(
+                MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.FreezeAlt, v,
+                Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+            _sim.TransmitClientEvent(
+                MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.FreezeAtt, v,
+                Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+            if (freeze)
+                Log($"FreezePose({freeze})");
+        }
+        catch (Exception ex)
+        {
+            Log($"FreezePose: {ex.Message}");
         }
     }
 
@@ -609,6 +727,21 @@ public sealed class SimConnectClient : ISimBridge
             SIMCONNECT_DATATYPE.STRING256, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.RegisterDataDefineStruct<AircraftTitleStruct>(Definitions.AircraftTitle);
 
+        // Direct pose write — lat/lon/alt/attitude/IAS (backup when InitPosition is flaky).
+        _sim.AddToDataDefinition(Definitions.PoseSet, "PLANE LATITUDE", "degrees",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.PoseSet, "PLANE LONGITUDE", "degrees",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.PoseSet, "PLANE ALTITUDE", "feet",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.PoseSet, "PLANE PITCH DEGREES", "degrees",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.PoseSet, "PLANE BANK DEGREES", "degrees",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.PoseSet, "PLANE HEADING DEGREES TRUE", "degrees",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.RegisterDataDefineStruct<PoseSetStruct>(Definitions.PoseSet);
+
         _defsRegistered = true;
     }
 
@@ -622,6 +755,9 @@ public sealed class SimConnectClient : ISimBridge
             _sim.MapClientEventToSimEvent(Events.FlapsSet, "FLAPS_SET");
             _sim.MapClientEventToSimEvent(Events.PauseOff, "PAUSE_OFF");
             _sim.MapClientEventToSimEvent(Events.PauseOn, "PAUSE_ON");
+            _sim.MapClientEventToSimEvent(Events.FreezeLatLon, "FREEZE_LATITUDE_LONGITUDE_SET");
+            _sim.MapClientEventToSimEvent(Events.FreezeAlt, "FREEZE_ALTITUDE_SET");
+            _sim.MapClientEventToSimEvent(Events.FreezeAtt, "FREEZE_ATTITUDE_SET");
             _sim.MapClientEventToSimEvent(Events.ClockHoursSet, "CLOCK_HOURS_SET");
             _sim.MapClientEventToSimEvent(Events.ClockMinutesSet, "CLOCK_MINUTES_SET");
             _sim.MapClientEventToSimEvent(Events.ZuluHoursSet, "ZULU_HOURS_SET");
