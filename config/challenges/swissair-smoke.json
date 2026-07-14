@@ -1,0 +1,20 @@
+{
+  "id": "swissair-smoke",
+  "mode": "disasters",
+  "title": "Swissair — Smoke in the Cockpit",
+  "subtitle": "Emergency diversion · Coming soon",
+  "description": "Cockpit fire / smoke emergency with degraded systems and time pressure. Placeholder for the Disasters mode roadmap.",
+  "available": false,
+  "comingSoonNote": "Smoke, electrics degradation, and timed diversion scoring planned later.",
+  "aircraftTitles": ["A330-200 (RR)"],
+  "flightFile": "",
+  "scoringProfile": "scoring/profiles/hardcore-crosswind-landing.json",
+  "spawn": {},
+  "weather": {},
+  "aircraftSetup": {},
+  "runway": {
+    "airportIcao": "CYHZ",
+    "runwayId": "06"
+  },
+  "hudTips": []
+}

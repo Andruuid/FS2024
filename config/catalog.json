@@ -1,0 +1,20 @@
+{
+  "appName": "Challenge Lab",
+  "modes": [
+    {
+      "id": "hardcore_landings",
+      "title": "Hardcore Landings",
+      "description": "Brutal weather, heavy metal, and scoring that rewards safe technique — not just butter."
+    },
+    {
+      "id": "disasters",
+      "title": "Disasters",
+      "description": "Systems failures and historical recreations. Sioux City, Swissair smoke, and more — coming soon."
+    }
+  ],
+  "challengeFiles": [
+    "challenges/barcelona-crosswind-final.json",
+    "challenges/sioux-city-hydraulics.json",
+    "challenges/swissair-smoke.json"
+  ]
+}

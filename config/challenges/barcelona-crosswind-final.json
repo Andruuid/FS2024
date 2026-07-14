@@ -1,0 +1,54 @@
+{
+  "id": "barcelona-crosswind-final",
+  "mode": "hardcore_landings",
+  "title": "Barcelona Crosswind Final",
+  "subtitle": "LEBL 25L · A330 · Strong left crosswind",
+  "description": "You're established on a short final into Barcelona El Prat runway 25L in the Airbus A330. A stiff northerly wind puts a solid crosswind on the runway. Gear is down, flaps are set — plant it firmly and keep it straight. A greaser is not the goal.",
+  "difficultyBlurb": "Easy evaluates core touchdown safety. Strict adds crab, rollout stability, and path quality.",
+  "available": true,
+  "aircraftTitles": [
+    "A330-200 (RR)",
+    "Airbus A330-200",
+    "A330"
+  ],
+  "flightFile": "flights/LEBL_25L_A330_Crosswind.FLT",
+  "scoringProfile": "scoring/profiles/hardcore-crosswind-landing.json",
+  "spawn": {
+    "latitude": 41.3285,
+    "longitude": 2.1285,
+    "altitudeFeet": 1850,
+    "headingDeg": 246,
+    "airspeedKts": 145,
+    "pitchDeg": -2.5,
+    "bankDeg": 0
+  },
+  "weather": {
+    "useLiveWeather": false,
+    "windDirectionDeg": 340,
+    "windVelocityKts": 28,
+    "gustKts": 36,
+    "visibilitySm": 6,
+    "metar": "LEBL 141200Z 34028G36KT 9999 SCT025 BKN040 14/08 Q1012"
+  },
+  "aircraftSetup": {
+    "gearDown": true,
+    "flapsHandleIndex": 4,
+    "unpause": true
+  },
+  "runway": {
+    "airportIcao": "LEBL",
+    "runwayId": "25L",
+    "thresholdLatitude": 41.2935,
+    "thresholdLongitude": 2.0832,
+    "headingTrueDeg": 246.0,
+    "elevationFeet": 14,
+    "lengthM": 3352,
+    "widthM": 60
+  },
+  "hudTips": [
+    "Strong crosswind from the LEFT — expect drift.",
+    "Plant firmly; a butter touchdown scores lower here.",
+    "Wings level before mains — protect the engine pods.",
+    "Stay on centerline through the rollout."
+  ]
+}

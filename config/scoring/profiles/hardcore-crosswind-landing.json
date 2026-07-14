@@ -1,0 +1,197 @@
+{
+  "id": "hardcore-crosswind-landing",
+  "title": "Hardcore Crosswind Landing",
+  "description": "Rewards a safe firm plant and directional control. Butter landings are deprioritized.",
+  "settledGroundSpeedKmh": 50,
+  "settledHoldSeconds": 1.0,
+  "flareAglFeet": 50,
+  "criteria": [
+    {
+      "id": "touchdown_vs",
+      "displayName": "Touchdown firmness",
+      "weight": 1.4,
+      "metric": "touchdownVerticalSpeedFpm",
+      "evaluator": "band",
+      "sampleAt": "touchdown",
+      "levels": ["easy", "strict"],
+      "unit": "fpm",
+      "note": "Peak score for a firm plant (~-80 to -180 fpm). Butter and hard both lose points.",
+      "params": {
+        "peakMin": -180,
+        "peakMax": -80,
+        "zeroScoreBelow": -420,
+        "zeroScoreAbove": -15
+      }
+    },
+    {
+      "id": "peak_g",
+      "displayName": "Peak G at touchdown",
+      "weight": 1.0,
+      "metric": "peakG",
+      "evaluator": "range",
+      "sampleAt": "touchdown",
+      "levels": ["easy", "strict"],
+      "unit": "G",
+      "params": {
+        "min": 1.05,
+        "max": 1.45,
+        "zeroBelow": 0.9,
+        "zeroAbove": 2.2
+      }
+    },
+    {
+      "id": "centerline",
+      "displayName": "Centerline at touchdown",
+      "weight": 1.3,
+      "metric": "centerlineDeviationM",
+      "evaluator": "target",
+      "sampleAt": "touchdown",
+      "levels": ["easy", "strict"],
+      "unit": "m",
+      "params": {
+        "ideal": 0,
+        "tolerance": 4,
+        "maxError": 28
+      }
+    },
+    {
+      "id": "alignment",
+      "displayName": "Runway alignment",
+      "weight": 1.1,
+      "metric": "alignmentDeg",
+      "evaluator": "target",
+      "sampleAt": "touchdown",
+      "levels": ["easy", "strict"],
+      "unit": "deg",
+      "params": {
+        "ideal": 0,
+        "tolerance": 2,
+        "maxError": 12
+      }
+    },
+    {
+      "id": "airspeed",
+      "displayName": "Touchdown airspeed",
+      "weight": 1.0,
+      "metric": "touchdownAirspeedKts",
+      "evaluator": "range",
+      "sampleAt": "touchdown",
+      "levels": ["easy", "strict"],
+      "unit": "kts",
+      "params": {
+        "min": 130,
+        "max": 155,
+        "zeroBelow": 115,
+        "zeroAbove": 175
+      }
+    },
+    {
+      "id": "bank",
+      "displayName": "Bank at touchdown",
+      "weight": 1.2,
+      "metric": "bankAtTouchdownDeg",
+      "evaluator": "target",
+      "sampleAt": "touchdown",
+      "levels": ["easy", "strict"],
+      "unit": "deg",
+      "note": "Keep wings level to protect pods in crosswind.",
+      "params": {
+        "ideal": 0,
+        "tolerance": 1.5,
+        "maxError": 8
+      }
+    },
+    {
+      "id": "gear",
+      "displayName": "Gear down",
+      "weight": 0.8,
+      "metric": "gearDown",
+      "evaluator": "boolean",
+      "sampleAt": "touchdown",
+      "levels": ["easy", "strict"],
+      "params": {
+        "expected": 1,
+        "failScore": 0
+      }
+    },
+    {
+      "id": "flaps",
+      "displayName": "Flaps setting",
+      "weight": 0.7,
+      "metric": "flapsIndex",
+      "evaluator": "range",
+      "sampleAt": "touchdown",
+      "levels": ["easy", "strict"],
+      "unit": "index",
+      "params": {
+        "min": 3,
+        "max": 5,
+        "zeroBelow": 1,
+        "zeroAbove": 6
+      }
+    },
+    {
+      "id": "approach_path",
+      "displayName": "Approach path quality",
+      "weight": 0.9,
+      "metric": "approachPathRms",
+      "evaluator": "target",
+      "sampleAt": "approach",
+      "levels": ["strict"],
+      "unit": "ft RMS",
+      "note": "Strict only — stability on final.",
+      "params": {
+        "ideal": 0,
+        "tolerance": 80,
+        "maxError": 400
+      }
+    },
+    {
+      "id": "rollout",
+      "displayName": "Rollout stability",
+      "weight": 1.0,
+      "metric": "rolloutStability",
+      "evaluator": "target",
+      "sampleAt": "rollout",
+      "levels": ["strict"],
+      "unit": "deg²",
+      "note": "Strict only — heading wander after touchdown.",
+      "params": {
+        "ideal": 0,
+        "tolerance": 2,
+        "maxError": 40
+      }
+    },
+    {
+      "id": "crab",
+      "displayName": "Crab management at flare",
+      "weight": 0.8,
+      "metric": "crabAngleDeg",
+      "evaluator": "target",
+      "sampleAt": "flare",
+      "levels": ["strict"],
+      "unit": "deg",
+      "note": "Strict only — de-crab before touchdown.",
+      "params": {
+        "ideal": 0,
+        "tolerance": 3,
+        "maxError": 15
+      }
+    },
+    {
+      "id": "max_centerline",
+      "displayName": "Max lateral deviation",
+      "weight": 0.7,
+      "metric": "maxCenterlineDeviationM",
+      "evaluator": "target",
+      "sampleAt": "rollout",
+      "levels": ["strict"],
+      "unit": "m",
+      "params": {
+        "ideal": 0,
+        "tolerance": 8,
+        "maxError": 40
+      }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "sioux-city-hydraulics",
+  "mode": "disasters",
+  "title": "Sioux City — No Hydraulics",
+  "subtitle": "United 232 inspired · Coming soon",
+  "description": "Land a widebody with total hydraulic failure using differential thrust. Historical disaster recreation for a future prototype milestone.",
+  "available": false,
+  "comingSoonNote": "Systems failure injection and special scoring not in this prototype.",
+  "aircraftTitles": ["A330-200 (RR)"],
+  "flightFile": "",
+  "scoringProfile": "scoring/profiles/hardcore-crosswind-landing.json",
+  "spawn": {},
+  "weather": {},
+  "aircraftSetup": {},
+  "runway": {
+    "airportIcao": "KSUX",
+    "runwayId": "31"
+  },
+  "hudTips": []
+}

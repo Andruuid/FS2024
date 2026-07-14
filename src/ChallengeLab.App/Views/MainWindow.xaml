@@ -1,0 +1,271 @@
+<Window x:Class="ChallengeLab.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:ChallengeLab.Core.Models;assembly=ChallengeLab.Core"
+        Title="Challenge Lab — MSFS 2024"
+        Height="820" Width="1180"
+        MinHeight="640" MinWidth="960"
+        WindowStartupLocation="CenterScreen">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Padding="28,20" Background="{StaticResource BrushBgPanel}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="CHALLENGE LAB" FontSize="12" FontWeight="Bold"
+                               Foreground="{StaticResource BrushAccentCyan}"/>
+                    <TextBlock Text="Hardcore Landings &amp; Disasters" FontSize="26" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                    <TextBlock Text="Configurable scoring · Separate from stock FS challenges"
+                               Foreground="{StaticResource BrushTextMuted}" Margin="0,4,0,0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border CornerRadius="20" Padding="12,6" Margin="0,0,12,0"
+                            Background="#22000000" BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="10" Height="10" Margin="0,0,8,0">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="{StaticResource BrushAccentRed}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                                <Setter Property="Fill" Value="{StaticResource BrushAccentGreen}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock Text="{Binding ConnectionStatus}" VerticalAlignment="Center" FontSize="12"/>
+                        </StackPanel>
+                    </Border>
+                    <Button Content="Connect" Style="{StaticResource GhostButton}" Command="{Binding ConnectCommand}" Padding="14,8"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Body -->
+        <TabControl Grid.Row="1" Margin="24,12,24,8" SelectedIndex="{Binding SelectedTab}">
+            <TabItem Header="CHALLENGES">
+                <Grid Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1.1*"/>
+                        <ColumnDefinition Width="0.9*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <DockPanel Grid.Column="0" Margin="0,0,16,0">
+                        <TextBlock DockPanel.Dock="Top" Text="SELECT A CHALLENGE" FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource BrushTextMuted}" Margin="0,0,0,10"/>
+                        <ListView ItemsSource="{Binding Challenges}" SelectedItem="{Binding SelectedChallenge}"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding ModeTitle}" FontSize="11" FontWeight="Bold"
+                                                           Foreground="{StaticResource BrushAccentAmber}"/>
+                                                <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="SemiBold" Margin="0,2,0,0"/>
+                                            </StackPanel>
+                                            <Border Grid.Column="1" CornerRadius="6" Padding="8,4" VerticalAlignment="Top">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="#33FFB020"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Available}" Value="True">
+                                                                <Setter Property="Background" Value="#332DE2E6"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="{Binding StatusLabel}" FontSize="10" FontWeight="Bold">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{StaticResource BrushAccentAmber}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Available}" Value="True">
+                                                                    <Setter Property="Foreground" Value="{StaticResource BrushAccentCyan}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Border>
+                                        </Grid>
+                                        <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                                   Foreground="{StaticResource BrushTextMuted}" Margin="0,6,0,0"/>
+                                        <TextBlock Grid.Row="2" Text="{Binding Description}" TextWrapping="Wrap"
+                                                   Foreground="{StaticResource BrushTextMuted}" Margin="0,8,0,0" Opacity="0.9"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </DockPanel>
+
+                    <Border Grid.Column="1" Style="{StaticResource CardBorder}">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top">
+                                <TextBlock Text="MISSION BRIEF" FontSize="11" FontWeight="Bold"
+                                           Foreground="{StaticResource BrushTextMuted}"/>
+                                <TextBlock Text="{Binding SelectedChallenge.Title}" FontSize="22" FontWeight="SemiBold"
+                                           Margin="0,8,0,0" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding SelectedChallenge.Subtitle}"
+                                           Foreground="{StaticResource BrushAccentCyan}" Margin="0,4,0,12"/>
+                                <TextBlock Text="{Binding SelectedChallenge.Description}" TextWrapping="Wrap"
+                                           LineHeight="22" Foreground="{StaticResource BrushTextMuted}"/>
+                                <TextBlock Text="{Binding SelectedChallenge.ComingSoonNote}" TextWrapping="Wrap"
+                                           Margin="0,12,0,0" Foreground="{StaticResource BrushAccentAmber}"
+                                           Visibility="{Binding SelectedChallenge.Available, Converter={StaticResource BoolToVisInvert}}"/>
+                            </StackPanel>
+
+                            <StackPanel DockPanel.Dock="Bottom" Margin="0,20,0,0">
+                                <TextBlock Text="DIFFICULTY" FontSize="11" FontWeight="Bold"
+                                           Foreground="{StaticResource BrushTextMuted}" Margin="0,0,0,8"/>
+                                <ComboBox ItemsSource="{Binding Difficulties}"
+                                          SelectedItem="{Binding SelectedDifficulty}"
+                                          Margin="0,0,0,16">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type models:DifficultyLevel}">
+                                            <TextBlock Text="{Binding}"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+
+                                <TextBlock Text="{Binding SelectedChallenge.Config.DifficultyBlurb}"
+                                           TextWrapping="Wrap" FontSize="12"
+                                           Foreground="{StaticResource BrushTextMuted}" Margin="0,0,0,16"
+                                           Visibility="{Binding SelectedChallenge.Available, Converter={StaticResource BoolToVis}}"/>
+
+                                <Grid Margin="0,0,0,8" Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="{Binding LoadStatus}" FontSize="12" Margin="0,0,0,6"
+                                               Foreground="{StaticResource BrushAccentCyan}"/>
+                                    <ProgressBar Grid.Row="1" Value="{Binding LoadProgress}" Maximum="100"/>
+                                </Grid>
+
+                                <Button Content="START CHALLENGE" Style="{StaticResource PrimaryButton}"
+                                        Command="{Binding StartChallengeCommand}"
+                                        Visibility="{Binding SelectedChallenge.Available, Converter={StaticResource BoolToVis}}"/>
+                                <Button Content="RESTART CURRENT" Style="{StaticResource GhostButton}"
+                                        Command="{Binding RestartCommand}" Margin="0,10,0,0"/>
+                            </StackPanel>
+
+                            <Border/>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="HIGHSCORES">
+                <Border Style="{StaticResource CardBorder}" Margin="0,16,0,0" Padding="8">
+                    <DataGrid ItemsSource="{Binding Highscores}" AutoGenerateColumns="False"
+                              IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Date (UTC)" Binding="{Binding Utc, StringFormat=yyyy-MM-dd HH:mm}" Width="140"/>
+                            <DataGridTextColumn Header="Challenge" Binding="{Binding ChallengeTitle}" Width="*"/>
+                            <DataGridTextColumn Header="Level" Binding="{Binding Level}" Width="80"/>
+                            <DataGridTextColumn Header="Score %" Binding="{Binding ScorePercent, StringFormat=0.0}" Width="80"/>
+                            <DataGridTextColumn Header="Grade" Binding="{Binding Grade}" Width="60"/>
+                            <DataGridTextColumn Header="Notes" Binding="{Binding Notes}" Width="2*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Border>
+            </TabItem>
+
+            <TabItem Header="SESSION">
+                <Grid Margin="0,16,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Border Style="{StaticResource CardBorder}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="LIVE TELEMETRY" FontSize="11" FontWeight="Bold" Foreground="{StaticResource BrushTextMuted}"/>
+                            <TextBlock Text="{Binding LiveStats}" FontFamily="{StaticResource MonoFont}" FontSize="14" Margin="0,8,0,0"/>
+                            <TextBlock Margin="0,10,0,0">
+                                <Run Text="Phase: " Foreground="{StaticResource BrushTextMuted}"/>
+                                <Run Text="{Binding PhaseLabel, Mode=OneWay}" Foreground="{StaticResource BrushAccentCyan}" FontWeight="SemiBold"/>
+                            </TextBlock>
+                            <TextBlock Text="{Binding HudTip}" TextWrapping="Wrap" Margin="0,8,0,0"
+                                       Foreground="{StaticResource BrushAccentAmber}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="1" Style="{StaticResource CardBorder}" Margin="0,0,0,12"
+                            Visibility="{Binding ResultVisible, Converter={StaticResource BoolToVis}}">
+                        <StackPanel>
+                            <TextBlock Text="LAST RESULT" FontSize="11" FontWeight="Bold" Foreground="{StaticResource BrushTextMuted}"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <TextBlock Text="{Binding LastScore.ScorePercent, StringFormat={}{0:0.0}%}" FontSize="42" FontWeight="Bold"
+                                           Foreground="{StaticResource BrushAccentCyan}"/>
+                                <TextBlock Text="{Binding LastScore.Grade}" FontSize="42" FontWeight="Bold" Margin="16,0,0,0"
+                                           Foreground="{StaticResource BrushAccentAmber}"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding LastScore.Summary}" TextWrapping="Wrap" Margin="0,6,0,0"
+                                       Foreground="{StaticResource BrushTextMuted}"/>
+                            <ItemsControl ItemsSource="{Binding CriterionResults}" Margin="0,12,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="180"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="60"/>
+                                                <ColumnDefinition Width="80"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"/>
+                                            <ProgressBar Grid.Column="1" Height="8" Minimum="0" Maximum="100"
+                                                         Value="{Binding ScorePercent}" Margin="8,0"
+                                                         Visibility="{Binding Applied, Converter={StaticResource BoolToVis}}"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding ScorePercent, StringFormat={}{0:0}%}"
+                                                       HorizontalAlignment="Right"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding RawDisplay}"
+                                                       Foreground="{StaticResource BrushTextMuted}"
+                                                       HorizontalAlignment="Right" FontSize="11"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="2" Style="{StaticResource CardBorder}">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Top" Text="LOG" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource BrushTextMuted}" Margin="0,0,0,8"/>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <TextBlock Text="{Binding LogText}" FontFamily="{StaticResource MonoFont}"
+                                           FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource BrushTextMuted}"/>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <Border Grid.Row="2" Background="{StaticResource BrushBgPanel}" Padding="20,10">
+            <TextBlock Foreground="{StaticResource BrushTextMuted}" FontSize="11"
+                       Text="Tip: Start MSFS 2024, press Connect, pick Barcelona Crosswind Final, choose Easy or Strict, then Start. After landing, slow below 50 km/h to see your score."/>
+        </Border>
+    </Grid>
+</Window>

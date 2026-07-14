@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ChallengeLab.App/ChallengeLab.App.csproj" />
+    <Project Path="src/ChallengeLab.Core/ChallengeLab.Core.csproj" />
+    <Project Path="src/ChallengeLab.SimConnect/ChallengeLab.SimConnect.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ChallengeLab.Core.Tests/ChallengeLab.Core.Tests.csproj" />
+  </Folder>
+</Solution>

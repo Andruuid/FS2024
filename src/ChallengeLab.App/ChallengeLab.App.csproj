@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- Prefer WPF types when both WPF and WinForms are referenced -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <ApplicationIcon />
+    <RootNamespace>ChallengeLab.App</RootNamespace>
+    <AssemblyName>ChallengeLab</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ChallengeLab.Core\ChallengeLab.Core.csproj" />
+    <ProjectReference Include="..\ChallengeLab.SimConnect\ChallengeLab.SimConnect.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\config\**\*.*" Link="config\%(RecursiveDir)%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\flights\**\*.*" Link="flights\%(RecursiveDir)%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
