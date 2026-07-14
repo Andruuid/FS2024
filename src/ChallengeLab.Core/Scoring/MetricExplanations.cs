@@ -8,17 +8,17 @@ namespace ChallengeLab.Core.Scoring;
 public static class MetricExplanations
 {
     public static string For(
-        CriterionConfig criterion,
+        EvaluationMetric metric,
         LandingSnapshot snapshot,
         double score01,
         double? raw)
     {
-        var baseNote = !string.IsNullOrWhiteSpace(criterion.Note)
-            ? criterion.Note.Trim()
-            : DefaultCatalog(criterion.Id, criterion.DisplayName);
+        var baseNote = !string.IsNullOrWhiteSpace(metric.Note)
+            ? metric.Note.Trim()
+            : DefaultCatalog(metric.Id, metric.DisplayName);
 
-        var measured = FormatMeasured(criterion, snapshot, raw);
-        var how = HowItIsScored(criterion);
+        var measured = FormatMeasured(metric, snapshot, raw);
+        var how = HowItIsScored(metric);
         var verdict = ScoreVerdict(score01);
 
         return string.Join(" ",
@@ -75,9 +75,9 @@ public static class MetricExplanations
         _ => $"{displayName}: part of the configurable landing evaluation."
     };
 
-    private static string FormatMeasured(CriterionConfig criterion, LandingSnapshot snap, double? raw)
+    private static string FormatMeasured(EvaluationMetric metric, LandingSnapshot snap, double? raw)
     {
-        var id = criterion.Id;
+        var id = metric.Id;
         return id switch
         {
             "touchdown_vs" =>
@@ -113,39 +113,39 @@ public static class MetricExplanations
                 $"Measured: weave index {snap.RolloutWeaveIndex:0.000} m/m over {snap.RolloutDistanceM:0} m.",
             "max_centerline" =>
                 $"Measured: peak rollout offset {snap.RolloutLateralPeakM:0.0} m.",
-            _ when raw is not null && criterion.Unit is not null =>
-                $"Measured: {raw:0.##} {criterion.Unit}.",
+            _ when raw is not null && metric.Unit is not null =>
+                $"Measured: {raw:0.##} {metric.Unit}.",
             _ when raw is not null =>
                 $"Measured: {raw:0.##}.",
             _ => ""
         };
     }
 
-    private static string HowItIsScored(CriterionConfig criterion)
+    private static string HowItIsScored(EvaluationMetric metric)
     {
-        var eval = criterion.Evaluator.ToLowerInvariant();
-        if (eval is "centerline" || criterion.Id == "centerline")
+        var eval = metric.Evaluator.ToLowerInvariant();
+        if (eval == "centerline" || metric.Id == "centerline")
         {
-            var (t, z, p) = CenterlineEvaluator.ResolveParams(criterion);
+            var (t, z, p) = CenterlineEvaluator.ResolveParams(metric);
             return $"Scoring: 100% within ±{t:0.#} m, falls to 0% at {z:0.#} m (curve exponent {p:0.#}).";
         }
 
-        if (eval is "piecewise" or "zones" or "curve")
+        if (eval == "piecewise")
             return "Scoring: multi-zone curve (piecewise) — each point maps measured value → metric score 0–100%.";
 
-        if (eval == "target" && criterion.Params.Count > 0)
+        if (eval == "target" && metric.Params.Count > 0)
         {
-            var ideal = Get(criterion.Params, "ideal", 0);
-            var tol = Get(criterion.Params, "tolerance", 1);
-            var max = Get(criterion.Params, "maxError", tol * 3);
-            return $"Scoring: full score near {ideal:0.##} (±{tol:0.##}), zero by {max:0.##} {criterion.Unit ?? "units"} error.";
+            var ideal = Get(metric.Params, "ideal", 0);
+            var tol = Get(metric.Params, "tolerance", 1);
+            var max = Get(metric.Params, "maxError", tol * 3);
+            return $"Scoring: full score near {ideal:0.##} (±{tol:0.##}), zero by {max:0.##} {metric.Unit ?? "units"} error.";
         }
 
-        if (eval == "range" && criterion.Params.Count > 0)
+        if (eval == "range" && metric.Params.Count > 0)
         {
-            var min = Get(criterion.Params, "min", 0);
-            var max = Get(criterion.Params, "max", 0);
-            return $"Scoring: full score in [{min:0.##} … {max:0.##}] {criterion.Unit ?? ""}.";
+            var min = Get(metric.Params, "min", 0);
+            var max = Get(metric.Params, "max", 0);
+            return $"Scoring: full score in [{min:0.##} … {max:0.##}] {metric.Unit ?? ""}.";
         }
 
         if (eval == "boolean")

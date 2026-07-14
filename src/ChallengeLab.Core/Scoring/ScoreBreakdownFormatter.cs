@@ -3,22 +3,6 @@ using ChallengeLab.Core.Models;
 
 namespace ChallengeLab.Core.Scoring;
 
-/// <summary>
-/// Hierarchical landing result text:
-/// <code>
-/// Total Grade S  86.4%
-///
-/// Touchdown 80%
-/// -vSpeed 90%
-/// -airspeed 82.3%
-///
-/// Approach 76.4%
-/// -steadiness 70%
-///
-/// Rollout 88%
-/// -centerline 86%
-/// </code>
-/// </summary>
 public static class ScoreBreakdownFormatter
 {
     public static string Format(ScoreResult result) => Format(
@@ -27,18 +11,23 @@ public static class ScoreBreakdownFormatter
         result.ScoreBeforeGatesPercent,
         result.GearUpPenaltyApplied,
         result.PhaseScores,
-        result.Criteria);
+        result.Criteria,
+        result.IncompleteReasons);
 
     public static string Format(
-        double scorePercent,
+        double? scorePercent,
         string grade,
-        double scoreBeforeGatesPercent,
+        double? scoreBeforeGatesPercent,
         bool gearUpPenaltyApplied,
         IReadOnlyList<PhaseScore> phaseScores,
-        IReadOnlyList<CriterionScore> criteriaAll)
+        IReadOnlyList<CriterionScore> criteria,
+        IReadOnlyList<string>? incompleteReasons = null)
     {
         var sb = new StringBuilder();
-        sb.Append("Total Grade ").Append(grade).Append("  ").Append(Pct(scorePercent));
+        if (scorePercent is not null)
+            sb.Append("Total Grade ").Append(grade).Append("  ").Append(Pct(scorePercent));
+        else
+            sb.Append("Total UNRANKED — incomplete telemetry");
         sb.AppendLine();
 
         if (gearUpPenaltyApplied)
@@ -48,45 +37,26 @@ public static class ScoreBreakdownFormatter
             sb.AppendLine();
         }
 
-        var criteria = criteriaAll
-            .Where(c => c.Applied && c.Weight > 0
-                        && !c.Id.Equals("gear", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        if (phaseScores is { Count: > 0 } && phaseScores.Any(p => p.Used))
+        if (incompleteReasons is { Count: > 0 })
         {
-            foreach (var phase in phaseScores.Where(p => p.Used))
-            {
-                sb.AppendLine();
-                sb.Append(phase.DisplayName).Append(' ').Append(Pct(phase.ScorePercent));
-                sb.AppendLine();
-
-                var phaseMetrics = criteria
-                    .Where(c => string.Equals(c.PhaseId, phase.PhaseId, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                if (phaseMetrics.Count == 0)
-                {
-                    phaseMetrics = criteria
-                        .Where(c => string.Equals(c.PhaseDisplayName, phase.DisplayName, StringComparison.OrdinalIgnoreCase)
-                                    || (c.Note is not null
-                                        && c.Note.Contains($"[{phase.DisplayName}", StringComparison.OrdinalIgnoreCase)))
-                        .ToList();
-                }
-
-                foreach (var m in phaseMetrics)
-                    AppendMetricLine(sb, m.Id, m.DisplayName, m.ScorePercent);
-            }
+            sb.AppendLine("Missing required data:");
+            foreach (var reason in incompleteReasons.Distinct(StringComparer.OrdinalIgnoreCase))
+                sb.Append("- ").AppendLine(reason);
         }
-        else
+
+        foreach (var phase in OrderPhases(phaseScores))
         {
             sb.AppendLine();
-            sb.AppendLine("Metrics");
-            foreach (var m in criteria)
-                AppendMetricLine(sb, m.Id, m.DisplayName, m.ScorePercent);
+            sb.Append(phase.DisplayName).Append(' ').Append(Pct(phase.ScorePercent))
+                .Append(" (").Append(Pct(phase.WeightPercent)).Append(" overall)");
+            sb.AppendLine();
+
+            foreach (var metric in criteria.Where(c =>
+                         string.Equals(c.PhaseId, phase.PhaseId, StringComparison.OrdinalIgnoreCase)))
+                AppendMetricLine(sb, metric.Id, metric.DisplayName, metric.ScorePercent);
         }
 
-        if (gearUpPenaltyApplied)
+        if (gearUpPenaltyApplied || criteria.Any(c => c.Status == MetricStatus.GateFailed))
         {
             sb.AppendLine();
             sb.AppendLine("GEAR UP (hard penalty)");
@@ -95,7 +65,6 @@ public static class ScoreBreakdownFormatter
         return sb.ToString().TrimEnd() + Environment.NewLine;
     }
 
-    /// <summary>Rebuild from stored highscore fields.</summary>
     public static string FormatFromStored(
         double scorePercent,
         string grade,
@@ -104,27 +73,35 @@ public static class ScoreBreakdownFormatter
         IReadOnlyList<HighscorePhaseDetail>? phases,
         IEnumerable<StoredMetric> metrics)
     {
-        var phaseScores = (phases ?? Array.Empty<HighscorePhaseDetail>())
-            .Select(p => new PhaseScore
-            {
-                PhaseId = p.PhaseId,
-                DisplayName = p.DisplayName,
-                WeightPercent = p.WeightPercent,
-                ScorePercent = p.ScorePercent,
-                Used = p.Used
-            })
-            .ToList();
+        var storedMetrics = metrics.ToList();
+        var phaseList = phases ?? Array.Empty<HighscorePhaseDetail>();
+        var hasHierarchy = phaseList.Count > 0
+                           && storedMetrics.Any(m => !string.IsNullOrWhiteSpace(m.PhaseId));
+        if (!hasHierarchy)
+            return FormatLegacy(scorePercent, grade, storedMetrics);
 
-        var criteria = metrics.Select(m => new CriterionScore
+        var phaseScores = phaseList.Select(p => new PhaseScore
+        {
+            PhaseId = p.PhaseId,
+            DisplayName = p.DisplayName,
+            WeightPercent = p.WeightPercent,
+            ScorePercent = p.ScorePercent,
+            IsComplete = p.Used && p.ScorePercent is not null
+        }).ToList();
+
+        var criteria = storedMetrics.Select(m => new CriterionScore
         {
             Id = m.Id,
             DisplayName = m.DisplayName,
-            Weight = m.Weight,
             Score01 = m.ScorePercent / 100.0,
-            Applied = m.Applied,
+            Status = m.Status,
             PhaseId = m.PhaseId,
             PhaseDisplayName = m.PhaseDisplayName,
-            Note = m.Note
+            PhaseImportancePercent = m.PhaseImportancePercent,
+            PhaseWeightPercent = m.PhaseWeightPercent,
+            MaxOverallPoints = m.MaxOverallPoints,
+            Note = m.Note,
+            UnavailableReason = m.UnavailableReason
         }).ToList();
 
         return Format(
@@ -136,14 +113,36 @@ public static class ScoreBreakdownFormatter
             criteria);
     }
 
-    private static void AppendMetricLine(StringBuilder sb, string id, string displayName, double scorePercent)
+    private static string FormatLegacy(double scorePercent, string grade, IReadOnlyList<StoredMetric> metrics)
+    {
+        var sb = new StringBuilder();
+        sb.Append("Total Grade ").Append(grade).Append("  ").Append(Pct(scorePercent));
+        sb.AppendLine();
+        sb.AppendLine();
+        sb.AppendLine("Legacy metrics — phase breakdown unavailable");
+        foreach (var metric in metrics)
+            AppendMetricLine(sb, metric.Id, metric.DisplayName, metric.ScorePercent);
+        return sb.ToString().TrimEnd() + Environment.NewLine;
+    }
+
+    private static IEnumerable<PhaseScore> OrderPhases(IEnumerable<PhaseScore> phases) =>
+        phases.OrderBy(p => PhaseOrder(p.PhaseId)).ThenBy(p => p.DisplayName);
+
+    private static int PhaseOrder(string id) => id.ToLowerInvariant() switch
+    {
+        "touchdown" => 0,
+        "approach" => 1,
+        "rollout" => 2,
+        _ => 3
+    };
+
+    private static void AppendMetricLine(StringBuilder sb, string id, string displayName, double? scorePercent)
     {
         sb.Append('-').Append(ShortName(id, displayName)).Append(' ').Append(Pct(scorePercent));
         sb.AppendLine();
     }
 
-    /// <summary>Compact labels for the hierarchy.</summary>
-    public static string ShortName(string id, string displayName) => id switch
+    public static string ShortName(string id, string displayName) => id.ToLowerInvariant() switch
     {
         "touchdown_vs" => "vSpeed",
         "airspeed" => "airspeed",
@@ -153,7 +152,7 @@ public static class ScoreBreakdownFormatter
         "bank" => "bank",
         "alignment" => "alignment",
         "flaps" => "flaps",
-        "approach_path" => "steadiness",
+        "approach_path" => "3° path accuracy",
         "post_td_alignment" => "heading",
         "rollout_path" => "centerline",
         "rollout_weave" => "weave",
@@ -163,9 +162,10 @@ public static class ScoreBreakdownFormatter
         _ => id
     };
 
-    public static string Pct(double percent)
+    public static string Pct(double? percent)
     {
-        var rounded = Math.Round(percent, 1);
+        if (percent is null) return "N/A";
+        var rounded = Math.Round(percent.Value, 1);
         if (Math.Abs(rounded - Math.Round(rounded)) < 0.05)
             return $"{Math.Round(rounded):0}%";
         return $"{rounded:0.0}%";
@@ -175,12 +175,15 @@ public static class ScoreBreakdownFormatter
     {
         public string Id { get; init; } = "";
         public string DisplayName { get; init; } = "";
-        public double Weight { get; init; }
-        public double ScorePercent { get; init; }
-        public bool Applied { get; init; } = true;
+        public double? ScorePercent { get; init; }
+        public MetricStatus Status { get; init; } = MetricStatus.Scored;
         public string? PhaseId { get; init; }
         public string? PhaseDisplayName { get; init; }
+        public double PhaseImportancePercent { get; init; }
+        public double PhaseWeightPercent { get; init; }
+        public double MaxOverallPoints { get; init; }
         public string? Note { get; init; }
+        public string? UnavailableReason { get; init; }
     }
 }
 
@@ -189,6 +192,6 @@ public sealed class HighscorePhaseDetail
     public string PhaseId { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public double WeightPercent { get; set; }
-    public double ScorePercent { get; set; }
+    public double? ScorePercent { get; set; }
     public bool Used { get; set; } = true;
 }

@@ -10,9 +10,9 @@ public sealed class BooleanEvaluator : IEvaluator
 {
     public static readonly BooleanEvaluator Instance = new();
 
-    public double Evaluate(double value, CriterionConfig criterion)
+    public double Evaluate(double value, EvaluationMetric metric)
     {
-        var p = criterion.Params;
+        var p = metric.Params;
         var expected = p.TryGetValue("expected", out var e) ? e : 1.0;
         var failScore = p.TryGetValue("failScore", out var f) ? f : 0.0;
         var pass = Math.Abs(value - expected) < 0.5;

@@ -146,7 +146,7 @@ public partial class MainWindow : Window
         sb.AppendLine($"FALLBACK BODY | report metrics={report.MetricCount}");
         foreach (var m in report.Metrics)
         {
-            sb.AppendLine($"* {m.DisplayName}: {m.ScorePercent:0}% | {m.RawDisplay}");
+            sb.AppendLine($"* {m.DisplayName}: {m.ScoreDisplay} | {m.RawDisplay}");
             sb.AppendLine($"  {m.Note}");
             sb.AppendLine();
         }
@@ -159,7 +159,7 @@ public partial class MainWindow : Window
         var stack = new StackPanel();
         stack.Children.Add(new TextBlock
         {
-            Text = $"{m.DisplayName}   [{m.Verdict}]   {m.ScorePercent:0}%",
+            Text = $"{m.DisplayName}   [{m.Verdict}]   {m.ScoreDisplay}",
             FontWeight = FontWeights.Bold,
             FontSize = 15,
             Foreground = MediaBrushes.White,
@@ -167,7 +167,7 @@ public partial class MainWindow : Window
         });
         stack.Children.Add(new TextBlock
         {
-            Text = $"Value: {m.RawDisplay}    Weight: {m.Weight:0.##}",
+            Text = $"Value: {m.RawDisplay}    {m.InfluenceDisplay}",
             FontFamily = new MediaFontFamily("Consolas"),
             FontSize = 13,
             Foreground = MediaBrushes.LightYellow,
@@ -177,9 +177,10 @@ public partial class MainWindow : Window
         {
             Minimum = 0,
             Maximum = 100,
-            Value = Math.Max(0, Math.Min(100, m.ScorePercent)),
+            Value = Math.Max(0, Math.Min(100, m.BarValue)),
             Height = 12,
-            Margin = new Thickness(0, 8, 0, 0)
+            Margin = new Thickness(0, 8, 0, 0),
+            Visibility = m.IsScored ? Visibility.Visible : Visibility.Collapsed
         });
         stack.Children.Add(new TextBlock
         {

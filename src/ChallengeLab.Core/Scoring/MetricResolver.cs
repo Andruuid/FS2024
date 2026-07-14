@@ -3,68 +3,103 @@ using ChallengeLab.Core.Models;
 
 namespace ChallengeLab.Core.Scoring;
 
+public readonly record struct MetricObservation(double? Value, string? UnavailableReason = null)
+{
+    public bool IsAvailable => Value is not null && string.IsNullOrWhiteSpace(UnavailableReason);
+
+    public static MetricObservation Available(double value) => new(value);
+    public static MetricObservation Unavailable(string reason) => new(null, reason);
+}
+
 public static class MetricResolver
 {
-    public static double? Resolve(string metric, LandingSnapshot snap, ChallengeConfig challenge)
+    private static readonly HashSet<string> KnownMetricNames = new(StringComparer.OrdinalIgnoreCase)
     {
+        "touchdownVerticalSpeedFpm",
+        "centerlineDeviationM",
+        "alignmentDeg",
+        "touchdownIasErrorKts",
+        "excessSpeedOverVappKts",
+        "flapsIndex",
+        "bankAtTouchdownDeg",
+        "approachPathRms",
+        "groundTrackErrorMeanDeg",
+        "postTouchdownAlignmentMeanDeg",
+        "rolloutLateralMeanM",
+        "rolloutLateralPeakM",
+        "rolloutWeaveIndex"
+    };
+
+    public static IReadOnlyCollection<string> KnownMetrics => KnownMetricNames;
+
+    public static bool IsKnownMetric(string metric) => KnownMetricNames.Contains(metric.Trim());
+
+    public static MetricObservation Resolve(string metric, LandingSnapshot snap, ChallengeConfig challenge)
+    {
+        if (!IsKnownMetric(metric))
+            throw new ArgumentException($"Unknown scoring metric '{metric}'.", nameof(metric));
+
+        if (IsTouchdownMetric(metric) && snap.Touchdown is null)
+            return MetricObservation.Unavailable("Touchdown telemetry was not captured.");
+
         return metric.ToLowerInvariant() switch
         {
-            "touchdownverticalspeedfpm" or "touchdown_vs" => snap.VerticalSpeedAtTouchdownFpm,
-            "peakg" or "peak_g" or "gforce" => snap.PeakGForce,
-            "centerlinedeviationm" or "centerline_m" => Math.Abs(snap.TouchdownLateralOffsetM),
-            "maxcenterlinedeviationm" or "max_centerline_m" => Math.Abs(snap.MaxLateralOffsetM),
-            "alignmentdeg" or "heading_error_deg" => Math.Abs(snap.TouchdownHeadingErrorDeg),
-            "touchdownairspeedkts" or "touchdown_ias" => snap.AirspeedAtTouchdownKts,
-            // IAS − target (VAPP−5). Negative = slow, positive = fast.
-            "touchdowniaserrorkts" or "ias_error_kts" or "touchdown_ias_error" => snap.TouchdownIasErrorKts,
-            // |IAS − target|
-            "touchdowniasabserrorkts" or "ias_abs_error_kts" => Math.Abs(snap.TouchdownIasErrorKts),
-            // max(0, IAS − VAPP) — excess energy / float risk
-            "excessspeedovervappkts" or "excess_over_vapp" or "excess_ias_kts" => snap.ExcessSpeedOverVappKts,
-            "vappkts" or "vapp" => snap.VappKts,
-            "targettouchdowniaskts" or "target_ias" => snap.TargetTouchdownIasKts,
-            "flapsindex" or "flaps_index" => snap.FlapsIndexAtTouchdown,
-            "geardown" or "gear_down" => snap.GearDownAtTouchdown ? 1.0 : 0.0,
-            "bankattouchdowndeg" or "bank_deg" => Math.Abs(snap.BankAtTouchdownDeg),
-            "pitchattouchdowndeg" or "pitch_deg" => snap.PitchAtTouchdownDeg,
-            "approachpathrms" or "approach_rms" => snap.ApproachPathRms,
-            "rolloutstability" or "rollout_heading_var" => snap.RolloutHeadingVariance,
-            // Ground-track path of CG vs runway (replaces wind-dependent crab scoring)
-            "groundtrackerrormeandeg" or "ground_track_error" or "track_error_mean" => snap.GroundTrackErrorMeanDeg,
-            "groundtrackerrorrmsdeg" or "track_error_rms" => snap.GroundTrackErrorRmsDeg,
-            "groundtrackerrorpeakdeg" or "track_error_peak" => snap.GroundTrackErrorPeakDeg,
-            // Post TD+2s heading alignment until ~50 kt
-            "posttouchdownalignmentmeandeg" or "post_td_alignment" or "rollout_heading_error" => snap.PostTouchdownAlignmentMeanDeg,
-            "posttouchdownalignmentrmsdeg" or "post_td_alignment_rms" => snap.PostTouchdownAlignmentRmsDeg,
-            "posttouchdownalignmentpeakdeg" or "post_td_alignment_peak" => snap.PostTouchdownAlignmentPeakDeg,
-            // Distance-integrated centerline path after touchdown
-            "rolloutlateralmeanm" or "rollout_lateral_mean" or "path_mean_offset_m" => snap.RolloutLateralMeanM,
-            "rolloutlateralpeakm" or "rollout_lateral_peak" => snap.RolloutLateralPeakM,
-            "rolloutweaveindex" or "rollout_weave" or "weave_index" => snap.RolloutWeaveIndex,
-            "rolloutdistancem" or "rollout_distance_m" => snap.RolloutDistanceM,
-            "crabangledeg" or "crab_deg" => Math.Abs(snap.CrabAngleAtFlareDeg), // legacy / diagnostics only
-            "peakbankdeg" or "peak_bank" => snap.PeakAbsBankDeg,
-            _ => null
+            "touchdownverticalspeedfpm" => MetricObservation.Available(snap.VerticalSpeedAtTouchdownFpm),
+            "centerlinedeviationm" => MetricObservation.Available(Math.Abs(snap.TouchdownLateralOffsetM)),
+            "alignmentdeg" => MetricObservation.Available(Math.Abs(snap.TouchdownHeadingErrorDeg)),
+            "touchdowniaserrorkts" => MetricObservation.Available(snap.TouchdownIasErrorKts),
+            "excessspeedovervappkts" => MetricObservation.Available(snap.ExcessSpeedOverVappKts),
+            "flapsindex" => MetricObservation.Available(snap.FlapsIndexAtTouchdown),
+            "bankattouchdowndeg" => MetricObservation.Available(Math.Abs(snap.BankAtTouchdownDeg)),
+            "approachpathrms" when snap.ApproachPathSampleCount >= 2 =>
+                MetricObservation.Available(snap.ApproachPathRms),
+            "approachpathrms" =>
+                MetricObservation.Unavailable("Approach path requires at least two airborne samples."),
+            "groundtrackerrormeandeg" when snap.GroundTrackBeforeSegmentCount >= 1
+                                                   && snap.GroundTrackAfterSegmentCount >= 1 =>
+                MetricObservation.Available(snap.GroundTrackErrorMeanDeg),
+            "groundtrackerrormeandeg" =>
+                MetricObservation.Unavailable("Ground track requires valid movement segments before and after touchdown."),
+            "posttouchdownalignmentmeandeg" when snap.PostTouchdownAlignmentSampleCount >= 2 =>
+                MetricObservation.Available(snap.PostTouchdownAlignmentMeanDeg),
+            "posttouchdownalignmentmeandeg" =>
+                MetricObservation.Unavailable("Rollout heading alignment requires at least two samples after the delay."),
+            "rolloutlateralmeanm" or "rolloutlateralpeakm" or "rolloutweaveindex"
+                when snap.RolloutPathSegmentCount >= 2 && snap.RolloutDistanceM >= 1 =>
+                MetricObservation.Available(metric.ToLowerInvariant() switch
+                {
+                    "rolloutlateralmeanm" => snap.RolloutLateralMeanM,
+                    "rolloutlateralpeakm" => snap.RolloutLateralPeakM,
+                    _ => snap.RolloutWeaveIndex
+                }),
+            "rolloutlateralmeanm" or "rolloutlateralpeakm" or "rolloutweaveindex" =>
+                MetricObservation.Unavailable("Rollout path requires at least two movement segments and one metre traveled."),
+            _ => throw new InvalidOperationException($"Metric '{metric}' was validated but has no resolver.")
         };
     }
 
-    /// <summary>Human-readable raw value for reports (includes target context for speed metrics).</summary>
     public static string? FormatRawDisplay(string metric, LandingSnapshot snap, double? raw, string? unit)
     {
         var m = metric.ToLowerInvariant();
-        if (m is "touchdowniaserrorkts" or "ias_error_kts" or "touchdown_ias_error")
+        if (m == "touchdowniaserrorkts")
         {
             var sign = snap.TouchdownIasErrorKts >= 0 ? "+" : "";
             return $"{snap.AirspeedAtTouchdownKts:0.0} kt  (target {snap.TargetTouchdownIasKts:0.0}, VAPP {snap.VappKts:0.0}, err {sign}{snap.TouchdownIasErrorKts:0.0})";
         }
 
-        if (m is "excessspeedovervappkts" or "excess_over_vapp" or "excess_ias_kts")
+        if (m == "excessspeedovervappkts")
             return $"+{snap.ExcessSpeedOverVappKts:0.0} kt over VAPP {snap.VappKts:0.0}  (IAS {snap.AirspeedAtTouchdownKts:0.0})";
-
-        if (m is "touchdownairspeedkts" or "touchdown_ias")
-            return $"{snap.AirspeedAtTouchdownKts:0.0} kt  (target {snap.TargetTouchdownIasKts:0.0})";
 
         if (raw is null) return null;
         return unit is null ? $"{raw:0.##}" : $"{raw:0.##} {unit}";
     }
+
+    private static bool IsTouchdownMetric(string metric) => metric.ToLowerInvariant() is
+        "touchdownverticalspeedfpm" or
+        "centerlinedeviationm" or
+        "alignmentdeg" or
+        "touchdowniaserrorkts" or
+        "excessspeedovervappkts" or
+        "flapsindex" or
+        "bankattouchdowndeg";
 }

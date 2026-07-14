@@ -134,6 +134,18 @@
                             </StackPanel>
 
                             <StackPanel DockPanel.Dock="Bottom" Margin="0,20,0,0">
+                                <Border Background="#553A1010" BorderBrush="#FFFF6B6B" BorderThickness="1"
+                                        CornerRadius="8" Padding="10" Margin="0,0,0,12"
+                                        Visibility="{Binding HasValidScoringConfiguration, Converter={StaticResource BoolToVisInvert}}">
+                                    <StackPanel>
+                                        <TextBlock Text="SCORING CONFIGURATION ERROR" FontWeight="Bold"
+                                                   Foreground="#FFFF8A8A"/>
+                                        <TextBlock Text="{Binding ConfigurationStatus, Mode=OneWay}" TextWrapping="Wrap"
+                                                   Margin="0,5,0,0" Foreground="#FFFFFFFF"/>
+                                        <TextBlock Text="Correct the evaluation key, then restart Challenge Lab."
+                                                   Margin="0,5,0,0" Foreground="#FFFFC0C0"/>
+                                    </StackPanel>
+                                </Border>
                                 <Grid Margin="0,0,0,8" Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
@@ -141,7 +153,8 @@
                                     </Grid.RowDefinitions>
                                     <TextBlock Text="{Binding LoadStatus}" FontSize="12" Margin="0,0,0,6"
                                                Foreground="{StaticResource BrushAccentCyan}"/>
-                                    <ProgressBar Grid.Row="1" Value="{Binding LoadProgress}" Maximum="100"/>
+                                    <ProgressBar Grid.Row="1" Maximum="100"
+                                                 Value="{Binding LoadProgress, Mode=OneWay, TargetNullValue=0, FallbackValue=0}"/>
                                 </Grid>
 
                                 <Button Content="START CHALLENGE" Style="{StaticResource PrimaryButton}"
@@ -325,7 +338,7 @@
                         <StackPanel>
                             <TextBlock Text="LAST RESULT" FontSize="11" FontWeight="Bold" Foreground="{StaticResource BrushTextMuted}"/>
                             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                                <TextBlock Text="{Binding LastScore.ScorePercent, StringFormat={}{0:0.0}%}" FontSize="42" FontWeight="Bold"
+                                <TextBlock Text="{Binding LastScore.ScoreDisplay, Mode=OneWay}" FontSize="42" FontWeight="Bold"
                                            Foreground="{StaticResource BrushAccentCyan}"/>
                                 <TextBlock Text="{Binding LastScore.Grade}" FontSize="42" FontWeight="Bold" Margin="16,0,0,0"
                                            Foreground="{StaticResource BrushAccentAmber}"/>
@@ -352,18 +365,19 @@
                                                             <TextBlock Text="{Binding Verdict}" FontSize="10" FontWeight="Bold"
                                                                        Foreground="{StaticResource BrushAccentAmber}"/>
                                                         </Border>
-                                                        <TextBlock Grid.Column="2" Text="{Binding ScorePercent, StringFormat={}{0:0}%}"
+                                                        <TextBlock Grid.Column="2" Text="{Binding ScoreDisplay, Mode=OneWay}"
                                                                    FontWeight="Bold" Foreground="{StaticResource BrushAccentCyan}"/>
                                                     </Grid>
                                                     <TextBlock Margin="0,6,0,0" FontFamily="{StaticResource MonoFont}" FontSize="12">
                                                         <Run Text="Value: " Foreground="{StaticResource BrushTextMuted}"/>
                                                         <Run Text="{Binding RawDisplay, Mode=OneWay}"/>
-                                                        <Run Text="  ·  Weight " Foreground="{StaticResource BrushTextMuted}"/>
-                                                        <Run Text="{Binding Weight, Mode=OneWay, StringFormat={}{0:0.##}}"/>
+                                                        <Run Text="  ·  " Foreground="{StaticResource BrushTextMuted}"/>
+                                                        <Run Text="{Binding InfluenceDisplay, Mode=OneWay}"/>
                                                     </TextBlock>
                                                     <ProgressBar Height="8" Minimum="0" Maximum="100"
-                                                                 Value="{Binding ScorePercent}" Margin="0,8,0,0"
-                                                                 Visibility="{Binding Applied, Converter={StaticResource BoolToVis}}"/>
+                                                                 Value="{Binding BarValue, Mode=OneWay, TargetNullValue=0, FallbackValue=0}"
+                                                                 Margin="0,8,0,0"
+                                                                 Visibility="{Binding IsScored, Converter={StaticResource BoolToVis}}"/>
                                                     <TextBlock Text="EXPLANATION" FontSize="10" FontWeight="Bold"
                                                                Foreground="{StaticResource BrushAccentCyan}" Margin="0,10,0,4"/>
                                                     <TextBlock Text="{Binding Note}" TextWrapping="Wrap" FontSize="12"

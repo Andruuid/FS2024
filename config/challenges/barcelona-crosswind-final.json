@@ -12,7 +12,6 @@
     "A330"
   ],
   "flightFile": "flights/Autosave_Test_Position.FLT",
-  "scoringProfile": "scoring/profiles/hardcore-crosswind-landing.json",
   "spawn": {
     "latitude": 43.346046,
     "longitude": 5.344348,

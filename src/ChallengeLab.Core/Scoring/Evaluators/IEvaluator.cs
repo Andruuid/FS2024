@@ -5,19 +5,28 @@ namespace ChallengeLab.Core.Scoring.Evaluators;
 public interface IEvaluator
 {
     /// <summary>Returns score in [0, 1].</summary>
-    double Evaluate(double value, CriterionConfig criterion);
+    double Evaluate(double value, EvaluationMetric metric);
 }
 
 public static class EvaluatorFactory
 {
+    private static readonly HashSet<string> KnownTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "target", "band", "piecewise", "centerline", "boolean", "range"
+    };
+
+    public static bool IsKnown(string evaluatorType) => KnownTypes.Contains(Normalize(evaluatorType));
+
     public static IEvaluator Create(string evaluatorType) => evaluatorType.ToLowerInvariant() switch
     {
         "target" => TargetEvaluator.Instance,
         "band" => BandEvaluator.Instance,
-        "piecewise" or "zones" or "curve" => PiecewiseEvaluator.Instance,
-        "centerline" or "lateral" => CenterlineEvaluator.Instance,
+        "piecewise" => PiecewiseEvaluator.Instance,
+        "centerline" => CenterlineEvaluator.Instance,
         "boolean" => BooleanEvaluator.Instance,
-        "window" => RangeEvaluator.Instance,
-        _ => RangeEvaluator.Instance
+        "range" => RangeEvaluator.Instance,
+        _ => throw new ArgumentException($"Unknown evaluator '{evaluatorType}'.", nameof(evaluatorType))
     };
+
+    private static string Normalize(string value) => value.Trim().ToLowerInvariant();
 }

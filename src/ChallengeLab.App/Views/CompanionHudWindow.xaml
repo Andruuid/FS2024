@@ -49,7 +49,7 @@
                     <StackPanel>
                         <TextBlock Text="LANDING SCORE" FontSize="10" FontWeight="Bold" Foreground="#FF8B9BB8"/>
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                            <TextBlock Text="{Binding LastScore.ScorePercent, StringFormat={}{0:0.0}%}"
+                            <TextBlock Text="{Binding LastScore.ScoreDisplay, Mode=OneWay}"
                                        FontSize="36" FontWeight="Bold" Foreground="#FF2DE2E6"/>
                             <TextBlock Text="{Binding LastScore.Grade}" FontSize="36" FontWeight="Bold"
                                        Margin="12,0,0,0" Foreground="#FFFFB020"/>

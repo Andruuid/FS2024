@@ -15,12 +15,10 @@ public static class SpeedTargetCalculator
     /// </summary>
     public static (double VappKts, double TargetTouchdownIasKts, string Source) Resolve(
         ChallengeConfig challenge,
-        ScoringProfileConfig profile,
+        LandingSessionSettings settings,
         TelemetrySample? sample = null)
     {
-        var offset = profile.VappToTouchdownOffsetKts > 0
-            ? profile.VappToTouchdownOffsetKts
-            : 5.0;
+        var offset = settings.TouchdownOffsetKts;
 
         double vapp;
         string source;
@@ -30,33 +28,23 @@ public static class SpeedTargetCalculator
             vapp = challenge.AircraftSetup.VappKts.Value;
             source = "challenge config";
         }
-        else if (profile.DefaultVappKts is > 50 and < 250)
-        {
-            vapp = profile.DefaultVappKts;
-            source = "scoring profile default";
-        }
         else if (sample?.DesignSpeedVs0Kts is > 40 and < 200)
         {
-            var factor = profile.Vs0ToVappFactor > 1.0 ? profile.Vs0ToVappFactor : 1.3;
+            var factor = settings.Vs0Factor;
             vapp = sample.DesignSpeedVs0Kts * factor;
             // Keep A330-typical band if estimate is wild
             vapp = Math.Clamp(vapp, 120, 160);
             source = $"Vs0×{factor:0.##}";
         }
-        else
-        {
-            // Representative normal A330 landing weight VAPP
-            vapp = 143;
-            source = "A330 normal default";
-        }
-
-        // Optional weight-based nudge when we have gross weight
-        if (sample?.TotalWeightLbs is > 200_000 and < 600_000 &&
-            challenge.AircraftSetup.VappKts is null &&
-            profile.DefaultVappKts <= 0)
+        else if (sample?.TotalWeightLbs is > 200_000 and < 600_000)
         {
             vapp = EstimateVappFromWeight(sample.TotalWeightLbs.Value);
             source = "weight band";
+        }
+        else
+        {
+            vapp = settings.DefaultVappKts;
+            source = "evaluation key default";
         }
 
         var targetTd = vapp - offset;

@@ -19,8 +19,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 {
     private readonly ConfigLoader _configLoader;
     private readonly HighscoreStore _highscores;
-    private readonly ScoreEngine _scoreEngine;
+    private readonly ScoreEngine? _scoreEngine;
     private readonly LandingEvaluationKey? _evaluationKey;
+    private readonly LandingSessionSettings? _sessionSettings;
+    private readonly EvaluationKeyLoadResult _evaluationKeyLoad;
     private readonly string? _evaluationKeyPath;
     private readonly ISimBridge _sim;
     private readonly DispatcherTimer _reconnectTimer;
@@ -36,7 +38,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _liveStats = "—";
     private ScoreResult? _lastScore;
     private LandingSession? _session;
-    private ScoringProfileConfig? _activeProfile;
     private ChallengeConfig? _activeChallenge;
     private bool _resultVisible;
     private int _selectedTab;
@@ -54,19 +55,28 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _highscores = highscores ?? new HighscoreStore();
 
         // Load phase-weighted evaluation key from repo JSON at startup (finetune without code changes).
-        var (key, keyPath, keyError) = _configLoader.LoadEvaluationKeyWithPath();
-        _evaluationKey = key;
-        _evaluationKeyPath = keyPath;
-        _scoreEngine = new ScoreEngine(_evaluationKey);
+        _evaluationKeyLoad = _configLoader.LoadEvaluationKey();
+        _evaluationKey = _evaluationKeyLoad.Key;
+        _evaluationKeyPath = _evaluationKeyLoad.Path;
+        if (_evaluationKeyLoad.IsValid && _evaluationKey is not null)
+        {
+            _scoreEngine = new ScoreEngine(_evaluationKey);
+            _sessionSettings = _evaluationKey.ToSessionSettings();
+            ConfigurationStatus = $"Scoring configuration ready: {_evaluationKey.Id} v{_evaluationKey.Version}";
+        }
+        else
+        {
+            ConfigurationStatus = "SCORING DISABLED — " + string.Join(" | ", _evaluationKeyLoad.Errors);
+        }
 
         Challenges = new ObservableCollection<ChallengeCardViewModel>();
         Highscores = new ObservableCollection<HighscoreEntry>();
         CriterionResults = new ObservableCollection<CriterionResultViewModel>();
 
         StartChallengeCommand = new RelayCommand(async () => await StartChallengeAsync(), () =>
-            SelectedChallenge is { Available: true } && !IsLoading);
+            SelectedChallenge is { Available: true } && HasValidScoringConfiguration && !IsLoading);
         RestartCommand = new RelayCommand(async () => await RestartAsync(), () =>
-            _activeChallenge is not null && !IsLoading);
+            _activeChallenge is not null && HasValidScoringConfiguration && !IsLoading);
         ConnectCommand = new RelayCommand(TriggerConnect);
         DismissResultCommand = new RelayCommand(() => ResultVisible = false);
         ClearHighscoreSelectionCommand = new RelayCommand(() => SelectedHighscore = null);
@@ -90,11 +100,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _reconnectTimer.Start();
 
         LoadCatalog();
-        LogEvaluationKeyStatus(keyError);
+        LogEvaluationKeyStatus();
         RefreshHighscores();
     }
 
-    private void LogEvaluationKeyStatus(string? loadError)
+    private void LogEvaluationKeyStatus()
     {
         if (_evaluationKey is { Phases.Count: > 0 } key)
         {
@@ -111,8 +121,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         else
         {
             AppendLog(
-                "WARNING: Evaluation key missing or empty — scoring falls back to flat profile criteria. " +
-                (loadError ?? "Check catalog.json → evaluationKey."));
+                "SCORING DISABLED: evaluation key missing or invalid. " +
+                string.Join(" | ", _evaluationKeyLoad.Errors));
             if (!string.IsNullOrEmpty(_evaluationKeyPath))
                 AppendLog($"  last path tried: {_evaluationKeyPath}");
         }
@@ -122,6 +132,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public event Action? RequestShowHud;
     public event Action? RequestActivateMain;
     public event Action<ScoreResult>? ScoreComputed;
+
+    public bool HasValidScoringConfiguration => _scoreEngine is not null && _sessionSettings is not null;
+    public string ConfigurationStatus { get; }
 
     public void TriggerConnect() => RequestConnect?.Invoke();
 
@@ -221,7 +234,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 sb.AppendLine("--- detail ---");
                 foreach (var m in ReportMetrics)
                 {
-                    sb.AppendLine($"{m.DisplayName}: {m.ScorePercent:0.#}%  ({m.RawDisplay})  {m.Verdict}");
+                    sb.AppendLine($"{m.DisplayName}: {m.ScoreDisplay}  ({m.RawDisplay})  {m.Verdict}");
                     if (!string.IsNullOrWhiteSpace(m.Note))
                         sb.AppendLine($"  {m.Note}");
                     sb.AppendLine();
@@ -321,10 +334,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             if (value is not null)
             {
                 // VS / firmness first, then remaining by weight
-                var ordered = value.Criteria.Where(x => x.Applied)
+                var ordered = value.Criteria
                     .OrderByDescending(c => c.Id is "touchdown_vs" or "touchdownVerticalSpeedFpm" ||
                                             c.DisplayName.Contains("firmness", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
-                    .ThenByDescending(c => c.Weight)
+                    .ThenByDescending(c => c.MaxOverallPoints)
                     .ToList();
                 var first = true;
                 foreach (var c in ordered)
@@ -403,6 +416,16 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private async Task RunLoadAsync(ChallengeConfig challenge)
     {
+        if (_sessionSettings is null || _scoreEngine is null)
+        {
+            MessageBox.Show(
+                ConfigurationStatus + "\n\nCorrect the evaluation key and restart the app.",
+                "Challenge Lab — scoring unavailable",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            return;
+        }
+
         IsLoading = true;
         ResultVisible = false;
         LastScore = null;
@@ -412,14 +435,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
         try
         {
-            var profilePath = challenge.ScoringProfile;
-            _activeProfile = _configLoader.LoadScoringProfile(profilePath);
-            // Overlay settle/timing/gear-gate values from evaluation key (JSON is source of truth).
-            _evaluationKey?.ApplyToProfile(_activeProfile);
             _activeChallenge = challenge;
 
             _session?.Reset();
-            _session = new LandingSession(challenge, _activeProfile);
+            _session = new LandingSession(challenge, _sessionSettings);
             _session.PhaseChanged += (_, p) =>
                 Application.Current.Dispatcher.Invoke(() => PhaseLabel = p.ToString());
             _session.SettledReady += OnSettledReady;
@@ -494,24 +513,33 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void OnSettledReady(object? sender, EventArgs e)
     {
-        if (_session is null || _activeChallenge is null || _activeProfile is null) return;
+        if (_session is null || _activeChallenge is null || _scoreEngine is null) return;
         if (_session.IsComplete && LastScore is not null) return;
 
         Application.Current.Dispatcher.Invoke(() =>
         {
-            var result = _scoreEngine.Evaluate(_activeChallenge, _activeProfile, _session.Snapshot);
+            var result = _scoreEngine.Evaluate(_activeChallenge, _session.Snapshot);
             LastScore = result;
             ResultVisible = true;
-            _highscores.Add(result);
-            RefreshHighscores();
-            // Auto-open the newest highscore report with full metrics
-            SelectedHighscore = Highscores.FirstOrDefault();
-            SelectedTab = 1; // Highscores tab
-            HudTip = $"Score {result.ScorePercent:0.#}% · Grade {result.Grade} — full report on Highscores tab";
+            if (result.IsRanked)
+            {
+                _highscores.Add(result);
+                RefreshHighscores();
+                SelectedHighscore = Highscores.FirstOrDefault();
+                SelectedTab = 1;
+                HudTip = $"Score {result.ScorePercent:0.#}% · Grade {result.Grade} — full report on Highscores tab";
+            }
+            else
+            {
+                SelectedTab = 2;
+                HudTip = "UNRANKED — required telemetry was unavailable. See Session for details.";
+            }
             PhaseLabel = "Scored";
             ScoreComputed?.Invoke(result);
             RequestShowHud?.Invoke();
-            AppendLog($"Scored {result.ScorePercent}% ({result.Grade}) on {result.ChallengeTitle} — {result.Criteria.Count} metrics stored");
+            AppendLog(result.IsRanked
+                ? $"Scored {result.ScorePercent}% ({result.Grade}) on {result.ChallengeTitle} — {result.Criteria.Count} metrics stored"
+                : $"Unranked landing on {result.ChallengeTitle}: {string.Join(" | ", result.IncompleteReasons)}");
         });
     }
 

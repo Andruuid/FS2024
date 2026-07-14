@@ -10,6 +10,7 @@ public sealed class LandingSnapshot
     public double TouchdownLateralOffsetM { get; set; }
     public double TouchdownHeadingErrorDeg { get; set; }
     public double ApproachPathRms { get; set; }
+    public int ApproachPathSampleCount { get; set; }
     public double RolloutHeadingVariance { get; set; }
     /// <summary>Legacy flare heading-vs-runway (not scored; crab is wind-dependent).</summary>
     public double CrabAngleAtFlareDeg { get; set; }
@@ -28,6 +29,8 @@ public sealed class LandingSnapshot
 
     /// <summary>How many track samples were used in the window.</summary>
     public int GroundTrackSampleCount { get; set; }
+    public int GroundTrackBeforeSegmentCount { get; set; }
+    public int GroundTrackAfterSegmentCount { get; set; }
 
     /// <summary>
     /// Mean |heading − runway| from TD+2s until GS &lt; settle speed (de-crab / rudder alignment).
@@ -61,6 +64,7 @@ public sealed class LandingSnapshot
     public double RolloutDistanceM { get; set; }
 
     public int RolloutPathSampleCount { get; set; }
+    public int RolloutPathSegmentCount { get; set; }
 
     public bool GearDownAtTouchdown { get; set; } = true;
     public int FlapsIndexAtTouchdown { get; set; }

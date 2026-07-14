@@ -11,19 +11,18 @@ public sealed class CenterlineEvaluator : IEvaluator
 {
     public static readonly CenterlineEvaluator Instance = new();
 
-    public double Evaluate(double value, CriterionConfig criterion)
+    public double Evaluate(double value, EvaluationMetric metric)
     {
-        var (t, z, p) = ResolveParams(criterion);
+        var (t, z, p) = ResolveParams(metric);
         return CenterlineScore.Calculate01(value, t, z, p);
     }
 
-    public static (double Tolerance, double ZeroAt, double Exponent) ResolveParams(CriterionConfig criterion)
+    public static (double Tolerance, double ZeroAt, double Exponent) ResolveParams(EvaluationMetric metric)
     {
-        var p = criterion.Params;
-        // Prefer plain keys; fall back to legacy strict* names if present in old JSON.
-        var t = Get(p, "tolerance", Get(p, "t", Get(p, "strictTolerance", Get(p, "strict_t", 1.5))));
-        var z = Get(p, "zeroAt", Get(p, "z", Get(p, "strictZeroAt", Get(p, "strict_z", 10.0))));
-        var exp = Get(p, "exponent", Get(p, "p", Get(p, "strictExponent", Get(p, "strict_p", 1.3))));
+        var p = metric.Params;
+        var t = Get(p, "tolerance", 1.5);
+        var z = Get(p, "zeroAt", 10.0);
+        var exp = Get(p, "exponent", 1.3);
         return (t, z, exp);
     }
 

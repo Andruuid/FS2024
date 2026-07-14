@@ -6,21 +6,37 @@ public sealed class CriterionResultViewModel
 {
     public CriterionResultViewModel(CriterionScore score, bool isPrimary = false)
     {
-        DisplayName = score.DisplayName + (score.Applied ? "" : " (not scored on this level)");
+        DisplayName = score.DisplayName + score.Status switch
+        {
+            MetricStatus.Informational => " (informational)",
+            MetricStatus.Unavailable => " (telemetry unavailable)",
+            _ => ""
+        };
         ScorePercent = score.ScorePercent;
-        Applied = score.Applied;
-        Note = string.IsNullOrWhiteSpace(score.Note)
-            ? "No explanation available."
-            : score.Note.Trim();
-        Weight = score.Weight;
+        ScoreDisplay = score.ScorePercent is null ? "N/A" : $"{score.ScorePercent:0}%";
+        Status = score.Status;
+        Note = string.IsNullOrWhiteSpace(score.Note) ? "No explanation available." : score.Note.Trim();
         IsPrimary = isPrimary;
         RawDisplay = score.RawValue is null
             ? "—"
             : score.Unit is null
                 ? $"{score.RawValue:0.##}"
                 : $"{score.RawValue:0.##} {score.Unit}";
-        Verdict = score.Applied
-            ? score.ScorePercent switch
+        InfluenceDisplay = score.MaxOverallPoints > 0
+            ? $"{score.PhaseImportancePercent:0.##}% of {score.PhaseDisplayName} · {score.MaxOverallPoints:0.##} max overall points"
+            : score.Status switch
+            {
+                MetricStatus.Informational => "Informational · no score credit",
+                MetricStatus.GateFailed => "Safety gate · applied to complete total",
+                MetricStatus.Unavailable => "Required telemetry unavailable",
+                _ => ""
+            };
+        Verdict = score.Status switch
+        {
+            MetricStatus.Unavailable => "N/A",
+            MetricStatus.Informational => "INFO",
+            MetricStatus.GateFailed => "FAILED GATE",
+            _ => score.ScorePercent switch
             {
                 >= 95 => "Excellent",
                 >= 85 => "Very good",
@@ -30,16 +46,18 @@ public sealed class CriterionResultViewModel
                 > 0 => "Poor",
                 _ => "Failed"
             }
-            : "N/A";
+        };
     }
 
     public string DisplayName { get; }
-    public double ScorePercent { get; }
-    public double Weight { get; }
-    public bool Applied { get; }
+    public double? ScorePercent { get; }
+    public string ScoreDisplay { get; }
+    public MetricStatus Status { get; }
     public string Note { get; }
     public string RawDisplay { get; }
     public string Verdict { get; }
+    public string InfluenceDisplay { get; }
     public bool IsPrimary { get; }
-    public double BarWidth => Applied ? ScorePercent : 0;
+    public bool IsScored => Status == MetricStatus.Scored;
+    public double BarValue => ScorePercent ?? 0;
 }

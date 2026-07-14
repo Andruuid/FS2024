@@ -10,9 +10,9 @@ public sealed class BandEvaluator : IEvaluator
 {
     public static readonly BandEvaluator Instance = new();
 
-    public double Evaluate(double value, CriterionConfig criterion)
+    public double Evaluate(double value, EvaluationMetric metric)
     {
-        var p = criterion.Params;
+        var p = metric.Params;
         var peakMin = Get(p, "peakMin", -180);
         var peakMax = Get(p, "peakMax", -80);
         if (peakMax < peakMin) (peakMin, peakMax) = (peakMax, peakMin);

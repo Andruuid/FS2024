@@ -9,14 +9,13 @@ namespace ChallengeLab.Core.Scoring;
 public sealed class LandingSession
 {
     private readonly ChallengeConfig _challenge;
-    private readonly ScoringProfileConfig _profile;
+    private readonly LandingSessionSettings _settings;
     private readonly GeoUtil _geo;
     private DateTimeOffset? _settledSince;
     private bool _wasOnGround;
     private bool _touchdownCaptured;
     private readonly List<double> _approachAltErrors = new();
     private readonly List<double> _rolloutHeadings = new();
-    private readonly List<TelemetrySample> _history = new();
 
     public LandingPhase Phase { get; private set; } = LandingPhase.Idle;
     public LandingSnapshot Snapshot { get; } = new();
@@ -26,10 +25,10 @@ public sealed class LandingSession
     public event EventHandler<LandingPhase>? PhaseChanged;
     public event EventHandler? SettledReady;
 
-    public LandingSession(ChallengeConfig challenge, ScoringProfileConfig profile)
+    public LandingSession(ChallengeConfig challenge, LandingSessionSettings settings)
     {
         _challenge = challenge;
-        _profile = profile;
+        _settings = settings;
         _geo = new GeoUtil(challenge.Runway);
     }
 
@@ -49,12 +48,15 @@ public sealed class LandingSession
         Snapshot.TouchdownLateralOffsetM = 0;
         Snapshot.TouchdownHeadingErrorDeg = 0;
         Snapshot.ApproachPathRms = 0;
+        Snapshot.ApproachPathSampleCount = 0;
         Snapshot.RolloutHeadingVariance = 0;
         Snapshot.CrabAngleAtFlareDeg = 0;
         Snapshot.GroundTrackErrorMeanDeg = 0;
         Snapshot.GroundTrackErrorRmsDeg = 0;
         Snapshot.GroundTrackErrorPeakDeg = 0;
         Snapshot.GroundTrackSampleCount = 0;
+        Snapshot.GroundTrackBeforeSegmentCount = 0;
+        Snapshot.GroundTrackAfterSegmentCount = 0;
         Snapshot.PostTouchdownAlignmentMeanDeg = 0;
         Snapshot.PostTouchdownAlignmentRmsDeg = 0;
         Snapshot.PostTouchdownAlignmentPeakDeg = 0;
@@ -64,9 +66,20 @@ public sealed class LandingSession
         Snapshot.RolloutWeaveIndex = 0;
         Snapshot.RolloutDistanceM = 0;
         Snapshot.RolloutPathSampleCount = 0;
+        Snapshot.RolloutPathSegmentCount = 0;
+        Snapshot.GearDownAtTouchdown = true;
+        Snapshot.FlapsIndexAtTouchdown = 0;
+        Snapshot.VerticalSpeedAtTouchdownFpm = 0;
+        Snapshot.AirspeedAtTouchdownKts = 0;
+        Snapshot.BankAtTouchdownDeg = 0;
+        Snapshot.PitchAtTouchdownDeg = 0;
+        Snapshot.VappKts = 0;
+        Snapshot.TargetTouchdownIasKts = 0;
+        Snapshot.TouchdownIasErrorKts = 0;
+        Snapshot.ExcessSpeedOverVappKts = 0;
+        Snapshot.SpeedTargetSource = "";
         Snapshot.ApproachSamples.Clear();
         Snapshot.RolloutSamples.Clear();
-        _history.Clear();
         _settledSince = null;
         _wasOnGround = false;
         _touchdownCaptured = false;
@@ -78,9 +91,6 @@ public sealed class LandingSession
     {
         if (Phase is LandingPhase.Idle or LandingPhase.Scored)
             return;
-
-        _history.Add(sample);
-        PruneHistory(sample.Timestamp);
 
         var lateral = _geo.LateralOffsetMeters(sample.Latitude, sample.Longitude);
         Snapshot.MaxLateralOffsetM = Math.Max(Snapshot.MaxLateralOffsetM, Math.Abs(lateral));
@@ -101,7 +111,7 @@ public sealed class LandingSession
                 var expectedAlt = _challenge.Runway.ElevationFeet + distNm * 318.0; // ~3 deg
                 _approachAltErrors.Add(sample.AltitudeFeet - expectedAlt);
 
-                if (agl <= _profile.FlareAglFeet && Phase != LandingPhase.Flare)
+                if (agl <= _settings.FlareAglFeet && Phase != LandingPhase.Flare)
                 {
                     // Kept for diagnostics only — not scored (crab is wind-dependent).
                     Snapshot.CrabAngleAtFlareDeg = NormalizeHeading(sample.HeadingTrueDeg - _challenge.Runway.HeadingTrueDeg);
@@ -122,10 +132,10 @@ public sealed class LandingSession
             Snapshot.RolloutSamples.Add(sample);
             _rolloutHeadings.Add(sample.HeadingTrueDeg);
 
-            if (sample.GroundSpeedKts < _profile.GetSettledGroundSpeedKts())
+            if (sample.GroundSpeedKts < _settings.SettledGroundSpeedKts)
             {
                 _settledSince ??= sample.Timestamp;
-                var hold = TimeSpan.FromSeconds(_profile.SettledHoldSeconds);
+                var hold = TimeSpan.FromSeconds(_settings.SettledHoldSeconds);
                 if (sample.Timestamp - _settledSince >= hold)
                 {
                     FinalizeSnapshot();
@@ -157,7 +167,7 @@ public sealed class LandingSession
         Snapshot.TouchdownHeadingErrorDeg = NormalizeHeading(sample.HeadingTrueDeg - _challenge.Runway.HeadingTrueDeg);
         Snapshot.PeakGForce = Math.Max(Snapshot.PeakGForce, sample.GForce);
 
-        var (vapp, targetTd, source) = SpeedTargetCalculator.Resolve(_challenge, _profile, sample);
+        var (vapp, targetTd, source) = SpeedTargetCalculator.Resolve(_challenge, _settings, sample);
         Snapshot.VappKts = vapp;
         Snapshot.TargetTouchdownIasKts = targetTd;
         Snapshot.TouchdownIasErrorKts = sample.AirspeedKts - targetTd;
@@ -167,6 +177,7 @@ public sealed class LandingSession
 
     private void FinalizeSnapshot()
     {
+        Snapshot.ApproachPathSampleCount = _approachAltErrors.Count;
         if (_approachAltErrors.Count > 0)
         {
             var meanSq = _approachAltErrors.Average(e => e * e);
@@ -194,18 +205,16 @@ public sealed class LandingSession
     /// </summary>
     private void ComputePostTouchdownAlignmentMetrics()
     {
-        if (Snapshot.Touchdown is null || _history.Count == 0)
+        if (Snapshot.Touchdown is null || Snapshot.RolloutSamples.Count == 0)
             return;
 
         var td = Snapshot.Touchdown.Timestamp;
-        var delay = TimeSpan.FromSeconds(_profile.PostTouchdownAlignmentDelaySeconds > 0
-            ? _profile.PostTouchdownAlignmentDelaySeconds
-            : 2.0);
-        var settleKts = _profile.GetSettledGroundSpeedKts();
+        var delay = TimeSpan.FromSeconds(_settings.PostTouchdownAlignmentDelaySeconds);
+        var settleKts = _settings.SettledGroundSpeedKts;
         var runway = _challenge.Runway.HeadingTrueDeg;
 
         // Samples from TD+2s while still above settle speed (or all after TD+2s on ground)
-        var samples = _history
+        var samples = Snapshot.RolloutSamples
             .Where(s => s.SimOnGround && s.Timestamp >= td + delay)
             .OrderBy(s => s.Timestamp)
             .ToList();
@@ -219,10 +228,7 @@ public sealed class LandingSession
                 break;
         }
 
-        if (untilSettle.Count == 0)
-            untilSettle = samples;
-
-        if (untilSettle.Count == 0)
+        if (untilSettle.Count < 2)
             return;
 
         var errors = untilSettle
@@ -241,11 +247,11 @@ public sealed class LandingSession
     /// </summary>
     private void ComputeRolloutPathIntegralMetrics()
     {
-        if (Snapshot.Touchdown is null || _history.Count < 2)
+        if (Snapshot.Touchdown is null || Snapshot.RolloutSamples.Count < 2)
             return;
 
         var td = Snapshot.Touchdown.Timestamp;
-        var onGround = _history
+        var onGround = Snapshot.RolloutSamples
             .Where(s => s.SimOnGround && s.Timestamp >= td)
             .OrderBy(s => s.Timestamp)
             .ToList();
@@ -257,6 +263,7 @@ public sealed class LandingSession
         double alongTrack = 0;   // S (m)
         double totalVariation = 0; // Σ|Δd| (m)
         double peak = 0;
+        var movementSegments = 0;
         var prevD = _geo.LateralOffsetMeters(onGround[0].Latitude, onGround[0].Longitude);
         peak = Math.Abs(prevD);
 
@@ -267,6 +274,8 @@ public sealed class LandingSession
             var ds = GeoUtil.HaversineMetersPublic(prev.Latitude, prev.Longitude, cur.Latitude, cur.Longitude);
             if (ds < 0.05)
                 continue;
+
+            movementSegments++;
 
             var d = _geo.LateralOffsetMeters(cur.Latitude, cur.Longitude);
             var absPrev = Math.Abs(prevD);
@@ -279,14 +288,15 @@ public sealed class LandingSession
             prevD = d;
         }
 
+        Snapshot.RolloutPathSampleCount = onGround.Count;
+        Snapshot.RolloutPathSegmentCount = movementSegments;
+        Snapshot.RolloutDistanceM = alongTrack;
         if (alongTrack < 1.0)
             return;
 
-        Snapshot.RolloutDistanceM = alongTrack;
         Snapshot.RolloutLateralMeanM = integralAbsD / alongTrack;
         Snapshot.RolloutLateralPeakM = peak;
         Snapshot.RolloutWeaveIndex = totalVariation / alongTrack;
-        Snapshot.RolloutPathSampleCount = onGround.Count;
         // Keep max lateral for whole landing at least as large as rollout peak
         Snapshot.MaxLateralOffsetM = Math.Max(Snapshot.MaxLateralOffsetM, peak);
     }
@@ -298,21 +308,18 @@ public sealed class LandingSession
     /// </summary>
     private void ComputeGroundTrackWindowMetrics()
     {
-        if (Snapshot.Touchdown is null || _history.Count < 2)
+        if (Snapshot.Touchdown is null)
             return;
 
         var td = Snapshot.Touchdown.Timestamp;
-        var before = TimeSpan.FromSeconds(_profile.GroundTrackWindowBeforeSeconds > 0
-            ? _profile.GroundTrackWindowBeforeSeconds
-            : 3);
-        var after = TimeSpan.FromSeconds(_profile.GroundTrackWindowAfterSeconds > 0
-            ? _profile.GroundTrackWindowAfterSeconds
-            : 3);
+        var before = TimeSpan.FromSeconds(_settings.GroundTrackWindowBeforeSeconds);
+        var after = TimeSpan.FromSeconds(_settings.GroundTrackWindowAfterSeconds);
 
         var windowStart = td - before;
         var windowEnd = td + after;
 
-        var window = _history
+        var window = Snapshot.ApproachSamples
+            .Concat(Snapshot.RolloutSamples)
             .Where(s => s.Timestamp >= windowStart && s.Timestamp <= windowEnd)
             .OrderBy(s => s.Timestamp)
             .ToList();
@@ -322,6 +329,8 @@ public sealed class LandingSession
 
         var runway = _challenge.Runway.HeadingTrueDeg;
         var errors = new List<double>();
+        var beforeSegments = 0;
+        var afterSegments = 0;
 
         for (var i = 1; i < window.Count; i++)
         {
@@ -336,12 +345,19 @@ public sealed class LandingSession
             if (err > 90)
                 err = 180 - err; // treat reciprocal as same path axis for runway alignment quality
             errors.Add(err);
+
+            var delta = cur.Timestamp - prev.Timestamp;
+            var midpoint = prev.Timestamp + TimeSpan.FromTicks(delta.Ticks / 2);
+            if (midpoint < td) beforeSegments++;
+            else afterSegments++;
         }
 
         if (errors.Count == 0)
             return;
 
         Snapshot.GroundTrackSampleCount = errors.Count;
+        Snapshot.GroundTrackBeforeSegmentCount = beforeSegments;
+        Snapshot.GroundTrackAfterSegmentCount = afterSegments;
         Snapshot.GroundTrackErrorMeanDeg = errors.Average();
         Snapshot.GroundTrackErrorRmsDeg = Math.Sqrt(errors.Average(e => e * e));
         Snapshot.GroundTrackErrorPeakDeg = errors.Max();
@@ -371,13 +387,6 @@ public sealed class LandingSession
         deg %= 360.0;
         if (deg < 0) deg += 360.0;
         return deg;
-    }
-
-    private void PruneHistory(DateTimeOffset now)
-    {
-        var keep = TimeSpan.FromSeconds(30);
-        while (_history.Count > 0 && now - _history[0].Timestamp > keep)
-            _history.RemoveAt(0);
     }
 
     private void SetPhase(LandingPhase phase)

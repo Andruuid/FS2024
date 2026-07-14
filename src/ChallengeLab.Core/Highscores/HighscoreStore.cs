@@ -9,15 +9,37 @@ public sealed class HighscoreCriterionDetail
 {
     public string Id { get; set; } = "";
     public string DisplayName { get; set; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public double Weight { get; set; }
-    public double ScorePercent { get; set; }
+
+    public double? ScorePercent { get; set; }
     public double? RawValue { get; set; }
     public string? Unit { get; set; }
     public string? Note { get; set; }
-    public bool Applied { get; set; } = true;
+
+    [JsonPropertyName("Applied")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? LegacyApplied { get; set; }
+
+    public MetricStatus? Status { get; set; }
+    public string? UnavailableReason { get; set; }
     public string? PhaseId { get; set; }
     public string? PhaseDisplayName { get; set; }
-    public double ImportancePercent { get; set; }
+    public double PhaseImportancePercent { get; set; }
+    public double PhaseWeightPercent { get; set; }
+    public double MaxOverallPoints { get; set; }
+
+    [JsonIgnore]
+    public MetricStatus EffectiveStatus => Status ?? (LegacyApplied switch
+    {
+        false => MetricStatus.Informational,
+        _ when ScorePercent is null => MetricStatus.Unavailable,
+        _ => MetricStatus.Scored
+    });
+
+    [JsonIgnore]
+    public bool Applied => EffectiveStatus == MetricStatus.Scored;
 }
 
 public sealed class HighscoreEntry
@@ -27,28 +49,23 @@ public sealed class HighscoreEntry
     public string ChallengeId { get; set; } = "";
     public string ChallengeTitle { get; set; } = "";
 
-    /// <summary>Legacy field from Easy/Strict era; ignored for new entries, kept for old saves.</summary>
-    public string Level { get; set; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Level { get; set; }
 
     public double ScorePercent { get; set; }
     public string Grade { get; set; } = "";
-
-    /// <summary>Hierarchical result text (Total / phases / metrics).</summary>
     public string? Notes { get; set; }
-
     public double? ScoreBeforeGatesPercent { get; set; }
     public bool GearUpPenaltyApplied { get; set; }
-
-    /// <summary>Phase totals for rebuild/display.</summary>
     public List<HighscorePhaseDetail> Phases { get; set; } = new();
-
-    /// <summary>Primary metric snapshot (always stored for new entries).</summary>
     public double? VerticalSpeedFpm { get; set; }
-
-    /// <summary>Full per-criterion breakdown (new entries). Older saves may be empty.</summary>
     public List<HighscoreCriterionDetail> Criteria { get; set; } = new();
 
-    /// <summary>Hierarchical breakdown for UI (stored Notes, or rebuilt from criteria/phases).</summary>
+    [JsonIgnore]
+    public bool IsLegacy => !string.IsNullOrWhiteSpace(Level)
+                            || Phases.Count == 0
+                            || !Criteria.Any(c => !string.IsNullOrWhiteSpace(c.PhaseId));
+
     [JsonIgnore]
     public string Breakdown
     {
@@ -71,12 +88,15 @@ public sealed class HighscoreEntry
                 {
                     Id = c.Id,
                     DisplayName = c.DisplayName,
-                    Weight = c.Weight,
                     ScorePercent = c.ScorePercent,
-                    Applied = c.Applied,
+                    Status = c.EffectiveStatus,
                     PhaseId = c.PhaseId,
                     PhaseDisplayName = c.PhaseDisplayName,
-                    Note = c.Note
+                    PhaseImportancePercent = c.PhaseImportancePercent,
+                    PhaseWeightPercent = c.PhaseWeightPercent,
+                    MaxOverallPoints = c.MaxOverallPoints,
+                    Note = c.Note,
+                    UnavailableReason = c.UnavailableReason
                 }));
         }
     }
@@ -89,46 +109,39 @@ public sealed class HighscoreEntry
     {
         get
         {
-            var vs = ResolveVerticalSpeedFpm();
-            if (vs is null) return "—";
-            return $"{vs:0} fpm";
+            var verticalSpeed = ResolveVerticalSpeedFpm();
+            return verticalSpeed is null ? "—" : $"{verticalSpeed:0} fpm";
         }
     }
 
     public double? ResolveVerticalSpeedFpm()
     {
         if (VerticalSpeedFpm is not null) return VerticalSpeedFpm;
-        var vs = Criteria.FirstOrDefault(c =>
-            c.Id is "touchdown_vs" or "touchdownVerticalSpeedFpm" ||
-            c.DisplayName.Contains("firmness", StringComparison.OrdinalIgnoreCase) ||
-            c.DisplayName.Contains("Vertical", StringComparison.OrdinalIgnoreCase));
-        return vs?.RawValue;
+        var verticalSpeed = Criteria.FirstOrDefault(IsVerticalSpeedCriterion);
+        return verticalSpeed?.RawValue;
     }
 
-    /// <summary>Criteria ordered for the detail report: VS first, then remaining by weight desc.</summary>
     [JsonIgnore]
     public IReadOnlyList<HighscoreCriterionDetail> CriteriaForReport
     {
         get
         {
             if (Criteria.Count == 0) return Criteria;
-
-            var list = Criteria.ToList();
-            var vs = list.Where(IsVerticalSpeedCriterion).ToList();
-            var rest = list.Where(c => !IsVerticalSpeedCriterion(c))
-                .OrderByDescending(c => c.Applied)
-                .ThenByDescending(c => c.Weight)
+            var verticalSpeed = Criteria.Where(IsVerticalSpeedCriterion).ToList();
+            var rest = Criteria.Where(c => !IsVerticalSpeedCriterion(c))
+                .OrderBy(c => c.EffectiveStatus == MetricStatus.Unavailable)
+                .ThenByDescending(c => c.MaxOverallPoints > 0 ? c.MaxOverallPoints : c.Weight)
                 .ThenBy(c => c.DisplayName)
                 .ToList();
-            return vs.Concat(rest).ToList();
+            return verticalSpeed.Concat(rest).ToList();
         }
     }
 
-    private static bool IsVerticalSpeedCriterion(HighscoreCriterionDetail c) =>
-        c.Id is "touchdown_vs" or "touchdownVerticalSpeedFpm" ||
-        c.DisplayName.Contains("firmness", StringComparison.OrdinalIgnoreCase) ||
-        (c.Unit?.Equals("fpm", StringComparison.OrdinalIgnoreCase) == true &&
-         c.DisplayName.Contains("Touchdown", StringComparison.OrdinalIgnoreCase));
+    private static bool IsVerticalSpeedCriterion(HighscoreCriterionDetail criterion) =>
+        criterion.Id is "touchdown_vs" or "touchdownVerticalSpeedFpm" ||
+        criterion.DisplayName.Contains("firmness", StringComparison.OrdinalIgnoreCase) ||
+        (criterion.Unit?.Equals("fpm", StringComparison.OrdinalIgnoreCase) == true &&
+         criterion.DisplayName.Contains("Touchdown", StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed class HighscoreStore
@@ -137,7 +150,6 @@ public sealed class HighscoreStore
     {
         WriteIndented = true,
         PropertyNameCaseInsensitive = true,
-        // Never persist computed UI helpers (HasDetail, CriteriaForReport, …)
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
@@ -147,11 +159,12 @@ public sealed class HighscoreStore
 
     public HighscoreStore(string? filePath = null)
     {
-        var dir = Path.Combine(
+        _filePath = filePath ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ChallengeLab");
-        Directory.CreateDirectory(dir);
-        _filePath = filePath ?? Path.Combine(dir, "highscores.json");
+            "ChallengeLab",
+            "highscores.json");
+        var directory = Path.GetDirectoryName(_filePath);
+        if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
         Load();
     }
 
@@ -162,44 +175,45 @@ public sealed class HighscoreStore
         get
         {
             lock (_lock)
-                return _entries.OrderByDescending(e => e.Utc).ToList();
+                return _entries.OrderByDescending(entry => entry.Utc).ToList();
         }
     }
 
     public void Add(ScoreResult result)
     {
-        var criteria = result.Criteria.Select(c => new HighscoreCriterionDetail
+        if (!result.IsRanked || result.ScorePercent is null)
+            throw new InvalidOperationException("Unranked results cannot be saved as highscores.");
+
+        var criteria = result.Criteria.Select(criterion => new HighscoreCriterionDetail
         {
-            Id = c.Id,
-            DisplayName = c.DisplayName,
-            Weight = c.Weight,
-            ScorePercent = Math.Round(c.ScorePercent, 1),
-            RawValue = c.RawValue,
-            Unit = c.Unit,
-            Note = c.Note,
-            Applied = c.Applied,
-            PhaseId = c.PhaseId,
-            PhaseDisplayName = c.PhaseDisplayName,
-            ImportancePercent = c.ImportancePercent
+            Id = criterion.Id,
+            DisplayName = criterion.DisplayName,
+            ScorePercent = criterion.ScorePercent is null ? null : Math.Round(criterion.ScorePercent.Value, 1),
+            RawValue = criterion.RawValue,
+            Unit = criterion.Unit,
+            Note = criterion.Note,
+            Status = criterion.Status,
+            UnavailableReason = criterion.UnavailableReason,
+            PhaseId = criterion.PhaseId,
+            PhaseDisplayName = criterion.PhaseDisplayName,
+            PhaseImportancePercent = criterion.PhaseImportancePercent,
+            PhaseWeightPercent = criterion.PhaseWeightPercent,
+            MaxOverallPoints = criterion.MaxOverallPoints
         }).ToList();
 
-        var phases = result.PhaseScores.Select(p => new HighscorePhaseDetail
+        var phases = result.PhaseScores.Select(phase => new HighscorePhaseDetail
         {
-            PhaseId = p.PhaseId,
-            DisplayName = p.DisplayName,
-            WeightPercent = p.WeightPercent,
-            ScorePercent = p.ScorePercent,
-            Used = p.Used
+            PhaseId = phase.PhaseId,
+            DisplayName = phase.DisplayName,
+            WeightPercent = phase.WeightPercent,
+            ScorePercent = phase.ScorePercent,
+            Used = phase.IsComplete
         }).ToList();
 
-        var vsRaw = criteria.FirstOrDefault(c =>
-                c.Id is "touchdown_vs" or "touchdownVerticalSpeedFpm" ||
-                c.DisplayName.Contains("firmness", StringComparison.OrdinalIgnoreCase))
+        var verticalSpeed = criteria.FirstOrDefault(criterion =>
+                criterion.Id is "touchdown_vs" or "touchdownVerticalSpeedFpm" ||
+                criterion.DisplayName.Contains("firmness", StringComparison.OrdinalIgnoreCase))
             ?.RawValue;
-
-        // Prefer firmness raw; else vertical speed from raw if unit is fpm
-        vsRaw ??= criteria.FirstOrDefault(c =>
-            string.Equals(c.Unit, "fpm", StringComparison.OrdinalIgnoreCase))?.RawValue;
 
         var entry = new HighscoreEntry
         {
@@ -207,13 +221,13 @@ public sealed class HighscoreStore
             Utc = result.ScoredAtUtc,
             ChallengeId = result.ChallengeId,
             ChallengeTitle = result.ChallengeTitle,
-            ScorePercent = result.ScorePercent,
+            ScorePercent = result.ScorePercent.Value,
             Grade = result.Grade,
             Notes = result.Summary,
             ScoreBeforeGatesPercent = result.ScoreBeforeGatesPercent,
             GearUpPenaltyApplied = result.GearUpPenaltyApplied,
             Phases = phases,
-            VerticalSpeedFpm = vsRaw,
+            VerticalSpeedFpm = verticalSpeed,
             Criteria = criteria
         };
 
@@ -233,13 +247,9 @@ public sealed class HighscoreStore
         }
     }
 
-    /// <summary>Rewrite the file without computed properties (self-heal older saves).</summary>
     public void RewriteClean()
     {
-        lock (_lock)
-        {
-            Save();
-        }
+        lock (_lock) Save();
     }
 
     private void Load()
@@ -249,31 +259,27 @@ public sealed class HighscoreStore
             if (!File.Exists(_filePath)) return;
             var json = File.ReadAllText(_filePath);
             _entries = JsonSerializer.Deserialize<List<HighscoreEntry>>(json, JsonOptions) ?? new();
-            foreach (var e in _entries)
+            foreach (var entry in _entries)
             {
-                if (e.Id == Guid.Empty)
-                    e.Id = Guid.NewGuid();
-                e.Criteria ??= new List<HighscoreCriterionDetail>();
+                if (entry.Id == Guid.Empty) entry.Id = Guid.NewGuid();
+                entry.Criteria ??= new List<HighscoreCriterionDetail>();
+                entry.Phases ??= new List<HighscorePhaseDetail>();
 
-                // Self-heal: older files may have empty Criteria but still have VS
-                if (e.Criteria.Count == 0 && e.VerticalSpeedFpm is not null)
+                if (entry.Criteria.Count == 0 && entry.VerticalSpeedFpm is not null)
                 {
-                    e.Criteria.Add(new HighscoreCriterionDetail
+                    entry.Criteria.Add(new HighscoreCriterionDetail
                     {
                         Id = "touchdown_vs",
                         DisplayName = "Touchdown firmness",
-                        Weight = 1.6,
-                        ScorePercent = 0,
-                        RawValue = e.VerticalSpeedFpm,
+                        ScorePercent = null,
+                        RawValue = entry.VerticalSpeedFpm,
                         Unit = "fpm",
-                        Applied = true,
-                        Note = "Partial recovery — only vertical speed was stored for this attempt."
+                        Status = MetricStatus.Unavailable,
+                        UnavailableReason = "This historical attempt did not store the metric score.",
+                        Note = "Historical recovery: vertical speed was stored, but its score and phase breakdown are unavailable."
                     });
                 }
             }
-
-            // Drop legacy computed fields from disk on next save
-            Save();
         }
         catch
         {
@@ -283,7 +289,6 @@ public sealed class HighscoreStore
 
     private void Save()
     {
-        // Serialize only real data (JsonIgnore on computed props)
         var json = JsonSerializer.Serialize(_entries, JsonOptions);
         File.WriteAllText(_filePath, json);
     }

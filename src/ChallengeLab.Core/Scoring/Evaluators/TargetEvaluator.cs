@@ -10,9 +10,9 @@ public sealed class TargetEvaluator : IEvaluator
 {
     public static readonly TargetEvaluator Instance = new();
 
-    public double Evaluate(double value, CriterionConfig criterion)
+    public double Evaluate(double value, EvaluationMetric metric)
     {
-        var p = criterion.Params;
+        var p = metric.Params;
         var ideal = Get(p, "ideal", 0);
         var tolerance = Math.Max(0.0001, Get(p, "tolerance", 1));
         var maxError = Math.Max(tolerance, Get(p, "maxError", tolerance * 3));

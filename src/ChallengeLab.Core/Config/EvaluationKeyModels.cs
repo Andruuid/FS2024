@@ -10,36 +10,32 @@ public sealed class LandingEvaluationKey
     public string Formula { get; set; } = "";
     public EvaluationSettle? Settle { get; set; }
     public EvaluationTiming? Timing { get; set; }
+    public EvaluationSpeedTarget? SpeedTarget { get; set; }
     public List<EvaluationPhase> Phases { get; set; } = new();
     public EvaluationGates? Gates { get; set; }
 
-    /// <summary>Apply settle/window timings onto a scoring profile used by LandingSession.</summary>
-    public void ApplyToProfile(ScoringProfileConfig profile)
-    {
-        if (Settle is not null)
-        {
-            if (Settle.GroundSpeedKts > 0)
-                profile.SettledGroundSpeedKts = Settle.GroundSpeedKts;
-            if (Settle.HoldSeconds > 0)
-                profile.SettledHoldSeconds = Settle.HoldSeconds;
-        }
-
-        if (Timing is not null)
-        {
-            if (Timing.GroundTrackWindowBeforeSeconds > 0)
-                profile.GroundTrackWindowBeforeSeconds = Timing.GroundTrackWindowBeforeSeconds;
-            if (Timing.GroundTrackWindowAfterSeconds > 0)
-                profile.GroundTrackWindowAfterSeconds = Timing.GroundTrackWindowAfterSeconds;
-            if (Timing.PostTouchdownAlignmentDelaySeconds > 0)
-                profile.PostTouchdownAlignmentDelaySeconds = Timing.PostTouchdownAlignmentDelaySeconds;
-            if (Timing.FlareAglFeet > 0)
-                profile.FlareAglFeet = Timing.FlareAglFeet;
-        }
-
-        if (Gates?.Gear is { MultiplierOnFail: > 0 and <= 1 } gear)
-            profile.GearUpScoreMultiplier = gear.MultiplierOnFail;
-    }
+    public LandingSessionSettings ToSessionSettings() => new(
+        Settle!.GroundSpeedKts,
+        Settle.HoldSeconds,
+        Timing!.GroundTrackWindowBeforeSeconds,
+        Timing.GroundTrackWindowAfterSeconds,
+        Timing.PostTouchdownAlignmentDelaySeconds,
+        Timing.FlareAglFeet,
+        SpeedTarget!.DefaultVappKts,
+        SpeedTarget.TouchdownOffsetKts,
+        SpeedTarget.Vs0Factor);
 }
+
+public sealed record LandingSessionSettings(
+    double SettledGroundSpeedKts,
+    double SettledHoldSeconds,
+    double GroundTrackWindowBeforeSeconds,
+    double GroundTrackWindowAfterSeconds,
+    double PostTouchdownAlignmentDelaySeconds,
+    double FlareAglFeet,
+    double DefaultVappKts,
+    double TouchdownOffsetKts,
+    double Vs0Factor);
 
 public sealed class EvaluationSettle
 {
@@ -53,6 +49,13 @@ public sealed class EvaluationTiming
     public double GroundTrackWindowAfterSeconds { get; set; } = 3;
     public double PostTouchdownAlignmentDelaySeconds { get; set; } = 2;
     public double FlareAglFeet { get; set; } = 50;
+}
+
+public sealed class EvaluationSpeedTarget
+{
+    public double DefaultVappKts { get; set; } = 143;
+    public double TouchdownOffsetKts { get; set; } = 5;
+    public double Vs0Factor { get; set; } = 1.3;
 }
 
 public sealed class EvaluationPhase
@@ -76,20 +79,6 @@ public sealed class EvaluationMetric
     public string SampleAt { get; set; } = "touchdown";
     public Dictionary<string, double> Params { get; set; } = new();
     public List<ScorePoint>? Points { get; set; }
-
-    public CriterionConfig ToCriterionConfig() => new()
-    {
-        Id = Id,
-        DisplayName = DisplayName,
-        Weight = ImportancePercent,
-        Metric = Metric,
-        Evaluator = Evaluator,
-        SampleAt = SampleAt,
-        Unit = Unit,
-        Note = Note,
-        Params = Params,
-        Points = Points
-    };
 }
 
 public sealed class EvaluationGates
@@ -99,10 +88,6 @@ public sealed class EvaluationGates
 
 public sealed class GearGateConfig
 {
-    public string Id { get; set; } = "gear";
-    public string Type { get; set; } = "overallMultiplierIfFailed";
-    public string RequireFlag { get; set; } = "requireGearDown";
-    public bool FailWhenGearUp { get; set; } = true;
     public double MultiplierOnFail { get; set; } = 0.1;
     public string? PenaltyDescription { get; set; }
 }

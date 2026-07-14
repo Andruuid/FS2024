@@ -8,7 +8,6 @@
   "comingSoonNote": "Systems failure injection and special scoring not in this prototype.",
   "aircraftTitles": ["A330-200 (RR)"],
   "flightFile": "",
-  "scoringProfile": "scoring/profiles/hardcore-crosswind-landing.json",
   "spawn": {},
   "weather": {},
   "aircraftSetup": {},

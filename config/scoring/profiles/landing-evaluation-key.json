@@ -1,14 +1,8 @@
-﻿{
+{
   "id": "landing-evaluation-key",
-  "version": 1,
-  "description": "Phase-weighted landing score. Each metric scores 0â€“100% from its curve/params; phase % = weighted avg of its metrics; final % = sum(phase% Ã— phaseWeight). Gear is a safety gate, not a phase metric. Piecewise points use s as percent (0â€“100), not 0â€“1.",
-  "formula": "metricScore 0â€“100%; phase = Î£(metricScore Ã— importance/100); final = Î£(phase Ã— phaseWeight/100); then gear-up gate if required",
-  "example": {
-    "touchdown": 95,
-    "approach": 60,
-    "rollout": 90,
-    "calculation": "(95Ã—0.70)+(60Ã—0.25)+(90Ã—0.05) = 66.5+15+4.5 = 86"
-  },
+  "version": 2,
+  "description": "Single authoritative landing score. Every metric scores 0-100%; phases and metrics use literal percentage weights; gear is a safety gate and never awards points.",
+  "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply gear multiplier last when required",
   "settle": {
     "groundSpeedKts": 50,
     "holdSeconds": 1.0
@@ -19,39 +13,23 @@
     "postTouchdownAlignmentDelaySeconds": 2,
     "flareAglFeet": 50
   },
+  "speedTarget": {
+    "defaultVappKts": 143,
+    "touchdownOffsetKts": 5,
+    "vs0Factor": 1.3
+  },
   "gates": {
     "gear": {
-      "id": "gear",
-      "type": "overallMultiplierIfFailed",
-      "requireFlag": "requireGearDown",
-      "failWhenGearUp": true,
       "multiplierOnFail": 0.1,
-      "penaltyDescription": "If gear required and up: final score Ã— 0.1 (~90% cut). Gear down: no credit, not scored as a metric."
+      "penaltyDescription": "If gear is required and up, multiply the complete ranked score by 0.1. Gear down is the required baseline and awards no points."
     }
   },
   "phases": [
     {
-      "id": "approach",
-      "displayName": "Approach",
-      "weightPercent": 25,
-      "note": "Path quality into the landing. Only one metric for now â†’ 100% of this phase.",
-      "metrics": [
-        {
-          "id": "approach_path",
-          "displayName": "Approach path quality",
-          "importancePercent": 100,
-          "unit": "ft RMS",
-          "evaluator": "target",
-          "metric": "approachPathRms",
-          "params": { "ideal": 0, "tolerance": 80, "maxError": 400 }
-        }
-      ]
-    },
-    {
       "id": "touchdown",
       "displayName": "Touchdown",
       "weightPercent": 70,
-      "note": "Includes path/motion around touchdown (ground track Â±3 s). Peak G removed (duplicates vertical speed).",
+      "note": "Touchdown technique and aircraft state. Ground track covers three seconds before through three seconds after touchdown.",
       "metrics": [
         {
           "id": "touchdown_vs",
@@ -60,7 +38,7 @@
           "unit": "fpm",
           "evaluator": "piecewise",
           "metric": "touchdownVerticalSpeedFpm",
-          "note": "s = metric score 0â€“100%. v = vertical speed fpm (negative = descending).",
+          "note": "Vertical speed at main-gear touchdown. A controlled firm plant is preferred over a float or hard impact.",
           "points": [
             { "v": -600, "s": 70 },
             { "v": -500, "s": 75 },
@@ -77,12 +55,12 @@
         },
         {
           "id": "airspeed",
-          "displayName": "Indicated airspeed vs target",
+          "displayName": "IAS versus touchdown target",
           "importancePercent": 10,
           "unit": "kts",
           "evaluator": "piecewise",
           "metric": "touchdownIasErrorKts",
-          "note": "s = metric score 0â€“100%. v = IAS error kts (actual âˆ’ target); target TD IAS = VAPP âˆ’ 5 kt.",
+          "note": "Target-accuracy metric worth at most 7.0 overall points. The target is VAPP minus 5 kt by default.",
           "points": [
             { "v": -30, "s": 70 },
             { "v": -15, "s": 80 },
@@ -117,7 +95,7 @@
           "evaluator": "target",
           "metric": "groundTrackErrorMeanDeg",
           "sampleAt": "touchdownWindow",
-          "note": "3 s before TD â†’ 3 s after; CG motion vs runway, not crab.",
+          "note": "Mean CG ground-track error across the touchdown window, not fuselage crab angle.",
           "params": { "ideal": 0, "tolerance": 2, "maxError": 12 }
         },
         {
@@ -127,7 +105,7 @@
           "unit": "kts",
           "evaluator": "piecewise",
           "metric": "excessSpeedOverVappKts",
-          "note": "s = metric score 0â€“100%. v = kts over VAPP.",
+          "note": "Excess-energy metric worth at most 2.1 overall points. It penalizes float risk separately from target accuracy.",
           "points": [
             { "v": 0, "s": 100 },
             { "v": 3, "s": 95 },
@@ -149,7 +127,7 @@
         },
         {
           "id": "alignment",
-          "displayName": "Heading vs runway",
+          "displayName": "Heading versus runway",
           "importancePercent": 1,
           "unit": "deg",
           "evaluator": "target",
@@ -168,10 +146,27 @@
       ]
     },
     {
+      "id": "approach",
+      "displayName": "Approach",
+      "weightPercent": 25,
+      "note": "Accuracy relative to the nominal three-degree approach path.",
+      "metrics": [
+        {
+          "id": "approach_path",
+          "displayName": "3° path accuracy",
+          "importancePercent": 100,
+          "unit": "ft RMS",
+          "evaluator": "target",
+          "metric": "approachPathRms",
+          "params": { "ideal": 0, "tolerance": 80, "maxError": 400 }
+        }
+      ]
+    },
+    {
       "id": "rollout",
       "displayName": "Rollout",
       "weightPercent": 5,
-      "note": "Four metrics share the phase equally (25% each of rollout).",
+      "note": "Heading, centerline path, weave, and peak lateral deviation share the phase equally.",
       "metrics": [
         {
           "id": "post_td_alignment",
@@ -180,7 +175,7 @@
           "unit": "deg",
           "evaluator": "target",
           "metric": "postTouchdownAlignmentMeanDeg",
-          "note": "From TD+2 s until ~50 kt.",
+          "note": "Mean fuselage heading error after the configured de-crab delay until settling.",
           "params": { "ideal": 0, "tolerance": 2, "maxError": 12 }
         },
         {
@@ -212,27 +207,5 @@
         }
       ]
     }
-  ],
-  "removed": [
-    {
-      "id": "peak_g",
-      "reason": "Overlaps vertical speed / firmness; not used for now."
-    }
-  ],
-  "weightCheck": {
-    "phasesSum": 100,
-    "touchdownMetricsSum": 100,
-    "approachMetricsSum": 100,
-    "rolloutMetricsSum": 100,
-    "touchdownBreakdown": {
-      "touchdown_vs": 75,
-      "airspeed": 10,
-      "centerline": 5,
-      "ground_track": 3,
-      "excess_speed": 3,
-      "bank": 2,
-      "alignment": 1,
-      "flaps": 1
-    }
-  }
+  ]
 }

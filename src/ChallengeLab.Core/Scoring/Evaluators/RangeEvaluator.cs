@@ -10,9 +10,9 @@ public sealed class RangeEvaluator : IEvaluator
 {
     public static readonly RangeEvaluator Instance = new();
 
-    public double Evaluate(double value, CriterionConfig criterion)
+    public double Evaluate(double value, EvaluationMetric metric)
     {
-        var p = criterion.Params;
+        var p = metric.Params;
         var min = Get(p, "min", 0);
         var max = Get(p, "max", 0);
         if (max < min) (min, max) = (max, min);

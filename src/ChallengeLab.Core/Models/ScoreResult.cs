@@ -4,20 +4,18 @@ public sealed class ScoreResult
 {
     public required string ChallengeId { get; init; }
     public required string ChallengeTitle { get; init; }
-    public double ScorePercent { get; init; }
-    public string Grade { get; init; } = "F";
+    public double? ScorePercent { get; init; }
+    public string Grade { get; init; } = "UNRANKED";
+    public bool IsRanked { get; init; }
+    public IReadOnlyList<string> IncompleteReasons { get; init; } = Array.Empty<string>();
     public IReadOnlyList<CriterionScore> Criteria { get; init; } = Array.Empty<CriterionScore>();
     public DateTimeOffset ScoredAtUtc { get; init; } = DateTimeOffset.UtcNow;
     public string? Summary { get; init; }
-
-    /// <summary>Weighted average before safety gates (e.g. gear-up multiplier).</summary>
-    public double ScoreBeforeGatesPercent { get; init; }
-
-    /// <summary>True when gear was required and up — overall score was heavily reduced.</summary>
+    public double? ScoreBeforeGatesPercent { get; init; }
     public bool GearUpPenaltyApplied { get; init; }
-
-    /// <summary>Per-phase scores (0–100) before phase weights are applied.</summary>
     public IReadOnlyList<PhaseScore> PhaseScores { get; init; } = Array.Empty<PhaseScore>();
+
+    public string ScoreDisplay => ScorePercent is null ? "UNRANKED" : $"{ScorePercent:0.0}%";
 
     public static string GradeFromPercent(double percent) => percent switch
     {
@@ -35,7 +33,9 @@ public sealed class PhaseScore
     public required string PhaseId { get; init; }
     public required string DisplayName { get; init; }
     public double WeightPercent { get; init; }
-    public double ScorePercent { get; init; }
-    public bool Used { get; init; }
+    public double? ScorePercent { get; init; }
+    public bool IsComplete { get; init; }
     public string? Note { get; init; }
+
+    public bool Used => IsComplete;
 }

@@ -8,7 +8,6 @@
   "comingSoonNote": "Smoke, electrics degradation, and timed diversion scoring planned later.",
   "aircraftTitles": ["A330-200 (RR)"],
   "flightFile": "",
-  "scoringProfile": "scoring/profiles/hardcore-crosswind-landing.json",
   "spawn": {},
   "weather": {},
   "aircraftSetup": {},
