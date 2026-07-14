@@ -1,4 +1,4 @@
-using ChallengeLab.Core.Config;
+﻿using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scoring;
 using ChallengeLab.Core.Scoring.Evaluators;
@@ -44,7 +44,7 @@ public class ScoreEngineTests
     [Fact]
     public void Piecewise_AcceptsPercentScale_0to100()
     {
-        // Preferred JSON: s is metric score percent (0–100), same as the report UI.
+        // Preferred JSON: s is metric score percent (0â€“100), same as the report UI.
         var criterion = new CriterionConfig
         {
             Evaluator = "piecewise",
@@ -70,10 +70,10 @@ public class ScoreEngineTests
         var climb = PiecewiseEvaluator.Instance.Evaluate(50, criterion); // rare / bounce
         var butter = PiecewiseEvaluator.Instance.Evaluate(-20, criterion);
 
-        Assert.Equal(1.0, ideal, 3);          // s:100 → 1.0 internal
+        Assert.Equal(1.0, ideal, 3);          // s:100 â†’ 1.0 internal
         Assert.Equal(0.95, firm, 3);         // s:95
         Assert.Equal(0.80, hard, 3);         // s:80
-        Assert.Equal(0.50, climb, 3);        // s:50 — yes, possible on curve
+        Assert.Equal(0.50, climb, 3);        // s:50 â€” yes, possible on curve
         Assert.Equal(0.90, butter, 3);
         Assert.True(ideal > hard);
     }
@@ -97,19 +97,16 @@ public class ScoreEngineTests
     }
 
     [Fact]
-    public void Easy_OmitsStrictOnlyCriteria()
+    public void AllMetrics_AreScored_IncludingApproachAndMaxCenterline()
     {
         var engine = CreateEngine();
         var challenge = LoadChallenge();
         var profile = LoadProfile();
-        var snap = FirmCrosswindSnapshot();
+        var result = engine.Evaluate(challenge, profile, FirmCrosswindSnapshot());
 
-        var easy = engine.Evaluate(challenge, profile, snap, DifficultyLevel.Easy);
-        var strict = engine.Evaluate(challenge, profile, snap, DifficultyLevel.Strict);
-
-        Assert.DoesNotContain(easy.Criteria, c => c.Id == "approach_path" && c.Applied);
-        Assert.Contains(strict.Criteria, c => c.Id == "approach_path" && c.Applied);
-        Assert.True(easy.Criteria.Count(c => c.Applied) < strict.Criteria.Count(c => c.Applied));
+        Assert.Contains(result.Criteria, c => c.Id == "approach_path" && c.Applied);
+        Assert.Contains(result.Criteria, c => c.Id == "max_centerline" && c.Applied);
+        Assert.Contains(result.Criteria, c => c.Id == "touchdown_vs" && c.Applied);
     }
 
     [Fact]
@@ -119,8 +116,8 @@ public class ScoreEngineTests
         var challenge = LoadChallenge();
         var profile = LoadProfile();
 
-        var firm = engine.Evaluate(challenge, profile, FirmCrosswindSnapshot(), DifficultyLevel.Easy);
-        var butter = engine.Evaluate(challenge, profile, ButterSnapshot(), DifficultyLevel.Easy);
+        var firm = engine.Evaluate(challenge, profile, FirmCrosswindSnapshot());
+        var butter = engine.Evaluate(challenge, profile, ButterSnapshot());
 
         Assert.True(firm.ScorePercent > butter.ScorePercent,
             $"Expected firm {firm.ScorePercent} > butter {butter.ScorePercent}");
@@ -137,12 +134,34 @@ public class ScoreEngineTests
         var engine = CreateEngine();
         var challenge = LoadChallenge();
         var profile = LoadProfile();
-        var result = engine.Evaluate(challenge, profile, FirmCrosswindSnapshot(), DifficultyLevel.Strict);
+        var result = engine.Evaluate(challenge, profile, FirmCrosswindSnapshot());
         Assert.NotEmpty(result.PhaseScores);
         Assert.Contains(result.PhaseScores, p => p.PhaseId == "touchdown" && p.WeightPercent == 70);
         Assert.Contains(result.PhaseScores, p => p.PhaseId == "approach" && p.WeightPercent == 25);
         Assert.Contains(result.PhaseScores, p => p.PhaseId == "rollout" && p.WeightPercent == 5);
         Assert.DoesNotContain(result.Criteria, c => c.Id == "peak_g");
+    }
+
+    [Fact]
+    public void LandingResult_Summary_IsHierarchicalBreakdown()
+    {
+        var engine = CreateEngine();
+        var challenge = LoadChallenge();
+        var profile = LoadProfile();
+        var result = engine.Evaluate(challenge, profile, FirmCrosswindSnapshot());
+
+        Assert.NotNull(result.Summary);
+        Assert.StartsWith("Total Grade ", result.Summary);
+        Assert.Contains("Touchdown ", result.Summary);
+        Assert.Contains("-vSpeed ", result.Summary);
+        Assert.Contains("-airspeed ", result.Summary);
+        Assert.Contains("Approach ", result.Summary);
+        Assert.Contains("-steadiness ", result.Summary);
+        Assert.Contains("Rollout ", result.Summary);
+
+        // Criteria carry phase ids for rebuild
+        Assert.Contains(result.Criteria, c => c.Id == "touchdown_vs" && c.PhaseId == "touchdown");
+        Assert.Contains(result.Criteria, c => c.Id == "approach_path" && c.PhaseId == "approach");
     }
 
     [Fact]
@@ -224,11 +243,11 @@ public class ScoreEngineTests
         session.Ingest(Sample(onGround: false, gsKts: 140, vs: -700, lat: 41.32, lon: 2.12, timestamp: t0));
         // Touchdown
         session.Ingest(Sample(onGround: true, gsKts: 130, vs: -120, lat: 41.294, lon: 2.084, g: 1.25, timestamp: t0.AddSeconds(1)));
-        // Still above 50 kt — should not settle
+        // Still above 50 kt â€” should not settle
         session.Ingest(Sample(onGround: true, gsKts: 55, vs: 0, lat: 41.2935, lon: 2.0835, g: 1.0, timestamp: t0.AddSeconds(1.5)));
-        // Under 50 kt — first low-GS sample starts hold timer
+        // Under 50 kt â€” first low-GS sample starts hold timer
         session.Ingest(Sample(onGround: true, gsKts: 45, vs: 0, lat: 41.293, lon: 2.083, g: 1.0, timestamp: t0.AddSeconds(2)));
-        // Still under 50 kt after hold → settled
+        // Still under 50 kt after hold â†’ settled
         session.Ingest(Sample(onGround: true, gsKts: 40, vs: 0, lat: 41.292, lon: 2.082, g: 1.0, timestamp: t0.AddSeconds(2.2)));
 
         Assert.True(settled);
@@ -244,7 +263,7 @@ public class ScoreEngineTests
         TouchdownLateralOffsetM = 2,
         MaxLateralOffsetM = 5,
         TouchdownHeadingErrorDeg = 1.5,
-        AirspeedAtTouchdownKts = 140, // ~ target 138 (VAPP 143 − 5)
+        AirspeedAtTouchdownKts = 140, // ~ target 138 (VAPP 143 âˆ’ 5)
         VappKts = 143,
         TargetTouchdownIasKts = 138,
         TouchdownIasErrorKts = 2,
@@ -355,8 +374,8 @@ public class ScoreEngineTests
         Assert.True(session.Snapshot.GroundTrackErrorMeanDeg < 5,
             $"Expected low track error, got {session.Snapshot.GroundTrackErrorMeanDeg}");
 
-        var engine = new ScoreEngine();
-        var result = engine.Evaluate(challenge, profile, session.Snapshot, DifficultyLevel.Easy);
+        var engine = CreateEngine();
+        var result = engine.Evaluate(challenge, profile, session.Snapshot);
         Assert.Contains(result.Criteria, c => c.Id == "ground_track" && c.Applied);
         Assert.DoesNotContain(result.Criteria, c => c.Id == "crab" && c.Applied);
     }
@@ -375,8 +394,8 @@ public class ScoreEngineTests
         var gearUp = FirmCrosswindSnapshot();
         gearUp.GearDownAtTouchdown = false;
 
-        var ok = engine.Evaluate(challenge, profile, gearDown, DifficultyLevel.Easy);
-        var bad = engine.Evaluate(challenge, profile, gearUp, DifficultyLevel.Easy);
+        var ok = engine.Evaluate(challenge, profile, gearDown);
+        var bad = engine.Evaluate(challenge, profile, gearUp);
 
         // Gear OK must never be "strongest" free points
         Assert.DoesNotContain(ok.Criteria, c => c.Id == "gear" && c.Applied && c.Weight > 0);
@@ -403,8 +422,8 @@ public class ScoreEngineTests
         var withGear = FirmCrosswindSnapshot();
         withGear.GearDownAtTouchdown = true;
 
-        var a = engine.Evaluate(challenge, profile, gearUp, DifficultyLevel.Easy);
-        var b = engine.Evaluate(challenge, profile, withGear, DifficultyLevel.Easy);
+        var a = engine.Evaluate(challenge, profile, gearUp);
+        var b = engine.Evaluate(challenge, profile, withGear);
 
         Assert.False(a.GearUpPenaltyApplied);
         Assert.Equal(b.ScorePercent, a.ScorePercent);
@@ -427,8 +446,8 @@ public class ScoreEngineTests
         weave.RolloutWeaveIndex = 0.18;  // S-turns
         weave.PostTouchdownAlignmentMeanDeg = 8.0; // swinging heading
 
-        var steadyScore = engine.Evaluate(challenge, profile, steady, DifficultyLevel.Easy);
-        var weaveScore = engine.Evaluate(challenge, profile, weave, DifficultyLevel.Easy);
+        var steadyScore = engine.Evaluate(challenge, profile, steady);
+        var weaveScore = engine.Evaluate(challenge, profile, weave);
 
         var steadyWeave = steadyScore.Criteria.First(c => c.Id == "rollout_weave");
         var weaveWeave = weaveScore.Criteria.First(c => c.Id == "rollout_weave");
@@ -461,8 +480,8 @@ public class ScoreEngineTests
         hot.TouchdownIasErrorKts = 20; // +20 vs target
         hot.ExcessSpeedOverVappKts = 15; // +15 over VAPP
 
-        var onScore = engine.Evaluate(challenge, profile, onTarget, DifficultyLevel.Easy);
-        var hotScore = engine.Evaluate(challenge, profile, hot, DifficultyLevel.Easy);
+        var onScore = engine.Evaluate(challenge, profile, onTarget);
+        var hotScore = engine.Evaluate(challenge, profile, hot);
 
         var iasOn = onScore.Criteria.First(c => c.Id == "airspeed");
         var iasHot = hotScore.Criteria.First(c => c.Id == "airspeed");
@@ -503,32 +522,23 @@ public class ScoreEngineTests
     }
 
     [Fact]
-    public void CenterlineEvaluator_StrictIsTighterThanEasy()
+    public void CenterlineEvaluator_UsesSingleCurveParams()
     {
         var criterion = new CriterionConfig
         {
             Evaluator = "centerline",
             Params = new Dictionary<string, double>
             {
-                ["easyTolerance"] = 4,
-                ["easyZeroAt"] = 18,
-                ["easyExponent"] = 1.7,
-                ["strictTolerance"] = 1.5,
-                ["strictZeroAt"] = 10,
-                ["strictExponent"] = 1.3
+                ["tolerance"] = 1.5,
+                ["zeroAt"] = 10,
+                ["exponent"] = 1.3
             }
         };
 
-        // 3 m: Easy still 100%, Strict already past full-score band
-        var easy3 = CenterlineEvaluator.Instance.Evaluate(3, criterion, DifficultyLevel.Easy);
-        var strict3 = CenterlineEvaluator.Instance.Evaluate(3, criterion, DifficultyLevel.Strict);
-        Assert.Equal(1.0, easy3, 3);
-        Assert.True(strict3 < 1.0, "Strict should not give 100% at 3 m off center");
-
-        // 8 m: both penalized, Strict harsher
-        var easy8 = CenterlineEvaluator.Instance.Evaluate(8, criterion, DifficultyLevel.Easy);
-        var strict8 = CenterlineEvaluator.Instance.Evaluate(8, criterion, DifficultyLevel.Strict);
-        Assert.True(strict8 < easy8);
+        Assert.Equal(1.0, CenterlineEvaluator.Instance.Evaluate(0, criterion), 3);
+        Assert.Equal(1.0, CenterlineEvaluator.Instance.Evaluate(1.5, criterion), 3);
+        Assert.True(CenterlineEvaluator.Instance.Evaluate(3, criterion) < 1.0);
+        Assert.Equal(0.0, CenterlineEvaluator.Instance.Evaluate(10, criterion), 3);
     }
 
     private static TelemetrySample Sample(
@@ -556,3 +566,4 @@ public class ScoreEngineTests
         RadioHeightFeet = onGround ? 0 : 800
     };
 }
+

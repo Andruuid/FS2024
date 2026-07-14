@@ -16,25 +16,23 @@ public sealed class ScoreEngine
     public ScoreResult Evaluate(
         ChallengeConfig challenge,
         ScoringProfileConfig profile,
-        LandingSnapshot snapshot,
-        DifficultyLevel level)
+        LandingSnapshot snapshot)
     {
         // Prefer phase hierarchy when evaluation key is loaded
         if (_key?.Phases is { Count: > 0 })
-            return EvaluateHierarchical(challenge, profile, snapshot, level, _key);
+            return EvaluateHierarchical(challenge, profile, snapshot, _key);
 
-        return EvaluateFlat(challenge, profile, snapshot, level);
+        return EvaluateFlat(challenge, profile, snapshot);
     }
 
     /// <summary>
     /// final = Σ (phaseScore × phaseWeight/100), then gear gate.
-    /// Within each phase: Σ (metricScore × importance/100) over metrics active on this difficulty (renormalized).
+    /// Within each phase: Σ (metricScore × importance/100) over all metrics (renormalized).
     /// </summary>
     private ScoreResult EvaluateHierarchical(
         ChallengeConfig challenge,
         ScoringProfileConfig profile,
         LandingSnapshot snapshot,
-        DifficultyLevel level,
         LandingEvaluationKey key)
     {
         var criteriaScores = new List<CriterionScore>();
@@ -44,8 +42,8 @@ public sealed class ScoreEngine
 
         foreach (var phase in key.Phases)
         {
-            var active = phase.Metrics.Where(m => m.AppliesTo(level)).ToList();
-            if (active.Count == 0)
+            var metrics = phase.Metrics;
+            if (metrics.Count == 0)
             {
                 phaseScores.Add(new PhaseScore
                 {
@@ -54,23 +52,23 @@ public sealed class ScoreEngine
                     WeightPercent = phase.WeightPercent,
                     ScorePercent = 0,
                     Used = false,
-                    Note = $"No metrics for {level.ToDisplayName()} in this phase."
+                    Note = "No metrics in this phase."
                 });
                 continue;
             }
 
-            var importanceSum = active.Sum(m => m.ImportancePercent);
-            if (importanceSum <= 0) importanceSum = active.Count;
+            var importanceSum = metrics.Sum(m => m.ImportancePercent);
+            if (importanceSum <= 0) importanceSum = metrics.Count;
 
             double phaseScore01 = 0;
-            foreach (var metric in active)
+            foreach (var metric in metrics)
             {
                 var criterion = metric.ToCriterionConfig();
                 var raw = MetricResolver.Resolve(metric.Metric, snapshot, challenge);
                 var evaluator = EvaluatorFactory.Create(metric.Evaluator);
                 double score01 = raw is null
                     ? 0.5
-                    : evaluator.Evaluate(raw.Value, criterion, level);
+                    : evaluator.Evaluate(raw.Value, criterion);
 
                 var share = metric.ImportancePercent / importanceSum;
                 phaseScore01 += score01 * share;
@@ -81,7 +79,7 @@ public sealed class ScoreEngine
                 else if (IsExcessSpeedMetric(metric.Metric))
                     displayRaw = snapshot.ExcessSpeedOverVappKts;
 
-                var explanation = MetricExplanations.For(criterion, snapshot, level, score01, raw);
+                var explanation = MetricExplanations.For(criterion, snapshot, score01, raw);
                 explanation =
                     $"[{phase.DisplayName} · {metric.ImportancePercent:0.#}% of phase] " + explanation;
 
@@ -94,7 +92,10 @@ public sealed class ScoreEngine
                     RawValue = displayRaw,
                     Unit = metric.Unit,
                     Note = explanation,
-                    Applied = true
+                    Applied = true,
+                    PhaseId = phase.Id,
+                    PhaseDisplayName = phase.DisplayName,
+                    ImportancePercent = metric.ImportancePercent
                 });
             }
 
@@ -113,7 +114,7 @@ public sealed class ScoreEngine
             phaseWeightUsed += phase.WeightPercent;
         }
 
-        // Renormalize if some phases unused (e.g. Easy has no approach metrics)
+        // Renormalize if some phases unused
         double percentBeforeGate;
         if (phaseWeightUsed > 0 && Math.Abs(phaseWeightUsed - 100) > 0.01)
             percentBeforeGate = finalAccum * (100.0 / phaseWeightUsed);
@@ -127,47 +128,30 @@ public sealed class ScoreEngine
         AppendGearGate(challenge, profile, snapshot, key, criteriaScores, ref gearUpHardPenalty);
 
         var percent = percentBeforeGate;
-        string? gateNote = null;
         if (gearUpHardPenalty)
         {
             var mult = key.Gates?.Gear?.MultiplierOnFail
                        ?? (profile.GearUpScoreMultiplier > 0 ? profile.GearUpScoreMultiplier : 0.1);
             if (mult <= 0 || mult > 1) mult = 0.1;
             percent = percentBeforeGate * mult;
-            var cutPct = (1.0 - mult) * 100.0;
-            gateNote =
-                $"GEAR UP: overall score cut by {cutPct:0}% " +
-                $"({percentBeforeGate:0.0}% → {percent:0.0}%). Gear-down awards no credit.";
         }
 
         percent = Math.Round(Math.Clamp(percent, 0, 100), 1);
-
-        var phaseSummary = string.Join(" · ",
-            phaseScores.Where(p => p.Used)
-                .Select(p => $"{p.DisplayName} {p.ScorePercent:0.0}% (w={p.WeightPercent:0}%)"));
-
-        var scored = criteriaScores.Where(c => c.Applied && c.Weight > 0).ToList();
-        var worst = scored.OrderBy(c => c.Score01).FirstOrDefault();
-        var best = scored.OrderByDescending(c => c.Score01).FirstOrDefault();
-        var summary =
-            $"Phases: {phaseSummary}. " +
-            (best is null
-                ? ""
-                : $"Strongest: {best.DisplayName} ({best.ScorePercent:0}%). Weakest: {worst!.DisplayName} ({worst.ScorePercent:0}%).");
-        if (gateNote is not null)
-            summary = gateNote + " " + summary;
+        var grade = ScoreResult.GradeFromPercent(percent);
+        var beforeGate = Math.Round(percentBeforeGate, 1);
+        var summary = ScoreBreakdownFormatter.Format(
+            percent, grade, beforeGate, gearUpHardPenalty, phaseScores, criteriaScores);
 
         return new ScoreResult
         {
             ChallengeId = challenge.Id,
             ChallengeTitle = challenge.Title,
-            Level = level,
             ScorePercent = percent,
-            Grade = ScoreResult.GradeFromPercent(percent),
+            Grade = grade,
             Criteria = criteriaScores,
             ScoredAtUtc = DateTimeOffset.UtcNow,
-            Summary = summary.Trim(),
-            ScoreBeforeGatesPercent = Math.Round(percentBeforeGate, 1),
+            Summary = summary,
+            ScoreBeforeGatesPercent = beforeGate,
             GearUpPenaltyApplied = gearUpHardPenalty,
             PhaseScores = phaseScores
         };
@@ -236,8 +220,7 @@ public sealed class ScoreEngine
     private ScoreResult EvaluateFlat(
         ChallengeConfig challenge,
         ScoringProfileConfig profile,
-        LandingSnapshot snapshot,
-        DifficultyLevel level)
+        LandingSnapshot snapshot)
     {
         // Legacy flat weighted average if no evaluation key
         var criteriaScores = new List<CriterionScore>();
@@ -290,23 +273,9 @@ public sealed class ScoreEngine
                 continue;
             }
 
-            if (!criterion.AppliesTo(level))
-            {
-                criteriaScores.Add(new CriterionScore
-                {
-                    Id = criterion.Id,
-                    DisplayName = criterion.DisplayName,
-                    Weight = criterion.Weight,
-                    Score01 = 0,
-                    Applied = false,
-                    Note = MetricExplanations.For(criterion, snapshot, level, 0, null)
-                });
-                continue;
-            }
-
             var raw = MetricResolver.Resolve(criterion.Metric, snapshot, challenge);
             var evaluator = EvaluatorFactory.Create(criterion.Evaluator);
-            var score01 = raw is null ? 0.5 : evaluator.Evaluate(raw.Value, criterion, level);
+            var score01 = raw is null ? 0.5 : evaluator.Evaluate(raw.Value, criterion);
             weightedSum += score01 * criterion.Weight;
             weightTotal += criterion.Weight;
             criteriaScores.Add(new CriterionScore
@@ -317,7 +286,7 @@ public sealed class ScoreEngine
                 Score01 = score01,
                 RawValue = raw,
                 Unit = criterion.Unit,
-                Note = MetricExplanations.For(criterion, snapshot, level, score01, raw),
+                Note = MetricExplanations.For(criterion, snapshot, score01, raw),
                 Applied = true
             });
         }
@@ -328,17 +297,21 @@ public sealed class ScoreEngine
             : percentBefore;
         percent = Math.Round(Math.Clamp(percent, 0, 100), 1);
 
+        var grade = ScoreResult.GradeFromPercent(percent);
+        var before = Math.Round(percentBefore, 1);
+        var summary = ScoreBreakdownFormatter.Format(
+            percent, grade, before, gearUpHardPenalty, Array.Empty<PhaseScore>(), criteriaScores);
+
         return new ScoreResult
         {
             ChallengeId = challenge.Id,
             ChallengeTitle = challenge.Title,
-            Level = level,
             ScorePercent = percent,
-            Grade = ScoreResult.GradeFromPercent(percent),
+            Grade = grade,
             Criteria = criteriaScores,
             ScoredAtUtc = DateTimeOffset.UtcNow,
-            Summary = "Flat profile (no evaluation key loaded).",
-            ScoreBeforeGatesPercent = Math.Round(percentBefore, 1),
+            Summary = summary,
+            ScoreBeforeGatesPercent = before,
             GearUpPenaltyApplied = gearUpHardPenalty
         };
     }

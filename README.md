@@ -8,7 +8,7 @@ A separate challenge mode for **Microsoft Flight Simulator 2024**: hardcore land
 |---------|--------|
 | Modern WPF challenge browser | Yes |
 | **Barcelona Crosswind Final** (A330, LEBL 25L) | Yes |
-| Easy / Strict difficulty | Yes |
+| Single full scoring profile (JSON evaluation key) | Yes |
 | Load → final approach (FlightLoad + teleport fallback) | Yes |
 | Score when GS &lt; 50 knots | Yes |
 | Companion HUD (tips, live stats, results) | Yes |
@@ -35,7 +35,7 @@ dotnet run --project src\ChallengeLab.App
 1. Start **MSFS 2024** (main menu or free flight is fine).
 2. Launch **Challenge Lab**.
 3. Wait until the status shows **Connected** (or click **Connect**).
-4. Select **Barcelona Crosswind Final**, choose **Easy** or **Strict**.
+4. Select **Barcelona Crosswind Final**.
 5. Click **Start Challenge** — watch the progress bar, then fly the landing.
 6. After touchdown, slow below **50 knots**. Score appears on the **Companion HUD** and under the **Session** tab.
 
@@ -78,7 +78,7 @@ final % = (touchdown × 0.70) + (approach × 0.25) + (rollout × 0.05)
 then gear-up gate (if required): final × multiplierOnFail (default 0.1)
 ```
 
-Within each phase, metrics are weighted by `importancePercent` (renormalized for the active difficulty).
+Within each phase, metrics are weighted by `importancePercent` (renormalized if needed). There is no Easy/Strict split — every metric in the key is always scored.
 
 ### Also editable
 
@@ -91,8 +91,7 @@ Within each phase, metrics are weighted by `importancePercent` (renormalized for
 ### Metric fields in the evaluation key
 
 - `metric` — e.g. `touchdownVerticalSpeedFpm`, `centerlineDeviationM`
-- `evaluator` — `piecewise` | `target` | `band` | `range` | `boolean`
-- `levels` — `easy` / `strict` (Strict evaluates all; Easy only metrics tagged for easy)
+- `evaluator` — `piecewise` | `target` | `band` | `range` | `boolean` | `centerline`
 - `importancePercent` — share of that phase (not free points for gear)
 - `points` — piecewise curve: `v` = measured value, `s` = **metric score 0–100%** (e.g. `{ "v": -100, "s": 100 }`). Each metric always reports 0–100%; phase weights (`importancePercent`) only blend them.
 

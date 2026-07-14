@@ -1,5 +1,4 @@
 using ChallengeLab.Core.Config;
-using ChallengeLab.Core.Models;
 
 namespace ChallengeLab.Core.Scoring.Evaluators;
 
@@ -11,7 +10,7 @@ public sealed class BandEvaluator : IEvaluator
 {
     public static readonly BandEvaluator Instance = new();
 
-    public double Evaluate(double value, CriterionConfig criterion, DifficultyLevel level = DifficultyLevel.Easy)
+    public double Evaluate(double value, CriterionConfig criterion)
     {
         var p = criterion.Params;
         var peakMin = Get(p, "peakMin", -180);

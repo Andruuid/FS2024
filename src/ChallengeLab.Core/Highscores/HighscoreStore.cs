@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ChallengeLab.Core.Models;
+using ChallengeLab.Core.Scoring;
 
 namespace ChallengeLab.Core.Highscores;
 
@@ -14,6 +15,9 @@ public sealed class HighscoreCriterionDetail
     public string? Unit { get; set; }
     public string? Note { get; set; }
     public bool Applied { get; set; } = true;
+    public string? PhaseId { get; set; }
+    public string? PhaseDisplayName { get; set; }
+    public double ImportancePercent { get; set; }
 }
 
 public sealed class HighscoreEntry
@@ -22,16 +26,60 @@ public sealed class HighscoreEntry
     public DateTimeOffset Utc { get; set; }
     public string ChallengeId { get; set; } = "";
     public string ChallengeTitle { get; set; } = "";
+
+    /// <summary>Legacy field from Easy/Strict era; ignored for new entries, kept for old saves.</summary>
     public string Level { get; set; } = "";
+
     public double ScorePercent { get; set; }
     public string Grade { get; set; } = "";
+
+    /// <summary>Hierarchical result text (Total / phases / metrics).</summary>
     public string? Notes { get; set; }
+
+    public double? ScoreBeforeGatesPercent { get; set; }
+    public bool GearUpPenaltyApplied { get; set; }
+
+    /// <summary>Phase totals for rebuild/display.</summary>
+    public List<HighscorePhaseDetail> Phases { get; set; } = new();
 
     /// <summary>Primary metric snapshot (always stored for new entries).</summary>
     public double? VerticalSpeedFpm { get; set; }
 
     /// <summary>Full per-criterion breakdown (new entries). Older saves may be empty.</summary>
     public List<HighscoreCriterionDetail> Criteria { get; set; } = new();
+
+    /// <summary>Hierarchical breakdown for UI (stored Notes, or rebuilt from criteria/phases).</summary>
+    [JsonIgnore]
+    public string Breakdown
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(Notes)
+                && Notes.Contains("Total Grade", StringComparison.OrdinalIgnoreCase))
+                return Notes.TrimEnd() + Environment.NewLine;
+
+            if (Criteria.Count == 0 && Phases.Count == 0)
+                return $"Total Grade {Grade}  {ScoreBreakdownFormatter.Pct(ScorePercent)}{Environment.NewLine}";
+
+            return ScoreBreakdownFormatter.FormatFromStored(
+                ScorePercent,
+                Grade,
+                ScoreBeforeGatesPercent,
+                GearUpPenaltyApplied,
+                Phases,
+                Criteria.Select(c => new ScoreBreakdownFormatter.StoredMetric
+                {
+                    Id = c.Id,
+                    DisplayName = c.DisplayName,
+                    Weight = c.Weight,
+                    ScorePercent = c.ScorePercent,
+                    Applied = c.Applied,
+                    PhaseId = c.PhaseId,
+                    PhaseDisplayName = c.PhaseDisplayName,
+                    Note = c.Note
+                }));
+        }
+    }
 
     [JsonIgnore]
     public bool HasDetail => Criteria is { Count: > 0 };
@@ -129,7 +177,19 @@ public sealed class HighscoreStore
             RawValue = c.RawValue,
             Unit = c.Unit,
             Note = c.Note,
-            Applied = c.Applied
+            Applied = c.Applied,
+            PhaseId = c.PhaseId,
+            PhaseDisplayName = c.PhaseDisplayName,
+            ImportancePercent = c.ImportancePercent
+        }).ToList();
+
+        var phases = result.PhaseScores.Select(p => new HighscorePhaseDetail
+        {
+            PhaseId = p.PhaseId,
+            DisplayName = p.DisplayName,
+            WeightPercent = p.WeightPercent,
+            ScorePercent = p.ScorePercent,
+            Used = p.Used
         }).ToList();
 
         var vsRaw = criteria.FirstOrDefault(c =>
@@ -147,10 +207,12 @@ public sealed class HighscoreStore
             Utc = result.ScoredAtUtc,
             ChallengeId = result.ChallengeId,
             ChallengeTitle = result.ChallengeTitle,
-            Level = result.Level.ToDisplayName(),
             ScorePercent = result.ScorePercent,
             Grade = result.Grade,
             Notes = result.Summary,
+            ScoreBeforeGatesPercent = result.ScoreBeforeGatesPercent,
+            GearUpPenaltyApplied = result.GearUpPenaltyApplied,
+            Phases = phases,
             VerticalSpeedFpm = vsRaw,
             Criteria = criteria
         };

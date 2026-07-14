@@ -30,7 +30,6 @@ public sealed class ChallengeConfig
     public string Title { get; set; } = "";
     public string Subtitle { get; set; } = "";
     public string Description { get; set; } = "";
-    public string DifficultyBlurb { get; set; } = "";
     public bool Available { get; set; } = true;
     public string ComingSoonNote { get; set; } = "";
     public List<string> AircraftTitles { get; set; } = new();
@@ -159,7 +158,6 @@ public sealed class CriterionConfig
     public string Metric { get; set; } = "";
     public string Evaluator { get; set; } = "range";
     public string SampleAt { get; set; } = "touchdown";
-    public List<string> Levels { get; set; } = new() { "easy", "strict" };
     public string? Unit { get; set; }
     public string? Note { get; set; }
     public Dictionary<string, double> Params { get; set; } = new();
@@ -170,12 +168,6 @@ public sealed class CriterionConfig
     public List<ScorePoint>? Points { get; set; }
 
     public bool FailIfOutside { get; set; }
-
-    public bool AppliesTo(DifficultyLevel level)
-    {
-        var key = level.ToConfigKey();
-        return Levels.Count == 0 || Levels.Any(l => string.Equals(l, key, StringComparison.OrdinalIgnoreCase));
-    }
 }
 
 /// <summary>Control point: metric value → metric score percent.</summary>

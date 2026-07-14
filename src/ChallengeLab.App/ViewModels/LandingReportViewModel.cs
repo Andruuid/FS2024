@@ -11,10 +11,10 @@ public sealed class LandingReportViewModel : ViewModelBase
     {
         Entry = entry;
         Title = entry.ChallengeTitle;
-        Subtitle = $"{entry.Utc:yyyy-MM-dd HH:mm} UTC  ·  {entry.Level}  ·  Grade {entry.Grade}";
+        Subtitle = $"{entry.Utc:yyyy-MM-dd HH:mm} UTC  ·  Grade {entry.Grade}";
         ScorePercent = entry.ScorePercent;
         Grade = entry.Grade;
-        Notes = entry.Notes ?? "";
+        Notes = entry.Breakdown;
         CriteriaStored = entry.Criteria?.Count ?? 0;
 
         VerticalSpeedRaw = entry.ResolveVerticalSpeedFpm();
@@ -32,7 +32,6 @@ public sealed class LandingReportViewModel : ViewModelBase
 
         Metrics = new ObservableCollection<ReportMetricViewModel>();
 
-        // Prefer full criteria list (including not-applied) so Strict-only rows still appear with notes
         var source = entry.CriteriaForReport;
         if (source.Count == 0 && entry.Criteria is { Count: > 0 })
             source = entry.Criteria;
@@ -109,7 +108,7 @@ public sealed class LandingReportViewModel : ViewModelBase
             : c.Unit is null
                 ? $" Measured: {c.RawValue:0.##}."
                 : $" Measured: {c.RawValue:0.##} {c.Unit}.";
-        var score = c.Applied ? $" Score: {c.ScorePercent:0}%." : " Not scored on this difficulty.";
+        var score = c.Applied ? $" Score: {c.ScorePercent:0}%." : " Not scored.";
         return (catalog + measured + score).Trim();
     }
 

@@ -1,4 +1,4 @@
-{
+﻿{
   "id": "hardcore-crosswind-landing",
   "title": "Hardcore Crosswind Landing",
   "description": "Legacy flat criteria list. Prefer landing-evaluation-key.json for phase weights (Approach 25% / Touchdown 70% / Rollout 5%). Peak G removed.",
@@ -20,9 +20,8 @@
       "metric": "touchdownVerticalSpeedFpm",
       "evaluator": "piecewise",
       "sampleAt": "touchdown",
-      "levels": ["easy", "strict"],
       "unit": "fpm",
-      "note": "A330-style: ideal ~-150 fpm (−100…−180). Firm is good; ultra-soft float and hard landings are penalized.",
+      "note": "A330-style: ideal ~-150 fpm (âˆ’100â€¦âˆ’180). Firm is good; ultra-soft float and hard landings are penalized.",
       "points": [
         { "v": -600, "s": 0.00 },
         { "v": -500, "s": 0.10 },
@@ -44,19 +43,12 @@
       "metric": "centerlineDeviationM",
       "evaluator": "centerline",
       "sampleAt": "touchdown",
-      "levels": ["easy", "strict"],
       "unit": "m",
-      "note": "Absolute lateral offset at main-gear touchdown only — not crab/heading.",
+      "note": "Absolute lateral offset at main-gear touchdown only â€” not crab/heading.",
       "params": {
-        "tolerance": 3,
-        "zeroAt": 15,
-        "exponent": 1.5,
-        "easyTolerance": 4,
-        "easyZeroAt": 18,
-        "easyExponent": 1.7,
-        "strictTolerance": 1.5,
-        "strictZeroAt": 10,
-        "strictExponent": 1.3
+        "tolerance": 1.5,
+        "zeroAt": 10,
+        "exponent": 1.3
       }
     },
     {
@@ -66,7 +58,6 @@
       "metric": "alignmentDeg",
       "evaluator": "target",
       "sampleAt": "touchdown",
-      "levels": ["easy", "strict"],
       "unit": "deg",
       "note": "Fuselage heading vs runway course at touchdown (crab/drift). Separate from lateral centerline position.",
       "params": {
@@ -82,9 +73,8 @@
       "metric": "touchdownIasErrorKts",
       "evaluator": "piecewise",
       "sampleAt": "touchdown",
-      "levels": ["easy", "strict"],
       "unit": "kts",
-      "note": "Scored vs target TD IAS = VAPP − 5 kt (not a fixed number). Ideal: target…target−5. Slightly fast still ok; large errors penalized.",
+      "note": "Scored vs target TD IAS = VAPP âˆ’ 5 kt (not a fixed number). Ideal: targetâ€¦targetâˆ’5. Slightly fast still ok; large errors penalized.",
       "points": [
         { "v": -30, "s": 0.10 },
         { "v": -15, "s": 0.60 },
@@ -105,7 +95,6 @@
       "metric": "excessSpeedOverVappKts",
       "evaluator": "piecewise",
       "sampleAt": "touchdown",
-      "levels": ["easy", "strict"],
       "unit": "kts",
       "note": "Separate float/energy penalty: smooth at 155 kt can still mean a long landing. Prefer not above VAPP at touchdown.",
       "points": [
@@ -125,7 +114,6 @@
       "metric": "bankAtTouchdownDeg",
       "evaluator": "target",
       "sampleAt": "touchdown",
-      "levels": ["easy", "strict"],
       "unit": "deg",
       "note": "Keep wings level to protect pods in crosswind.",
       "params": {
@@ -141,7 +129,6 @@
       "metric": "gearDown",
       "evaluator": "boolean",
       "sampleAt": "touchdown",
-      "levels": ["easy", "strict"],
       "note": "Safety gate only: gear-down gives no bonus. Gear-up applies ~90% overall score cut unless the challenge sets requireGearDown=false (water/belly).",
       "params": {
         "expected": 1,
@@ -155,7 +142,6 @@
       "metric": "flapsIndex",
       "evaluator": "range",
       "sampleAt": "touchdown",
-      "levels": ["easy", "strict"],
       "unit": "index",
       "note": "Flaps handle should be in the landing range for this challenge (typically full/approach config).",
       "params": {
@@ -172,9 +158,8 @@
       "metric": "approachPathRms",
       "evaluator": "target",
       "sampleAt": "approach",
-      "levels": ["strict"],
       "unit": "ft RMS",
-      "note": "Strict only — how steadily you held the final approach path (altitude vs an ideal 3° profile).",
+      "note": "How steadily you held the final approach path (altitude vs an ideal 3 degree profile).",
       "params": {
         "ideal": 0,
         "tolerance": 80,
@@ -188,9 +173,8 @@
       "metric": "groundTrackErrorMeanDeg",
       "evaluator": "target",
       "sampleAt": "touchdown",
-      "levels": ["easy", "strict"],
       "unit": "deg",
-      "note": "Mean |ground-track − runway heading| over 3 s before to 3 s after touchdown. CG motion, not crab.",
+      "note": "Mean |ground-track âˆ’ runway heading| over 3 s before to 3 s after touchdown. CG motion, not crab.",
       "params": {
         "ideal": 0,
         "tolerance": 2,
@@ -204,7 +188,6 @@
       "metric": "postTouchdownAlignmentMeanDeg",
       "evaluator": "target",
       "sampleAt": "rollout",
-      "levels": ["easy", "strict"],
       "unit": "deg",
       "note": "From 2 s after touchdown until ~50 kt: fuselage heading vs runway. Should be de-crabbed and held with rudder.",
       "params": {
@@ -220,9 +203,8 @@
       "metric": "rolloutLateralMeanM",
       "evaluator": "target",
       "sampleAt": "rollout",
-      "levels": ["easy", "strict"],
       "unit": "m",
-      "note": "Distance-weighted mean |offset| after touchdown: (∫|d| ds)/S. How close the rundown stays to centerline.",
+      "note": "Distance-weighted mean |offset| after touchdown: (âˆ«|d| ds)/S. How close the rundown stays to centerline.",
       "params": {
         "ideal": 0,
         "tolerance": 3,
@@ -236,9 +218,8 @@
       "metric": "rolloutWeaveIndex",
       "evaluator": "target",
       "sampleAt": "rollout",
-      "levels": ["easy", "strict"],
       "unit": "m/m",
-      "note": "Σ|Δd|/S after touchdown. Steady rundown ≈ 0; left-right steering oscillates and scores worse.",
+      "note": "Î£|Î”d|/S after touchdown. Steady rundown â‰ˆ 0; left-right steering oscillates and scores worse.",
       "params": {
         "ideal": 0,
         "tolerance": 0.02,
@@ -252,7 +233,6 @@
       "metric": "rolloutLateralPeakM",
       "evaluator": "target",
       "sampleAt": "rollout",
-      "levels": ["strict"],
       "unit": "m",
       "note": "Peak |centerline offset| after touchdown.",
       "params": {

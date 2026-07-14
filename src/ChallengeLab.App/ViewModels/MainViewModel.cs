@@ -26,7 +26,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private readonly DispatcherTimer _reconnectTimer;
 
     private ChallengeCardViewModel? _selectedChallenge;
-    private DifficultyLevel _selectedDifficulty = DifficultyLevel.Strict;
     private string _connectionStatus = "Disconnected";
     private bool _isConnected;
     private bool _isLoading;
@@ -211,40 +210,26 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             var metricCount = ReportMetrics.Count;
 
             ReportStatus =
-                $"BUILD 2220 | METRICS LOADED: {metricCount} | stored criteria: {criteriaCount} | " +
-                $"score {value.ScorePercent:0.0}% {value.Grade} | SCROLL DOWN";
+                $"LANDING RESULT | score {value.ScorePercent:0.0}% grade {value.Grade} | {metricCount} metrics";
 
+            // Primary view: hierarchical Total / phases / metrics
             var sb = new StringBuilder();
-            sb.AppendLine($"=== FULL BREAKDOWN ({metricCount} metrics, {criteriaCount} stored) ===");
-            sb.AppendLine();
-            if (metricCount == 0)
+            sb.Append(value.Breakdown);
+            if (metricCount > 0)
             {
-                sb.AppendLine("NO METRICS IN UI COLLECTION.");
-                sb.AppendLine($"HighscoreEntry.Criteria.Count = {criteriaCount}");
-                sb.AppendLine($"VS fpm = {value.VerticalSpeedFpm?.ToString("0") ?? "null"}");
-                if (criteriaCount > 0)
-                {
-                    sb.AppendLine("Raw criteria from store:");
-                    foreach (var c in value.Criteria)
-                        sb.AppendLine($"  - {c.Id}: {c.DisplayName} = {c.ScorePercent:0}% raw={c.RawValue}");
-                }
-            }
-            else
-            {
-                var n = 0;
+                sb.AppendLine();
+                sb.AppendLine("--- detail ---");
                 foreach (var m in ReportMetrics)
                 {
-                    n++;
-                    sb.AppendLine($"#{n}  {m.DisplayName}");
-                    sb.AppendLine($"    Score: {m.ScorePercent:0}%   Verdict: {m.Verdict}   Weight: {m.Weight:0.##}");
-                    sb.AppendLine($"    Value: {m.RawDisplay}");
-                    sb.AppendLine($"    {m.Note}");
+                    sb.AppendLine($"{m.DisplayName}: {m.ScorePercent:0.#}%  ({m.RawDisplay})  {m.Verdict}");
+                    if (!string.IsNullOrWhiteSpace(m.Note))
+                        sb.AppendLine($"  {m.Note}");
                     sb.AppendLine();
                 }
             }
 
             ReportBodyText = sb.ToString();
-            WindowTitle = $"Challenge Lab — BUILD 2220 | metrics={metricCount} criteria={criteriaCount}";
+            WindowTitle = $"Challenge Lab — {value.ScorePercent:0.0}% {value.Grade}";
 
             AppendLog(
                 $"Report opened: {value.ChallengeTitle} {value.ScorePercent:0.0}% · " +
@@ -259,9 +244,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    public IEnumerable<DifficultyLevel> Difficulties { get; } =
-        new[] { DifficultyLevel.Easy, DifficultyLevel.Strict };
-
     public ChallengeCardViewModel? SelectedChallenge
     {
         get => _selectedChallenge;
@@ -270,12 +252,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             SetProperty(ref _selectedChallenge, value);
             (StartChallengeCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
-    }
-
-    public DifficultyLevel SelectedDifficulty
-    {
-        get => _selectedDifficulty;
-        set => SetProperty(ref _selectedDifficulty, value);
     }
 
     public string ConnectionStatus
@@ -523,7 +499,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
         Application.Current.Dispatcher.Invoke(() =>
         {
-            var result = _scoreEngine.Evaluate(_activeChallenge, _activeProfile, _session.Snapshot, SelectedDifficulty);
+            var result = _scoreEngine.Evaluate(_activeChallenge, _activeProfile, _session.Snapshot);
             LastScore = result;
             ResultVisible = true;
             _highscores.Add(result);
@@ -535,7 +511,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             PhaseLabel = "Scored";
             ScoreComputed?.Invoke(result);
             RequestShowHud?.Invoke();
-            AppendLog($"Scored {result.ScorePercent}% ({result.Grade}) on {result.ChallengeTitle} [{result.Level}] — {result.Criteria.Count} metrics stored");
+            AppendLog($"Scored {result.ScorePercent}% ({result.Grade}) on {result.ChallengeTitle} — {result.Criteria.Count} metrics stored");
         });
     }
 

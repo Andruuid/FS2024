@@ -203,18 +203,45 @@ public sealed class SimConnectClient : ISimBridge
         ApplyWeather(challenge.Weather);
         await Task.Delay(500, ct);
 
-        // Always apply spawn from challenge JSON (sourced from the same FLT SimVars for tests).
-        // This is the reliable path when FlightLoad is ignored on the world map / wrong session state.
-        progress?.Report(loadedFlight ? "Fine-tuning position…" : "Positioning aircraft (teleport)…");
+        // Always apply spawn from challenge JSON after FlightLoad.
+        // Flight files (e.g. autosave) often bake high IAS (ZVelBodyAxis_IAS=270); JSON must win.
+        progress?.Report(loadedFlight ? "Fine-tuning position & airspeed…" : "Positioning aircraft (teleport)…");
+        PauseSim(true);
+        await Task.Delay(200, ct);
         Teleport(challenge.Spawn);
-        await Task.Delay(800, ct);
+        await Task.Delay(600, ct);
+        // Second apply — MSFS sometimes keeps FLT velocity after the first InitPosition.
+        Teleport(challenge.Spawn);
+        await Task.Delay(400, ct);
 
         progress?.Report("Configuring gear and flaps…");
         ConfigureAircraft(challenge.AircraftSetup);
         await Task.Delay(400, ct);
 
+        if (challenge.AircraftSetup.Unpause)
+            PauseSim(false);
+
         progress?.Report("Challenge armed.");
-        Log("Scenario load complete.");
+        Log($"Scenario load complete. Spawn IAS target: {challenge.Spawn.AirspeedKts:0} kt (from challenge JSON).");
+    }
+
+    private void PauseSim(bool pause)
+    {
+        if (_sim is null) return;
+        try
+        {
+            EnsureEvents();
+            _sim.TransmitClientEvent(
+                MsfsSc.SIMCONNECT_OBJECT_ID_USER,
+                pause ? Events.PauseOn : Events.PauseOff,
+                0,
+                Groups.Input,
+                SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+        }
+        catch (Exception ex)
+        {
+            Log($"PauseSim({pause}): {ex.Message}");
+        }
     }
 
     public void ConfigureAircraft(AircraftSetupConfig setup)
@@ -233,11 +260,7 @@ public sealed class SimConnectClient : ISimBridge
             _sim.TransmitClientEvent(MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.FlapsSet, flaps,
                 Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
 
-            if (setup.Unpause)
-            {
-                _sim.TransmitClientEvent(MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.PauseOff, 0,
-                    Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
-            }
+            // Unpause is applied by LoadScenarioAsync after spawn airspeed is set.
         }
         catch (Exception ex)
         {
@@ -289,6 +312,9 @@ public sealed class SimConnectClient : ISimBridge
         {
             EnsureDefinitions();
 
+            // SIMCONNECT_DATA_INITPOSITION.Airspeed is knots (in-air). This is what
+            // challenge JSON spawn.airspeedKts controls — not the .FLT alone.
+            var ias = (uint)Math.Max(0, Math.Round(spawn.AirspeedKts));
             var init = new SIMCONNECT_DATA_INITPOSITION
             {
                 Latitude = spawn.Latitude,
@@ -298,7 +324,7 @@ public sealed class SimConnectClient : ISimBridge
                 Bank = spawn.BankDeg,
                 Heading = spawn.HeadingDeg,
                 OnGround = 0,
-                Airspeed = (uint)Math.Max(0, Math.Round(spawn.AirspeedKts))
+                Airspeed = ias
             };
 
             _sim.SetDataOnSimObject(
@@ -307,7 +333,9 @@ public sealed class SimConnectClient : ISimBridge
                 SIMCONNECT_DATA_SET_FLAG.DEFAULT,
                 init);
 
-            Log($"Teleport lat={spawn.Latitude:F5} lon={spawn.Longitude:F5} alt={spawn.AltitudeFeet:F0} hdg={spawn.HeadingDeg:F0}");
+            Log(
+                $"Teleport lat={spawn.Latitude:F5} lon={spawn.Longitude:F5} " +
+                $"alt={spawn.AltitudeFeet:F0} hdg={spawn.HeadingDeg:F0} ias={ias} kt");
         }
         catch (Exception ex)
         {

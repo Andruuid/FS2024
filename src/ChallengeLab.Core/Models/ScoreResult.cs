@@ -4,7 +4,6 @@ public sealed class ScoreResult
 {
     public required string ChallengeId { get; init; }
     public required string ChallengeTitle { get; init; }
-    public DifficultyLevel Level { get; init; }
     public double ScorePercent { get; init; }
     public string Grade { get; init; } = "F";
     public IReadOnlyList<CriterionScore> Criteria { get; init; } = Array.Empty<CriterionScore>();

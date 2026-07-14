@@ -1,5 +1,4 @@
 using ChallengeLab.Core.Config;
-using ChallengeLab.Core.Models;
 
 namespace ChallengeLab.Core.Scoring.Evaluators;
 
@@ -13,7 +12,7 @@ public sealed class PiecewiseEvaluator : IEvaluator
 {
     public static readonly PiecewiseEvaluator Instance = new();
 
-    public double Evaluate(double value, CriterionConfig criterion, DifficultyLevel level = DifficultyLevel.Easy)
+    public double Evaluate(double value, CriterionConfig criterion)
     {
         var points = Normalize(criterion.Points);
         if (points.Count == 0)

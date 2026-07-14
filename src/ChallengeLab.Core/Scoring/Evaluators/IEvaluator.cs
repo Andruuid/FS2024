@@ -1,12 +1,11 @@
 using ChallengeLab.Core.Config;
-using ChallengeLab.Core.Models;
 
 namespace ChallengeLab.Core.Scoring.Evaluators;
 
 public interface IEvaluator
 {
     /// <summary>Returns score in [0, 1].</summary>
-    double Evaluate(double value, CriterionConfig criterion, DifficultyLevel level = DifficultyLevel.Easy);
+    double Evaluate(double value, CriterionConfig criterion);
 }
 
 public static class EvaluatorFactory

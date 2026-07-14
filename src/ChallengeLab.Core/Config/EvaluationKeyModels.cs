@@ -1,5 +1,3 @@
-using ChallengeLab.Core.Models;
-
 namespace ChallengeLab.Core.Config;
 
 /// <summary>Phase-weighted landing evaluation key (Approach / Touchdown / Rollout).
@@ -71,7 +69,6 @@ public sealed class EvaluationMetric
     public string Id { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public double ImportancePercent { get; set; }
-    public List<string> Levels { get; set; } = new() { "easy", "strict" };
     public string? Unit { get; set; }
     public string Evaluator { get; set; } = "target";
     public string Metric { get; set; } = "";
@@ -79,12 +76,6 @@ public sealed class EvaluationMetric
     public string SampleAt { get; set; } = "touchdown";
     public Dictionary<string, double> Params { get; set; } = new();
     public List<ScorePoint>? Points { get; set; }
-
-    public bool AppliesTo(DifficultyLevel level)
-    {
-        var key = level.ToConfigKey();
-        return Levels.Count == 0 || Levels.Any(l => string.Equals(l, key, StringComparison.OrdinalIgnoreCase));
-    }
 
     public CriterionConfig ToCriterionConfig() => new()
     {
@@ -94,7 +85,6 @@ public sealed class EvaluationMetric
         Metric = Metric,
         Evaluator = Evaluator,
         SampleAt = SampleAt,
-        Levels = Levels,
         Unit = Unit,
         Note = Note,
         Params = Params,

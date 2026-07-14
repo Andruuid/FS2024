@@ -1,4 +1,4 @@
-
+﻿
 [Main]
 Title=Autosave_2026-07-14_20-55-38
 Description=Autosave_2026-07-14_20-55-38
@@ -262,10 +262,10 @@ RequestedFlightPlan=False
 AcState=ACSTATE_TOWER_LANDING
 AgentTracking=2,4,20123728,PROVENCE
 ActiveVFRAirport=LFML
-Waypoint.0=, CUSTD, , CUSTD, I, N43� 18.9510', E5� 23.2061', +003216.85, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
-Waypoint.1=, LFIE, , TT:ATC.VFR_PATTERN.LONG_FINAL_ENTRY, P, N43� 23.4075', E5� 16.8828', +001496.39, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 1, 0, 0, , 0
-Waypoint.2=, LAND, , TT:ATC.VFR_PATTERN.LANDING, P, N43� 26.0090', E5� 13.1782', +000043.04, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
-Waypoint.3=LF, LFML, , LFML, A, N43� 26.2000', E5� 12.9000', +000029.91, , , , , , NONE, 0, -1.000000, -1, -1, 0, +, 0, 0, 0, , 0
+Waypoint.0=, CUSTD, , CUSTD, I, N43° 18.9510', E5° 23.2061', +003216.85, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
+Waypoint.1=, LFIE, , TT:ATC.VFR_PATTERN.LONG_FINAL_ENTRY, P, N43° 23.4075', E5° 16.8828', +001496.39, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 1, 0, 0, , 0
+Waypoint.2=, LAND, , TT:ATC.VFR_PATTERN.LANDING, P, N43° 26.0090', E5° 13.1782', +000043.04, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
+Waypoint.3=LF, LFML, , LFML, A, N43° 26.2000', E5° 12.9000', +000029.91, , , , , , NONE, 0, -1.000000, -1, -1, 0, +, 0, 0, 0, , 0
 NumberofWaypoints=4
 ClearanceFlags=a88
 CtCur=CLEARANCE_VECTORS_ROUTE
@@ -307,9 +307,9 @@ flightplan_version=2
 routetype=0
 modifiability=0
 cruising_altitude=5299
-departure_id=CUSTD, N43� 18.9510', E5� 23.2061', +003216.85
+departure_id=CUSTD, N43° 18.9510', E5° 23.2061', +003216.85
 departure_position=
-destination_id=LFML, N43� 26.2000', E5� 12.9000', +000029.91
+destination_id=LFML, N43° 26.2000', E5° 12.9000', +000029.91
 departure_name=Marseille/Provence vicinity
 destination_name=Marseille/Provence
 reroute_possibilities=CUSTD, LFML
@@ -324,13 +324,13 @@ aircraft_nb_altitude_data=3, 3
 aircraft_speeds=92.085555555555558271, 241.94624468015035745
 aircraft_climb_rates=0.10156865165072508084, 1524, 0.076614284650331418436, 7315, 0.024992710997841977028, -1
 aircraft_descent_rates=0.061824396656963098717, 3048, 0.091937141580397702123, 7315, 0.016661807331894651352, -1
-waypoint.0=, CUSTD, , CUSTD, I, N43� 18.9510', E5� 23.2061', +003216.85, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
-waypoint.1=, ECLB, , EndOfClimbSection, E, N43� 19.0748', E5� 23.0303', +003300.00, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
-waypoint.2=, ECLB, , StartOfDescentSection, E, N43� 20.7145', E5� 20.7063', +003300.00, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
-waypoint.3=, AVGD, , Avoid ground, G, N43� 23.1561', E5� 17.2395', +001773.21, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
-waypoint.4=, LFIE, , TT:ATC.VFR_PATTERN.LONG_FINAL_ENTRY, P, N43� 23.4075', E5� 16.8828', +001496.39, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 1, 0, 0, , 0
-waypoint.5=, LAND, , TT:ATC.VFR_PATTERN.LANDING, P, N43� 26.0090', E5� 13.1782', +000043.04, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
-waypoint.6=LF, LFML, , LFML, A, N43� 26.2000', E5� 12.9000', +000029.91, , , , , , NONE, 0, -1.000000, -1, -1, 0, +, 0, 0, 0, , 0
+waypoint.0=, CUSTD, , CUSTD, I, N43° 18.9510', E5° 23.2061', +003216.85, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
+waypoint.1=, ECLB, , EndOfClimbSection, E, N43° 19.0748', E5° 23.0303', +003300.00, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
+waypoint.2=, ECLB, , StartOfDescentSection, E, N43° 20.7145', E5° 20.7063', +003300.00, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
+waypoint.3=, AVGD, , Avoid ground, G, N43° 23.1561', E5° 17.2395', +001773.21, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
+waypoint.4=, LFIE, , TT:ATC.VFR_PATTERN.LONG_FINAL_ENTRY, P, N43° 23.4075', E5° 16.8828', +001496.39, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 1, 0, 0, , 0
+waypoint.5=, LAND, , TT:ATC.VFR_PATTERN.LANDING, P, N43° 26.0090', E5° 13.1782', +000043.04, , , , , , NONE, 0, 0.000000, -1, 0, 0,  , 0, 0, 0, , 0
+waypoint.6=LF, LFML, , LFML, A, N43° 26.2000', E5° 12.9000', +000029.91, , , , , , NONE, 0, -1.000000, -1, -1, 0, +, 0, 0, 0, , 0
 
 [ATC_AircraftManager]
 NumberofAircraft=1
@@ -340,7 +340,7 @@ FrequencyNodes=0
 
 [GPS_Engine]
 Filename=C:\USERS\ADSCH\APPDATA\ROAMING\MICROSOFT FLIGHT SIMULATOR 2024\MISSIONS\CUSTOM\CUSTOMFLIGHT\CUSTOMFLIGHT
-position=N43� 20.7627', E5� 20.6609', +003594.47
+position=N43° 20.7627', E5° 20.6609', +003594.47
 Time=68138
 TimeWP=67677
 ArriveTime=152
@@ -560,8 +560,8 @@ ViewsOn=1
 Mode=None
 
 [SimVars.0]
-Latitude=N43� 20' 45.7664"
-Longitude=E5� 20' 39.6542"
+Latitude=N43° 20' 45.7664"
+Longitude=E5° 20' 39.6542"
 Altitude=+003594.47
 Pitch=-1.5744002149991238593
 Bank=0.77116311563909911708
@@ -571,8 +571,8 @@ BVelBodyAxis=0.0025594158715541823375
 HVelBodyAxis=-0.0024336161018348998787
 XVelBodyAxis=2.05527074718925018
 YVelBodyAxis=-18.754316199654894604
-ZVelBodyAxis=278.85146930748055638
-ZVelBodyAxis_IAS=270
+ZVelBodyAxis=175.5
+ZVelBodyAxis_IAS=170
 SimOnGround=False
 OnPlatformHeight=-9999999999
 

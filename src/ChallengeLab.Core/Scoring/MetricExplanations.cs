@@ -10,7 +10,6 @@ public static class MetricExplanations
     public static string For(
         CriterionConfig criterion,
         LandingSnapshot snapshot,
-        DifficultyLevel level,
         double score01,
         double? raw)
     {
@@ -19,13 +18,8 @@ public static class MetricExplanations
             : DefaultCatalog(criterion.Id, criterion.DisplayName);
 
         var measured = FormatMeasured(criterion, snapshot, raw);
-        var how = HowItIsScored(criterion, level);
+        var how = HowItIsScored(criterion);
         var verdict = ScoreVerdict(score01);
-
-        if (!criterion.AppliesTo(level))
-        {
-            return $"{baseNote} Not evaluated on {level.ToDisplayName()} difficulty.";
-        }
 
         return string.Join(" ",
             new[] { baseNote, measured, how, verdict }.Where(s => !string.IsNullOrWhiteSpace(s)));
@@ -127,17 +121,17 @@ public static class MetricExplanations
         };
     }
 
-    private static string HowItIsScored(CriterionConfig criterion, DifficultyLevel level)
+    private static string HowItIsScored(CriterionConfig criterion)
     {
         var eval = criterion.Evaluator.ToLowerInvariant();
         if (eval is "centerline" || criterion.Id == "centerline")
         {
-            var (t, z, p) = CenterlineEvaluator.ResolveParams(criterion, level);
-            return $"Scoring ({level.ToDisplayName()}): 100% within ±{t:0.#} m, falls to 0% at {z:0.#} m (curve exponent {p:0.#}).";
+            var (t, z, p) = CenterlineEvaluator.ResolveParams(criterion);
+            return $"Scoring: 100% within ±{t:0.#} m, falls to 0% at {z:0.#} m (curve exponent {p:0.#}).";
         }
 
         if (eval is "piecewise" or "zones" or "curve")
-            return "Scoring: multi-zone curve (piecewise) from the challenge profile.";
+            return "Scoring: multi-zone curve (piecewise) — each point maps measured value → metric score 0–100%.";
 
         if (eval == "target" && criterion.Params.Count > 0)
         {
