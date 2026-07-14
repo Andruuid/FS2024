@@ -27,7 +27,8 @@ public sealed class ScoreEngine
                     Weight = criterion.Weight,
                     Score01 = 0,
                     Applied = false,
-                    Note = "Not evaluated on this difficulty"
+                    Unit = criterion.Unit,
+                    Note = MetricExplanations.For(criterion, snapshot, level, 0, null)
                 });
                 continue;
             }
@@ -41,7 +42,7 @@ public sealed class ScoreEngine
             }
             else
             {
-                score01 = evaluator.Evaluate(raw.Value, criterion);
+                score01 = evaluator.Evaluate(raw.Value, criterion, level);
                 if (criterion.FailIfOutside && score01 <= 0)
                     score01 = 0;
             }
@@ -49,15 +50,24 @@ public sealed class ScoreEngine
             weightedSum += score01 * criterion.Weight;
             weightTotal += criterion.Weight;
 
+            var displayRaw = raw;
+            // Surface pilot-facing measured values (not only the internal error metric)
+            if (IsIasErrorMetric(criterion.Metric))
+                displayRaw = snapshot.AirspeedAtTouchdownKts;
+            else if (IsExcessSpeedMetric(criterion.Metric))
+                displayRaw = snapshot.ExcessSpeedOverVappKts;
+
+            var explanation = MetricExplanations.For(criterion, snapshot, level, score01, raw);
+
             criteriaScores.Add(new CriterionScore
             {
                 Id = criterion.Id,
                 DisplayName = criterion.DisplayName,
                 Weight = criterion.Weight,
                 Score01 = score01,
-                RawValue = raw,
+                RawValue = displayRaw,
                 Unit = criterion.Unit,
-                Note = criterion.Note,
+                Note = explanation,
                 Applied = true
             });
         }
@@ -83,4 +93,10 @@ public sealed class ScoreEngine
             Summary = summary
         };
     }
+
+    private static bool IsIasErrorMetric(string metric) =>
+        metric.ToLowerInvariant() is "touchdowniaserrorkts" or "ias_error_kts" or "touchdown_ias_error";
+
+    private static bool IsExcessSpeedMetric(string metric) =>
+        metric.ToLowerInvariant() is "excessspeedovervappkts" or "excess_over_vapp" or "excess_ias_kts";
 }

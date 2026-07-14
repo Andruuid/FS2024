@@ -1,4 +1,5 @@
 using ChallengeLab.Core.Config;
+using ChallengeLab.Core.Models;
 
 namespace ChallengeLab.Core.Scoring.Evaluators;
 
@@ -10,7 +11,7 @@ public sealed class TargetEvaluator : IEvaluator
 {
     public static readonly TargetEvaluator Instance = new();
 
-    public double Evaluate(double value, CriterionConfig criterion)
+    public double Evaluate(double value, CriterionConfig criterion, DifficultyLevel level = DifficultyLevel.Easy)
     {
         var p = criterion.Params;
         var ideal = Get(p, "ideal", 0);

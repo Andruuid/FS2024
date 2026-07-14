@@ -107,20 +107,26 @@ public sealed class ConfigLoader
     public string ResolveFlightPath(string flightFileRelative)
     {
         var baseDir = AppContext.BaseDirectory;
+        var rel = flightFileRelative.Replace('/', Path.DirectorySeparatorChar);
         var candidates = new[]
         {
-            Path.Combine(baseDir, flightFileRelative.Replace('/', Path.DirectorySeparatorChar)),
-            Path.Combine(baseDir, "flights", Path.GetFileName(flightFileRelative)),
-            Path.GetFullPath(Path.Combine(RootPath, "..", flightFileRelative.Replace('/', Path.DirectorySeparatorChar))),
-            Path.GetFullPath(Path.Combine(RootPath, "..", "flights", Path.GetFileName(flightFileRelative)))
+            Path.Combine(baseDir, rel),
+            Path.Combine(baseDir, "flights", Path.GetFileName(rel)),
+            Path.Combine(baseDir, "AutoSaveReal", Path.GetFileName(rel)),
+            Path.GetFullPath(Path.Combine(RootPath, "..", rel)),
+            Path.GetFullPath(Path.Combine(RootPath, "..", "flights", Path.GetFileName(rel))),
+            Path.GetFullPath(Path.Combine(RootPath, "..", "AutoSaveReal", Path.GetFileName(rel))),
+            // Absolute path if caller already resolved it
+            Path.IsPathRooted(flightFileRelative) ? flightFileRelative : string.Empty
         };
 
         foreach (var c in candidates)
         {
-            if (File.Exists(c)) return c;
+            if (!string.IsNullOrEmpty(c) && File.Exists(c))
+                return Path.GetFullPath(c);
         }
 
-        return candidates[0];
+        return Path.GetFullPath(candidates[0]);
     }
 
     private static T LoadJson<T>(string path)

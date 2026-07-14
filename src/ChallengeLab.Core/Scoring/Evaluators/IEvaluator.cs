@@ -1,11 +1,12 @@
 using ChallengeLab.Core.Config;
+using ChallengeLab.Core.Models;
 
 namespace ChallengeLab.Core.Scoring.Evaluators;
 
 public interface IEvaluator
 {
     /// <summary>Returns score in [0, 1].</summary>
-    double Evaluate(double value, CriterionConfig criterion);
+    double Evaluate(double value, CriterionConfig criterion, DifficultyLevel level = DifficultyLevel.Easy);
 }
 
 public static class EvaluatorFactory
@@ -14,8 +15,10 @@ public static class EvaluatorFactory
     {
         "target" => TargetEvaluator.Instance,
         "band" => BandEvaluator.Instance,
+        "piecewise" or "zones" or "curve" => PiecewiseEvaluator.Instance,
+        "centerline" or "lateral" => CenterlineEvaluator.Instance,
         "boolean" => BooleanEvaluator.Instance,
-        "window" => RangeEvaluator.Instance, // window uses same bounds as range for final value
+        "window" => RangeEvaluator.Instance,
         _ => RangeEvaluator.Instance
     };
 }

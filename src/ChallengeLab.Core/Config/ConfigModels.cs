@@ -67,6 +67,12 @@ public sealed class AircraftSetupConfig
     public bool GearDown { get; set; } = true;
     public int FlapsHandleIndex { get; set; } = 4;
     public bool Unpause { get; set; } = true;
+
+    /// <summary>
+    /// Optional approach speed (VAPP) in KIAS for this challenge.
+    /// When set, target touchdown IAS = VAPP − profile offset (default 5 kt).
+    /// </summary>
+    public double? VappKts { get; set; }
 }
 
 public sealed class RunwayConfig
@@ -86,10 +92,46 @@ public sealed class ScoringProfileConfig
     public string Id { get; set; } = "";
     public string Title { get; set; } = "";
     public string Description { get; set; } = "";
-    public double SettledGroundSpeedKmh { get; set; } = 50;
+
+    /// <summary>Score when on ground and groundspeed stays below this (knots).</summary>
+    public double SettledGroundSpeedKts { get; set; } = 50;
+
+    /// <summary>Legacy alias (km/h). Used only if SettledGroundSpeedKts was not set in older configs.</summary>
+    public double SettledGroundSpeedKmh { get; set; }
+
     public double SettledHoldSeconds { get; set; } = 1.0;
     public double FlareAglFeet { get; set; } = 50;
+
+    /// <summary>Seconds before touchdown included in ground-track path scoring.</summary>
+    public double GroundTrackWindowBeforeSeconds { get; set; } = 3.0;
+
+    /// <summary>Seconds after touchdown included in ground-track path scoring.</summary>
+    public double GroundTrackWindowAfterSeconds { get; set; } = 3.0;
+
+    /// <summary>
+    /// Seconds after touchdown before rollout heading/crab alignment scoring starts
+    /// (pilot should be de-crabbed and on rudder by then).
+    /// </summary>
+    public double PostTouchdownAlignmentDelaySeconds { get; set; } = 2.0;
+
+    /// <summary>Default VAPP (KIAS) when challenge does not override and Vs0 is unavailable.</summary>
+    public double DefaultVappKts { get; set; } = 143;
+
+    /// <summary>Target touchdown IAS = VAPP − this offset (kt). Default 5.</summary>
+    public double VappToTouchdownOffsetKts { get; set; } = 5;
+
+    /// <summary>When estimating VAPP from DESIGN SPEED VS0: VAPP ≈ Vs0 × factor.</summary>
+    public double Vs0ToVappFactor { get; set; } = 1.3;
+
     public List<CriterionConfig> Criteria { get; set; } = new();
+
+    /// <summary>Effective settle threshold in knots.</summary>
+    public double GetSettledGroundSpeedKts()
+    {
+        if (SettledGroundSpeedKts > 0) return SettledGroundSpeedKts;
+        if (SettledGroundSpeedKmh > 0) return SettledGroundSpeedKmh / 1.852;
+        return 50;
+    }
 }
 
 public sealed class CriterionConfig
@@ -104,6 +146,12 @@ public sealed class CriterionConfig
     public string? Unit { get; set; }
     public string? Note { get; set; }
     public Dictionary<string, double> Params { get; set; } = new();
+
+    /// <summary>
+    /// Optional control points for the <c>piecewise</c> evaluator: linear interpolation of score by metric value.
+    /// </summary>
+    public List<ScorePoint>? Points { get; set; }
+
     public bool FailIfOutside { get; set; }
 
     public bool AppliesTo(DifficultyLevel level)
@@ -111,4 +159,14 @@ public sealed class CriterionConfig
         var key = level.ToConfigKey();
         return Levels.Count == 0 || Levels.Any(l => string.Equals(l, key, StringComparison.OrdinalIgnoreCase));
     }
+}
+
+/// <summary>Control point: metric value → score in [0, 1].</summary>
+public sealed class ScorePoint
+{
+    /// <summary>Metric value (e.g. vertical speed fpm).</summary>
+    public double V { get; set; }
+
+    /// <summary>Score at this value, 0–1 (or 0–100 if &gt; 1, auto-normalized).</summary>
+    public double S { get; set; }
 }

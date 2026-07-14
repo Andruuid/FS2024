@@ -33,13 +33,14 @@ public sealed class SimConnectClient : ISimBridge
     private enum Events
     {
         GearDown = 1,
-        FlapsSet = 2,
-        PauseOff = 3,
-        PauseOn = 4,
-        FreezeLat = 5,
-        FreezeLon = 6,
-        FreezeAlt = 7,
-        FreezeAtt = 8
+        GearUp = 2,
+        FlapsSet = 3,
+        PauseOff = 4,
+        PauseOn = 5,
+        FreezeLat = 6,
+        FreezeLon = 7,
+        FreezeAlt = 8,
+        FreezeAtt = 9
     }
 
     private enum Groups
@@ -55,6 +56,7 @@ public sealed class SimConnectClient : ISimBridge
         public double Altitude;
         public double Agl;
         public double Heading;
+        public double GroundTrack;
         public double Pitch;
         public double Bank;
         public double Airspeed;
@@ -67,6 +69,8 @@ public sealed class SimConnectClient : ISimBridge
         public double WindDir;
         public double WindVel;
         public double RadioHeight;
+        public double DesignSpeedVs0;
+        public double TotalWeight;
     }
 
     public SimConnectionState State
@@ -177,34 +181,33 @@ public sealed class SimConnectClient : ISimBridge
             progress?.Report("Loading flight file…");
             try
             {
-                _sim.FlightLoad(flightFileAbsolutePath);
+                var fullPath = Path.GetFullPath(flightFileAbsolutePath);
+                Log($"FlightLoad path: {fullPath} (exists={File.Exists(fullPath)})");
+                _sim.FlightLoad(fullPath);
                 loadedFlight = true;
-                Log($"FlightLoad: {flightFileAbsolutePath}");
-                await Task.Delay(3500, ct);
+                Log($"FlightLoad requested: {fullPath}");
+                // Real FLT loads can take a few seconds
+                await Task.Delay(5000, ct);
             }
             catch (Exception ex)
             {
                 Log($"FlightLoad failed: {ex.Message}. Falling back to teleport.");
             }
         }
+        else
+        {
+            Log($"Flight file missing: '{flightFileAbsolutePath}' — will teleport only.");
+        }
 
         progress?.Report("Applying weather…");
         ApplyWeather(challenge.Weather);
         await Task.Delay(500, ct);
 
-        if (!loadedFlight)
-        {
-            progress?.Report("Positioning aircraft (teleport)…");
-            Teleport(challenge.Spawn);
-            await Task.Delay(800, ct);
-        }
-        else
-        {
-            // Nudge position to ensure final approach even if FLT drifted
-            progress?.Report("Fine-tuning position…");
-            Teleport(challenge.Spawn);
-            await Task.Delay(600, ct);
-        }
+        // Always apply spawn from challenge JSON (sourced from the same FLT SimVars for tests).
+        // This is the reliable path when FlightLoad is ignored on the world map / wrong session state.
+        progress?.Report(loadedFlight ? "Fine-tuning position…" : "Positioning aircraft (teleport)…");
+        Teleport(challenge.Spawn);
+        await Task.Delay(800, ct);
 
         progress?.Report("Configuring gear and flaps…");
         ConfigureAircraft(challenge.AircraftSetup);
@@ -221,9 +224,9 @@ public sealed class SimConnectClient : ISimBridge
         try
         {
             EnsureEvents();
-            if (setup.GearDown)
-                _sim.TransmitClientEvent(MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.GearDown, 0,
-                    Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+            _sim.TransmitClientEvent(MsfsSc.SIMCONNECT_OBJECT_ID_USER,
+                setup.GearDown ? Events.GearDown : Events.GearUp, 0,
+                Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
 
             // FLAPS_SET uses 0–16383
             var flaps = (uint)Math.Clamp(setup.FlapsHandleIndex * (16383 / 4), 0, 16383);
@@ -352,6 +355,7 @@ public sealed class SimConnectClient : ISimBridge
                 AltitudeFeet = t.Altitude,
                 AglFeet = t.Agl,
                 HeadingTrueDeg = t.Heading,
+                GroundTrackTrueDeg = t.GroundTrack,
                 PitchDeg = t.Pitch,
                 BankDeg = t.Bank,
                 AirspeedKts = t.Airspeed,
@@ -363,7 +367,9 @@ public sealed class SimConnectClient : ISimBridge
                 FlapsHandleIndex = (int)Math.Round(t.FlapsIndex),
                 WindDirectionDeg = t.WindDir,
                 WindVelocityKts = t.WindVel,
-                RadioHeightFeet = t.RadioHeight
+                RadioHeightFeet = t.RadioHeight,
+                DesignSpeedVs0Kts = t.DesignSpeedVs0,
+                TotalWeightLbs = t.TotalWeight > 0 ? t.TotalWeight : null
             };
             TelemetryReceived?.Invoke(this, sample);
         }
@@ -386,6 +392,9 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.Telemetry, "PLANE ALT ABOVE GROUND", "feet",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "PLANE HEADING DEGREES TRUE", "degrees",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        // Direction of CG motion over ground (not fuselage crab heading)
+        _sim.AddToDataDefinition(Definitions.Telemetry, "GPS GROUND TRUE TRACK", "degrees",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "PLANE PITCH DEGREES", "degrees",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
@@ -411,6 +420,10 @@ public sealed class SimConnectClient : ISimBridge
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "RADIO HEIGHT", "feet",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "DESIGN SPEED VS0", "knots",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "TOTAL WEIGHT", "pounds",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
 
         _sim.RegisterDataDefineStruct<TelemetryStruct>(Definitions.Telemetry);
 
@@ -426,10 +439,12 @@ public sealed class SimConnectClient : ISimBridge
         try
         {
             _sim.MapClientEventToSimEvent(Events.GearDown, "GEAR_DOWN");
+            _sim.MapClientEventToSimEvent(Events.GearUp, "GEAR_UP");
             _sim.MapClientEventToSimEvent(Events.FlapsSet, "FLAPS_SET");
             _sim.MapClientEventToSimEvent(Events.PauseOff, "PAUSE_OFF");
             _sim.MapClientEventToSimEvent(Events.PauseOn, "PAUSE_ON");
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.GearDown, false);
+            _sim.AddClientEventToNotificationGroup(Groups.Input, Events.GearUp, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.FlapsSet, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.PauseOff, false);
             _sim.SetNotificationGroupPriority(Groups.Input, MsfsSc.SIMCONNECT_GROUP_PRIORITY_HIGHEST);

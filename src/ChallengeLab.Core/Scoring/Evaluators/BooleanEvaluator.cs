@@ -1,4 +1,5 @@
 using ChallengeLab.Core.Config;
+using ChallengeLab.Core.Models;
 
 namespace ChallengeLab.Core.Scoring.Evaluators;
 
@@ -10,7 +11,7 @@ public sealed class BooleanEvaluator : IEvaluator
 {
     public static readonly BooleanEvaluator Instance = new();
 
-    public double Evaluate(double value, CriterionConfig criterion)
+    public double Evaluate(double value, CriterionConfig criterion, DifficultyLevel level = DifficultyLevel.Easy)
     {
         var p = criterion.Params;
         var expected = p.TryGetValue("expected", out var e) ? e : 1.0;

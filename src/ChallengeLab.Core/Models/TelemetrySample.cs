@@ -11,6 +11,13 @@ public sealed class TelemetrySample
     public double AglFeet { get; init; }
 
     public double HeadingTrueDeg { get; init; }
+
+    /// <summary>
+    /// Ground track (direction of CG motion over the ground), true degrees.
+    /// Prefer this over heading for path-over-ground scoring (crab is wind-dependent).
+    /// </summary>
+    public double GroundTrackTrueDeg { get; init; }
+
     public double PitchDeg { get; init; }
     public double BankDeg { get; init; }
 
@@ -33,6 +40,12 @@ public sealed class TelemetrySample
     public double WindVelocityKts { get; init; }
 
     public double RadioHeightFeet { get; init; }
+
+    /// <summary>Stall speed landing config (DESIGN SPEED VS0), if available.</summary>
+    public double DesignSpeedVs0Kts { get; init; }
+
+    /// <summary>Total weight (lbs), if available.</summary>
+    public double? TotalWeightLbs { get; init; }
 
     /// <summary>Ground speed in km/h (derived convenience).</summary>
     public double GroundSpeedKmh => GroundSpeedKts * 1.852;

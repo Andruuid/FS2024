@@ -21,8 +21,17 @@ public sealed class BoolToVisibilityConverter : IValueConverter
 
 public sealed class NullToVisibilityConverter : IValueConverter
 {
+    /// <summary>If true (or ConverterParameter = "invert"), null → Visible, non-null → Collapsed.</summary>
+    public bool Invert { get; set; }
+
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => value is null ? Visibility.Collapsed : Visibility.Visible;
+    {
+        var invert = Invert ||
+                     string.Equals(parameter?.ToString(), "invert", StringComparison.OrdinalIgnoreCase);
+        var isNull = value is null;
+        var show = invert ? isNull : !isNull;
+        return show ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

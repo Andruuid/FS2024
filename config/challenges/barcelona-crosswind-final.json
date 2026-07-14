@@ -2,25 +2,25 @@
   "id": "barcelona-crosswind-final",
   "mode": "hardcore_landings",
   "title": "Barcelona Crosswind Final",
-  "subtitle": "LEBL 25L · A330 · Strong left crosswind",
-  "description": "You're established on a short final into Barcelona El Prat runway 25L in the Airbus A330. A stiff northerly wind puts a solid crosswind on the runway. Gear is down, flaps are set — plant it firmly and keep it straight. A greaser is not the goal.",
-  "difficultyBlurb": "Easy evaluates core touchdown safety. Strict adds crab, rollout stability, and path quality.",
+  "subtitle": "TEST SPAWN · from your autosave (LFML area) · A330",
+  "description": "TEMPORARY TEST: spawn/position taken from AutoSaveReal/Autosave_2026-07-14_20-55-38.FLT (near Marseille LFML, ~3600 ft, ~270 kts). Once teleport/load works we switch back to Barcelona LEBL final.",
+  "difficultyBlurb": "Default is Strict (full criteria). Easy evaluates a smaller safety subset.",
   "available": true,
   "aircraftTitles": [
     "A330-200 (RR)",
     "Airbus A330-200",
     "A330"
   ],
-  "flightFile": "flights/LEBL_25L_A330_Crosswind.FLT",
+  "flightFile": "flights/Autosave_Test_Position.FLT",
   "scoringProfile": "scoring/profiles/hardcore-crosswind-landing.json",
   "spawn": {
-    "latitude": 41.3285,
-    "longitude": 2.1285,
-    "altitudeFeet": 1850,
-    "headingDeg": 246,
-    "airspeedKts": 145,
-    "pitchDeg": -2.5,
-    "bankDeg": 0
+    "latitude": 43.346046,
+    "longitude": 5.344348,
+    "altitudeFeet": 3594.47,
+    "headingDeg": 313.71,
+    "airspeedKts": 170,
+    "pitchDeg": -1.57,
+    "bankDeg": 0.77
   },
   "weather": {
     "useLiveWeather": false,
@@ -28,27 +28,27 @@
     "windVelocityKts": 28,
     "gustKts": 36,
     "visibilitySm": 6,
-    "metar": "LEBL 141200Z 34028G36KT 9999 SCT025 BKN040 14/08 Q1012"
+    "metar": "LFML 141200Z 34028G36KT 9999 SCT025 BKN040 14/08 Q1012"
   },
   "aircraftSetup": {
-    "gearDown": true,
-    "flapsHandleIndex": 4,
-    "unpause": true
+    "gearDown": false,
+    "flapsHandleIndex": 2,
+    "unpause": true,
+    "vappKts": 143
   },
   "runway": {
-    "airportIcao": "LEBL",
-    "runwayId": "25L",
-    "thresholdLatitude": 41.2935,
-    "thresholdLongitude": 2.0832,
-    "headingTrueDeg": 246.0,
-    "elevationFeet": 14,
-    "lengthM": 3352,
-    "widthM": 60
+    "airportIcao": "LFML",
+    "runwayId": "31R",
+    "thresholdLatitude": 43.433483,
+    "thresholdLongitude": 5.219637,
+    "headingTrueDeg": 313.0,
+    "elevationFeet": 43,
+    "lengthM": 3500,
+    "widthM": 45
   },
   "hudTips": [
-    "Strong crosswind from the LEFT — expect drift.",
-    "Plant firmly; a butter touchdown scores lower here.",
-    "Wings level before mains — protect the engine pods.",
-    "Stay on centerline through the rollout."
+    "TEST MODE: position from your autosave (LFML area).",
+    "If you jump here, SimConnect load/teleport is working.",
+    "Gear was UP and flaps mid in the save — matching that for the test."
   ]
 }

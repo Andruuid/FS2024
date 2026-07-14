@@ -22,7 +22,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private readonly DispatcherTimer _reconnectTimer;
 
     private ChallengeCardViewModel? _selectedChallenge;
-    private DifficultyLevel _selectedDifficulty = DifficultyLevel.Easy;
+    private DifficultyLevel _selectedDifficulty = DifficultyLevel.Strict;
     private string _connectionStatus = "Disconnected";
     private bool _isConnected;
     private bool _isLoading;
@@ -37,6 +37,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private ChallengeConfig? _activeChallenge;
     private bool _resultVisible;
     private int _selectedTab;
+    private HighscoreEntry? _selectedHighscore;
+    private LandingReportViewModel? _landingReport;
 
     public MainViewModel(ISimBridge sim, ConfigLoader? configLoader = null, HighscoreStore? highscores = null)
     {
@@ -54,6 +56,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             _activeChallenge is not null && !IsLoading);
         ConnectCommand = new RelayCommand(TriggerConnect);
         DismissResultCommand = new RelayCommand(() => ResultVisible = false);
+        ClearHighscoreSelectionCommand = new RelayCommand(() => SelectedHighscore = null);
         OpenMenuCommand = new RelayCommand(() =>
         {
             ResultVisible = false;
@@ -92,7 +95,26 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand RestartCommand { get; }
     public ICommand ConnectCommand { get; }
     public ICommand DismissResultCommand { get; }
+    public ICommand ClearHighscoreSelectionCommand { get; }
     public ICommand OpenMenuCommand { get; }
+
+    public HighscoreEntry? SelectedHighscore
+    {
+        get => _selectedHighscore;
+        set
+        {
+            SetProperty(ref _selectedHighscore, value);
+            LandingReport = value is null ? null : new LandingReportViewModel(value);
+        }
+    }
+
+    public LandingReportViewModel? LandingReport
+    {
+        get => _landingReport;
+        private set => SetProperty(ref _landingReport, value);
+    }
+
+    public bool HasLandingReport => LandingReport is not null;
 
     public IEnumerable<DifficultyLevel> Difficulties { get; } =
         new[] { DifficultyLevel.Easy, DifficultyLevel.Strict };
@@ -179,8 +201,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             CriterionResults.Clear();
             if (value is not null)
             {
-                foreach (var c in value.Criteria.Where(x => x.Applied))
-                    CriterionResults.Add(new CriterionResultViewModel(c));
+                // VS / firmness first, then remaining by weight
+                var ordered = value.Criteria.Where(x => x.Applied)
+                    .OrderByDescending(c => c.Id is "touchdown_vs" or "touchdownVerticalSpeedFpm" ||
+                                            c.DisplayName.Contains("firmness", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                    .ThenByDescending(c => c.Weight)
+                    .ToList();
+                var first = true;
+                foreach (var c in ordered)
+                {
+                    CriterionResults.Add(new CriterionResultViewModel(c, isPrimary: first));
+                    first = false;
+                }
             }
         }
     }
@@ -364,7 +396,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         Application.Current.Dispatcher.Invoke(() =>
         {
             LiveStats =
-                $"GS {sample.GroundSpeedKmh:0} km/h  ·  VS {sample.VerticalSpeedFpm:0} fpm  ·  " +
+                $"GS {sample.GroundSpeedKts:0} kt  ·  VS {sample.VerticalSpeedFpm:0} fpm  ·  " +
                 $"Bank {sample.BankDeg:0.0}°  ·  Wind {sample.WindDirectionDeg:000}/{sample.WindVelocityKts:0}kt  ·  " +
                 $"{(sample.SimOnGround ? "GND" : "AIR")}";
 

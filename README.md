@@ -10,7 +10,7 @@ A separate challenge mode for **Microsoft Flight Simulator 2024**: hardcore land
 | **Barcelona Crosswind Final** (A330, LEBL 25L) | Yes |
 | Easy / Strict difficulty | Yes |
 | Load → final approach (FlightLoad + teleport fallback) | Yes |
-| Score when GS &lt; 50 km/h | Yes |
+| Score when GS &lt; 50 knots | Yes |
 | Companion HUD (tips, live stats, results) | Yes |
 | Highscores tab | Yes |
 | Disasters (Sioux City, Swissair) | UI placeholders |
@@ -37,7 +37,7 @@ dotnet run --project src\ChallengeLab.App
 3. Wait until the status shows **Connected** (or click **Connect**).
 4. Select **Barcelona Crosswind Final**, choose **Easy** or **Strict**.
 5. Click **Start Challenge** — watch the progress bar, then fly the landing.
-6. After touchdown, slow below **50 km/h**. Score appears on the **Companion HUD** and under the **Session** tab.
+6. After touchdown, slow below **50 knots**. Score appears on the **Companion HUD** and under the **Session** tab.
 
 ## Publish (easy install folder)
 
