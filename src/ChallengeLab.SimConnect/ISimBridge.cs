@@ -26,7 +26,11 @@ public interface ISimBridge : IDisposable
     void Disconnect();
     void ReceiveMessage();
 
-    Task LoadScenarioAsync(ChallengeConfig challenge, string flightFileAbsolutePath, IProgress<string>? progress = null, CancellationToken ct = default);
+    /// <summary>
+    /// Safe mid-session scenario apply (time/weather/teleport/gear). No FlightLoad.
+    /// Returns spawn verification result — caller must not arm scoring on failure.
+    /// </summary>
+    Task<SpawnApplyResult> LoadScenarioAsync(ChallengeConfig challenge, string flightFileAbsolutePath, IProgress<string>? progress = null, CancellationToken ct = default);
     void ConfigureAircraft(AircraftSetupConfig setup);
     void ApplyWeather(WeatherConfig weather);
     void ApplyTimeOfDay(TimeOfDayConfig? timeOfDay);

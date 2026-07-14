@@ -5,7 +5,7 @@ namespace ChallengeLab.Core.Scoring.Evaluators;
 /// <summary>
 /// Centerline position only (not heading).
 /// Params: tolerance (full score band, m), zeroAt (0% at this offset, m), exponent (curve shape).
-/// Defaults match the former strict curve: ±1.5 m / 10 m / 1.3.
+/// Defaults match the evaluation key: ±3 m full / 22 m zero / 1.2 exponent.
 /// </summary>
 public sealed class CenterlineEvaluator : IEvaluator
 {
@@ -20,9 +20,9 @@ public sealed class CenterlineEvaluator : IEvaluator
     public static (double Tolerance, double ZeroAt, double Exponent) ResolveParams(EvaluationMetric metric)
     {
         var p = metric.Params;
-        var t = Get(p, "tolerance", 1.5);
-        var z = Get(p, "zeroAt", 10.0);
-        var exp = Get(p, "exponent", 1.3);
+        var t = Get(p, "tolerance", 3.0);
+        var z = Get(p, "zeroAt", 22.0);
+        var exp = Get(p, "exponent", 1.2);
         return (t, z, exp);
     }
 

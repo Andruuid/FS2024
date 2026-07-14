@@ -53,7 +53,8 @@ public static class MetricExplanations
         "flaps" =>
             "Flaps handle index in the expected landing range for this challenge setup.",
         "approach_path" =>
-            "How steadily you held the approach path in the last segment before landing (altitude vs 3° path).",
+            "How steadily you held the short-final approach path (altitude vs nominal 3° path, " +
+            "roughly 0.2–3.0 NM from threshold). Intermediate high approach after spawn is ignored.",
         "ground_track" =>
             "Mean error between ground track (direction the CG moves over the ground) and runway heading, " +
             "from 3 seconds before touchdown to 3 seconds after. Not wind-dependent crab angle.",

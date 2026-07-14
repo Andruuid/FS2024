@@ -69,6 +69,22 @@ public sealed class ScoreEngineTests
     }
 
     [Fact]
+    public void TouchdownVs_ExtremeHardLanding_ScoresZeroNotSeventy()
+    {
+        var (key, _) = Load();
+        var metric = key.Phases
+            .SelectMany(p => p.Metrics)
+            .Single(m => m.Id == "touchdown_vs");
+
+        // Catastrophic sink rates must not clamp to the old −600→70% end score.
+        Assert.Equal(0, PiecewiseEvaluator.Instance.Evaluate(-9805, metric), 6);
+        Assert.Equal(0, PiecewiseEvaluator.Instance.Evaluate(-2000, metric), 6);
+        Assert.True(PiecewiseEvaluator.Instance.Evaluate(-1200, metric) < 0.2);
+        Assert.Equal(0.70, PiecewiseEvaluator.Instance.Evaluate(-600, metric), 6);
+        Assert.Equal(1.0, PiecewiseEvaluator.Instance.Evaluate(-100, metric), 6);
+    }
+
+    [Fact]
     public void Hierarchy_WeightsAreAppliedExactlyOnce()
     {
         var (key, challenge) = Load();
@@ -115,9 +131,34 @@ public sealed class ScoreEngineTests
     [Fact]
     public void Centerline_UsesSingleCurveParameters()
     {
-        var metric = new EvaluationMetric { Evaluator = "centerline", Params = new() { ["tolerance"] = 1.5, ["zeroAt"] = 10, ["exponent"] = 1.3 } };
+        var metric = new EvaluationMetric { Evaluator = "centerline", Params = new() { ["tolerance"] = 3, ["zeroAt"] = 22, ["exponent"] = 1.2 } };
         Assert.Equal(1, CenterlineEvaluator.Instance.Evaluate(0, metric), 6);
-        Assert.Equal(1, CenterlineEvaluator.Instance.Evaluate(1.5, metric), 6);
-        Assert.Equal(0, CenterlineEvaluator.Instance.Evaluate(10, metric), 6);
+        Assert.Equal(1, CenterlineEvaluator.Instance.Evaluate(3, metric), 6);
+        Assert.Equal(0, CenterlineEvaluator.Instance.Evaluate(22, metric), 6);
+        // ~8.5 m (prior harsh zeroAt=10 → ~23%) should now score generously on-runway.
+        var mid = CenterlineEvaluator.Instance.Evaluate(8.5, metric);
+        Assert.InRange(mid, 0.70, 0.90);
+    }
+
+    [Fact]
+    public void ApproachPath_SoftCurve_GivesPartialCreditForSteepButUsable()
+    {
+        var (key, _) = Load();
+        var metric = key.Phases.SelectMany(p => p.Metrics).Single(m => m.Id == "approach_path");
+        // Full within 100 ft, zero by 900 ft RMS.
+        Assert.Equal(1.0, TargetEvaluator.Instance.Evaluate(50, metric), 6);
+        Assert.Equal(1.0, TargetEvaluator.Instance.Evaluate(100, metric), 6);
+        Assert.Equal(0.0, TargetEvaluator.Instance.Evaluate(900, metric), 6);
+        var steep = TargetEvaluator.Instance.Evaluate(660, metric);
+        Assert.InRange(steep, 0.25, 0.45);
+    }
+
+    [Fact]
+    public void RolloutPath_SoftCurve_GivesCreditNearRunwayEdge()
+    {
+        var (key, _) = Load();
+        var metric = key.Phases.SelectMany(p => p.Metrics).Single(m => m.Id == "rollout_path");
+        var nearEdge = TargetEvaluator.Instance.Evaluate(18.9, metric);
+        Assert.InRange(nearEdge, 0.60, 0.80);
     }
 }

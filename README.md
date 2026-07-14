@@ -71,13 +71,15 @@ Edit spawn (lat/lon/alt/heading/**airspeedKts**), aircraft titles, weather, **ti
 1. Check live aircraft `TITLE` matches `aircraftTitles`
 2. Set **time of day** (SimConnect clock)
 3. Apply weather (METAR / custom)
-4. **Teleport** spawn + IAS (InitPosition)
-5. Gear / flaps → arm scoring
+4. **Teleport** spawn + IAS (InitPosition) + body velocity inject (while briefly frozen)
+5. **Verify** position/altitude/airborne; on failure scoring is **not** armed
+6. Gear / flaps → arm scoring
 
 **You must start free flight already in the challenge aircraft** (e.g. A330-200 (RR)):
 
 1. MSFS World Map → select **A330-200 (RR)** → Start free flight  
 2. Challenge Lab → Connect → Start Challenge  
+3. **Restart** uses the same path (re-teleport to spawn). If verify fails after a crash, try Restart again or slew briefly.
 
 A minimal `.FLT` artifact is still written under `%LocalAppData%\ChallengeLab\generated\` for debugging — it is **not** FlightLoaded mid-session.
 
@@ -95,8 +97,9 @@ A minimal `.FLT` artifact is still written under `%LocalAppData%\ChallengeLab\ge
 Session log should show:
 
 ```
-Safe start: no mid-session FlightLoad (teleport + time only).
+Safe start: no mid-session FlightLoad (teleport + velocity + verify).
 Aircraft OK: 'A330-200 (RR)'
+Spawn verified: horiz=… m · altErr=… ft · ias=… kt
 ```
 
 ## Configuring scoring (finetune without code)

@@ -5,13 +5,21 @@
 ### Do NOT mid-session FlightLoad for aircraft swap
 Forcing H125→A330 via `SimConnect_FlightLoad` of CustomFlight or a patched full autosave **crashed MSFS 2024** during “Waiting for aircraft load…”.
 
-### Safe path (BUILD 2225+)
+### Safe path (BUILD 2228+)
 1. Read `TITLE` — if not in `aircraftTitles`, show guidance and **abort** (no FlightLoad).
-2. Apply time + weather + teleport + gear only.
-3. User must already be in the challenge aircraft (World Map free flight).
+2. Apply time + weather + **teleport + body velocity inject** (freeze only during apply; always unfreeze in finally).
+3. **Verify** lat/alt/on-ground/IAS; on failure **do not Arm** scoring (message the user).
+4. Gear / flaps only after verify success.
+5. User must already be in the challenge aircraft (World Map free flight).
+
+### Touchdown guards
+- Post-arm grace (`timing.postArmIgnoreSeconds`) seeds ground state — no instant TD on runway after Restart.
+- Require airborne samples above `minAirborneAglFeet` before a ground edge counts as touchdown.
+- VS curve: hard landings ≤ −2000 fpm score 0% firmness (not clamped at 70%).
 
 ### Related files
-- `SimConnectClient.LoadScenarioAsync` — no FlightLoad
+- `SimConnectClient.LoadScenarioAsync` — no FlightLoad; returns `SpawnApplyResult`
+- `LandingSession` — post-arm grace + airborne gate
 - `FltScenarioBuilder` — minimal FLT artifacts only; never overwrite CustomFlight on Start
 - `AircraftMismatchException` — wrong aircraft UX
 

@@ -11,7 +11,13 @@
     "groundTrackWindowBeforeSeconds": 3,
     "groundTrackWindowAfterSeconds": 3,
     "postTouchdownAlignmentDelaySeconds": 2,
-    "flareAglFeet": 50
+    "flareAglFeet": 50,
+    "postArmIgnoreSeconds": 4,
+    "requireAirborneBeforeTouchdown": true,
+    "minAirborneAglFeet": 80,
+    "minAirborneSamples": 8,
+    "approachPathMinDistNm": 0.2,
+    "approachPathMaxDistNm": 3.0
   },
   "speedTarget": {
     "defaultVappKts": 143,
@@ -38,8 +44,11 @@
           "unit": "fpm",
           "evaluator": "piecewise",
           "metric": "touchdownVerticalSpeedFpm",
-          "note": "Vertical speed at main-gear touchdown. A controlled firm plant is preferred over a float or hard impact.",
+          "note": "Vertical speed at main-gear touchdown. A controlled firm plant is preferred over a float or hard impact. Hard impacts below -600 fpm score down to 0% by -2000 fpm.",
           "points": [
+            { "v": -2000, "s": 0 },
+            { "v": -1200, "s": 10 },
+            { "v": -800, "s": 40 },
             { "v": -600, "s": 70 },
             { "v": -500, "s": 75 },
             { "v": -400, "s": 80 },
@@ -81,10 +90,11 @@
           "unit": "m",
           "evaluator": "centerline",
           "metric": "centerlineDeviationM",
+          "note": "Touchdown lateral offset. Full score within ~half a strip width; zero near runway edge on a typical narrow runway.",
           "params": {
-            "tolerance": 1.5,
-            "zeroAt": 10,
-            "exponent": 1.3
+            "tolerance": 3,
+            "zeroAt": 22,
+            "exponent": 1.2
           }
         },
         {
@@ -158,7 +168,8 @@
           "unit": "ft RMS",
           "evaluator": "target",
           "metric": "approachPathRms",
-          "params": { "ideal": 0, "tolerance": 80, "maxError": 400 }
+          "note": "RMS altitude error vs a nominal 3° path on short final only (≈0.2–3.0 NM from threshold). High spawn / intermediate approach is ignored.",
+          "params": { "ideal": 0, "tolerance": 100, "maxError": 900 }
         }
       ]
     },
@@ -185,7 +196,8 @@
           "unit": "m",
           "evaluator": "target",
           "metric": "rolloutLateralMeanM",
-          "params": { "ideal": 0, "tolerance": 3, "maxError": 18 }
+          "note": "Distance-weighted mean |offset| on rollout. Full score within a few metres; zero near a typical runway edge (~half-width).",
+          "params": { "ideal": 0, "tolerance": 5, "maxError": 50 }
         },
         {
           "id": "rollout_weave",
@@ -203,7 +215,7 @@
           "unit": "m",
           "evaluator": "target",
           "metric": "rolloutLateralPeakM",
-          "params": { "ideal": 0, "tolerance": 6, "maxError": 30 }
+          "params": { "ideal": 0, "tolerance": 10, "maxError": 45 }
         }
       ]
     }

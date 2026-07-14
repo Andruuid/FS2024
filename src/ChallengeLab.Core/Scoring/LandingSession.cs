@@ -12,8 +12,10 @@ public sealed class LandingSession
     private readonly LandingSessionSettings _settings;
     private readonly GeoUtil _geo;
     private DateTimeOffset? _settledSince;
+    private DateTimeOffset _armedAt;
     private bool _wasOnGround;
     private bool _touchdownCaptured;
+    private int _airborneSampleCount;
     private readonly List<double> _approachAltErrors = new();
     private readonly List<double> _rolloutHeadings = new();
 
@@ -35,6 +37,7 @@ public sealed class LandingSession
     public void Arm()
     {
         Reset();
+        _armedAt = DateTimeOffset.UtcNow;
         SetPhase(LandingPhase.Armed);
     }
 
@@ -81,8 +84,10 @@ public sealed class LandingSession
         Snapshot.ApproachSamples.Clear();
         Snapshot.RolloutSamples.Clear();
         _settledSince = null;
+        _armedAt = default;
         _wasOnGround = false;
         _touchdownCaptured = false;
+        _airborneSampleCount = 0;
         _approachAltErrors.Clear();
         _rolloutHeadings.Clear();
     }
@@ -98,6 +103,11 @@ public sealed class LandingSession
         Snapshot.PeakAbsBankDeg = Math.Max(Snapshot.PeakAbsBankDeg, Math.Abs(sample.BankDeg));
 
         var agl = sample.RadioHeightFeet > 0 ? sample.RadioHeightFeet : sample.AglFeet;
+        var inPostArmGrace = sample.Timestamp - _armedAt < TimeSpan.FromSeconds(_settings.PostArmIgnoreSeconds);
+
+        // Count airborne samples after arm (including during grace) for the touchdown gate.
+        if (!sample.SimOnGround && agl >= _settings.MinAirborneAglFeet)
+            _airborneSampleCount++;
 
         if (Phase is LandingPhase.Armed or LandingPhase.Approach or LandingPhase.Flare)
         {
@@ -108,8 +118,13 @@ public sealed class LandingSession
 
                 Snapshot.ApproachSamples.Add(sample);
                 var distNm = _geo.DistanceToThresholdNm(sample.Latitude, sample.Longitude);
-                var expectedAlt = _challenge.Runway.ElevationFeet + distNm * 318.0; // ~3 deg
-                _approachAltErrors.Add(sample.AltitudeFeet - expectedAlt);
+                // Path accuracy uses short final only — high spawn / long intermediate approach
+                // would otherwise dominate RMS and force a permanent 0% (spawn is ~1000+ ft high).
+                if (distNm >= _settings.ApproachPathMinDistNm && distNm <= _settings.ApproachPathMaxDistNm)
+                {
+                    var expectedAlt = _challenge.Runway.ElevationFeet + distNm * 318.0; // ~3 deg
+                    _approachAltErrors.Add(sample.AltitudeFeet - expectedAlt);
+                }
 
                 if (agl <= _settings.FlareAglFeet && Phase != LandingPhase.Flare)
                 {
@@ -120,11 +135,17 @@ public sealed class LandingSession
             }
         }
 
-        if (!_touchdownCaptured && sample.SimOnGround && !_wasOnGround)
+        // Touchdown: post-arm grace seeds ground state; require airborne history before a rising edge.
+        if (!_touchdownCaptured && !inPostArmGrace && sample.SimOnGround && !_wasOnGround)
         {
-            CaptureTouchdown(sample, lateral);
-            SetPhase(LandingPhase.Touchdown);
-            SetPhase(LandingPhase.Rollout);
+            var airborneOk = !_settings.RequireAirborneBeforeTouchdown
+                             || _airborneSampleCount >= _settings.MinAirborneSamples;
+            if (airborneOk)
+            {
+                CaptureTouchdown(sample, lateral);
+                SetPhase(LandingPhase.Touchdown);
+                SetPhase(LandingPhase.Rollout);
+            }
         }
 
         if (_touchdownCaptured && sample.SimOnGround)
@@ -150,6 +171,7 @@ public sealed class LandingSession
             }
         }
 
+        // Always seed ground state so restart-on-runway does not treat the first frame as TD.
         _wasOnGround = sample.SimOnGround;
     }
 

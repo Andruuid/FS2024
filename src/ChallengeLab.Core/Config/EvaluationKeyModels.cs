@@ -21,6 +21,12 @@ public sealed class LandingEvaluationKey
         Timing.GroundTrackWindowAfterSeconds,
         Timing.PostTouchdownAlignmentDelaySeconds,
         Timing.FlareAglFeet,
+        Timing.PostArmIgnoreSeconds,
+        Timing.RequireAirborneBeforeTouchdown,
+        Timing.MinAirborneAglFeet,
+        Timing.MinAirborneSamples,
+        Timing.ApproachPathMinDistNm,
+        Timing.ApproachPathMaxDistNm,
         SpeedTarget!.DefaultVappKts,
         SpeedTarget.TouchdownOffsetKts,
         SpeedTarget.Vs0Factor);
@@ -33,6 +39,12 @@ public sealed record LandingSessionSettings(
     double GroundTrackWindowAfterSeconds,
     double PostTouchdownAlignmentDelaySeconds,
     double FlareAglFeet,
+    double PostArmIgnoreSeconds,
+    bool RequireAirborneBeforeTouchdown,
+    double MinAirborneAglFeet,
+    int MinAirborneSamples,
+    double ApproachPathMinDistNm,
+    double ApproachPathMaxDistNm,
     double DefaultVappKts,
     double TouchdownOffsetKts,
     double Vs0Factor);
@@ -49,6 +61,30 @@ public sealed class EvaluationTiming
     public double GroundTrackWindowAfterSeconds { get; set; } = 3;
     public double PostTouchdownAlignmentDelaySeconds { get; set; } = 2;
     public double FlareAglFeet { get; set; } = 50;
+
+    /// <summary>Seconds after Arm() during which touchdown cannot be captured (seeds ground state).</summary>
+    public double PostArmIgnoreSeconds { get; set; } = 4;
+
+    /// <summary>Require airborne samples after arm before a ground edge counts as touchdown.</summary>
+    public bool RequireAirborneBeforeTouchdown { get; set; } = true;
+
+    /// <summary>Minimum AGL/radio height (ft) to count a sample as airborne for the gate.</summary>
+    public double MinAirborneAglFeet { get; set; } = 80;
+
+    /// <summary>Minimum airborne samples after arm before touchdown capture is allowed.</summary>
+    public int MinAirborneSamples { get; set; } = 8;
+
+    /// <summary>
+    /// Short-final lower bound (NM from threshold) for approach path RMS.
+    /// Samples closer than this (over threshold / float) are excluded.
+    /// </summary>
+    public double ApproachPathMinDistNm { get; set; } = 0.2;
+
+    /// <summary>
+    /// Short-final upper bound (NM from threshold) for approach path RMS.
+    /// High intermediate approach / spawn is excluded so the metric reflects final path only.
+    /// </summary>
+    public double ApproachPathMaxDistNm { get; set; } = 3.0;
 }
 
 public sealed class EvaluationSpeedTarget

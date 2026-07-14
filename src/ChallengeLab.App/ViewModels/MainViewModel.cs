@@ -440,12 +440,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         try
         {
             _activeChallenge = challenge;
-
-            _session?.Reset();
-            _session = new LandingSession(challenge, _sessionSettings);
-            _session.PhaseChanged += (_, p) =>
-                Application.Current.Dispatcher.Invoke(() => PhaseLabel = p.ToString());
-            _session.SettledReady += OnSettledReady;
+            DetachSession();
 
             var stages = new[]
             {
@@ -467,7 +462,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     if (msg.Contains("aircraft", StringComparison.OrdinalIgnoreCase) || msg.Contains("Check", StringComparison.OrdinalIgnoreCase)) idx = 1;
                     else if (msg.Contains("time", StringComparison.OrdinalIgnoreCase)) idx = 2;
                     else if (msg.Contains("weather", StringComparison.OrdinalIgnoreCase)) idx = 3;
-                    else if (msg.Contains("Position", StringComparison.OrdinalIgnoreCase) || msg.Contains("teleport", StringComparison.OrdinalIgnoreCase)) idx = 4;
+                    else if (msg.Contains("Position", StringComparison.OrdinalIgnoreCase) || msg.Contains("teleport", StringComparison.OrdinalIgnoreCase)
+                             || msg.Contains("failed", StringComparison.OrdinalIgnoreCase)) idx = 4;
                     else if (msg.Contains("gear", StringComparison.OrdinalIgnoreCase) || msg.Contains("Configur", StringComparison.OrdinalIgnoreCase)) idx = 5;
                     else if (msg.Contains("armed", StringComparison.OrdinalIgnoreCase)) idx = 6;
                     else idx = 0;
@@ -482,7 +478,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             AppendLog(generated
                 ? $"Scenario artifact (debug) → {flightPath}"
                 : $"flightFile override artifact → {flightPath}");
-            AppendLog("Safe start: no mid-session FlightLoad (teleport + time only).");
+            AppendLog("Safe start: no mid-session FlightLoad (teleport + velocity + verify).");
             var tod = challenge.TimeOfDay;
             AppendLog(
                 $"Spawn from JSON: IAS {challenge.Spawn.AirspeedKts:0} kt · " +
@@ -490,7 +486,34 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 $"time {tod.Hour:00}:{tod.Minute:00} {(tod.UseZuluTime ? "Z" : "local")} · " +
                 $"ac {challenge.AircraftTitles.FirstOrDefault() ?? "?"}");
 
-            await _sim.LoadScenarioAsync(challenge, flightPath, progress);
+            var spawnResult = await _sim.LoadScenarioAsync(challenge, flightPath, progress);
+
+            if (!spawnResult.Success)
+            {
+                LoadStatus = "Spawn failed — not armed";
+                PhaseLabel = "Idle";
+                AppendLog(
+                    $"Spawn verify FAILED — scoring not armed. {spawnResult.Message} " +
+                    $"(horiz={spawnResult.HorizontalErrorM:0} m altErr={spawnResult.AltErrorFeet:0} ft " +
+                    $"ias={spawnResult.AirspeedKts:0} onGround={spawnResult.ReportedOnGround})");
+                MessageBox.Show(
+                    "Could not place the aircraft at the challenge spawn.\n\n" +
+                    spawnResult.Message +
+                    "\n\nScoring was NOT armed (avoids false landings on the runway).\n" +
+                    "Try Restart once more, or briefly pause/slew the sim and Restart.",
+                    "Challenge Lab — spawn failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            AppendLog(
+                $"Spawn verified: horiz={spawnResult.HorizontalErrorM:0} m · " +
+                $"altErr={spawnResult.AltErrorFeet:0} ft · ias={spawnResult.AirspeedKts:0} kt");
+
+            _session = new LandingSession(challenge, _sessionSettings);
+            _session.PhaseChanged += OnSessionPhaseChanged;
+            _session.SettledReady += OnSettledReady;
 
             LoadProgress = 100;
             LoadStatus = "Armed — fly the landing!";
@@ -504,6 +527,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         catch (AircraftMismatchException acEx)
         {
             LoadStatus = "Wrong aircraft";
+            PhaseLabel = "Idle";
             AppendLog($"Wrong aircraft: {acEx.ActualTitle} (need challenge aircraft — no FlightLoad).");
             MessageBox.Show(acEx.Message, "Challenge Lab — load the correct aircraft first",
                 MessageBoxButton.OK, MessageBoxImage.Information);
@@ -511,6 +535,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             LoadStatus = "Failed";
+            PhaseLabel = "Idle";
             AppendLog($"Load failed: {ex.Message}");
             MessageBox.Show($"Could not load challenge:\n{ex.Message}", "Challenge Lab",
                 MessageBoxButton.OK, MessageBoxImage.Error);
@@ -519,6 +544,20 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             IsLoading = false;
         }
+    }
+
+    private void DetachSession()
+    {
+        if (_session is null) return;
+        _session.PhaseChanged -= OnSessionPhaseChanged;
+        _session.SettledReady -= OnSettledReady;
+        _session.Reset();
+        _session = null;
+    }
+
+    private void OnSessionPhaseChanged(object? sender, LandingPhase phase)
+    {
+        Application.Current.Dispatcher.Invoke(() => PhaseLabel = phase.ToString());
     }
 
     private DispatcherTimer? _tipTimer;
@@ -620,6 +659,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         _reconnectTimer.Stop();
         _tipTimer?.Stop();
+        DetachSession();
         _sim.StateChanged -= OnSimStateChanged;
         _sim.TelemetryReceived -= OnTelemetry;
         _sim.Dispose();

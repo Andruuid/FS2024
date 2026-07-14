@@ -186,6 +186,18 @@ public static class EvaluationKeyValidator
         if (!double.IsFinite(timing.PostTouchdownAlignmentDelaySeconds) || timing.PostTouchdownAlignmentDelaySeconds < 0)
             errors.Add("timing.postTouchdownAlignmentDelaySeconds must be at least zero.");
         if (!IsPositiveFinite(timing.FlareAglFeet)) errors.Add("timing.flareAglFeet must be greater than zero.");
+        if (!double.IsFinite(timing.PostArmIgnoreSeconds) || timing.PostArmIgnoreSeconds < 0)
+            errors.Add("timing.postArmIgnoreSeconds must be at least zero.");
+        if (!double.IsFinite(timing.MinAirborneAglFeet) || timing.MinAirborneAglFeet < 0)
+            errors.Add("timing.minAirborneAglFeet must be at least zero.");
+        if (timing.MinAirborneSamples < 0)
+            errors.Add("timing.minAirborneSamples must be at least zero.");
+        if (!double.IsFinite(timing.ApproachPathMinDistNm) || timing.ApproachPathMinDistNm < 0)
+            errors.Add("timing.approachPathMinDistNm must be at least zero.");
+        if (!double.IsFinite(timing.ApproachPathMaxDistNm) || timing.ApproachPathMaxDistNm <= 0)
+            errors.Add("timing.approachPathMaxDistNm must be greater than zero.");
+        if (timing.ApproachPathMaxDistNm <= timing.ApproachPathMinDistNm)
+            errors.Add("timing.approachPathMaxDistNm must be greater than approachPathMinDistNm.");
     }
 
     private static void ValidateSpeedTarget(EvaluationSpeedTarget? speed, List<string> errors)

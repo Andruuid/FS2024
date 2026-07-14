@@ -20,20 +20,29 @@ public sealed class SimConnectClient : ISimBridge
     private SimConnectionState _state = SimConnectionState.Disconnected;
     private string? _statusMessage = "Not connected";
     private TaskCompletionSource<string?>? _titleTcs;
+    private TaskCompletionSource<TelemetryStruct>? _spawnVerifyTcs;
 
     private enum Definitions
     {
         Telemetry = 1,
         InitPosition = 2,
         AircraftTitle = 3,
-        PoseSet = 4
+        PoseSet = 4,
+        VelocitySet = 5
     }
 
     private enum Requests
     {
         Telemetry = 1,
-        AircraftTitle = 2
+        AircraftTitle = 2,
+        SpawnVerify = 3
     }
+
+    // Soft thresholds for post-spawn verification (mid-session teleport is imperfect).
+    private const double MaxHorizontalErrorM = 800;
+    private const double MaxAltitudeErrorFeet = 400;
+    private const double MinAirspeedFraction = 0.45;
+    private const int SpawnPulseCount = 6;
 
     private enum Events
     {
@@ -101,6 +110,21 @@ public sealed class SimConnectClient : ISimBridge
         public double PitchDeg;
         public double BankDeg;
         public double HeadingTrueDeg;
+    }
+
+    /// <summary>
+    /// Body-axis linear velocity (m/s) + rotation rates (rad/s).
+    /// MSFS body axes: X right, Y up, Z forward.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
+    private struct VelocitySetStruct
+    {
+        public double BodyX;
+        public double BodyY;
+        public double BodyZ;
+        public double RotX;
+        public double RotY;
+        public double RotZ;
     }
 
     public SimConnectionState State
@@ -193,7 +217,7 @@ public sealed class SimConnectClient : ISimBridge
         }
     }
 
-    public async Task LoadScenarioAsync(
+    public async Task<SpawnApplyResult> LoadScenarioAsync(
         ChallengeConfig challenge,
         string flightFileAbsolutePath,
         IProgress<string>? progress = null,
@@ -230,6 +254,7 @@ public sealed class SimConnectClient : ISimBridge
 
         // --- Safe apply: time + weather + teleport + gear (no FlightLoad) ---
         // Always unpause/unfreeze in finally so the plane is never left stuck.
+        SpawnApplyResult spawnResult = SpawnApplyResult.Fail("Spawn did not complete.");
         progress?.Report("Setting time of day…");
         try
         {
@@ -243,11 +268,19 @@ public sealed class SimConnectClient : ISimBridge
             await Task.Delay(250, ct);
 
             progress?.Report("Positioning aircraft…");
-            await ApplySpawnAsync(challenge.Spawn, ct);
+            spawnResult = await ApplySpawnAsync(challenge.Spawn, ct);
 
-            progress?.Report("Configuring gear and flaps…");
-            ConfigureAircraft(challenge.AircraftSetup);
-            await Task.Delay(250, ct);
+            if (spawnResult.Success)
+            {
+                progress?.Report("Configuring gear and flaps…");
+                ConfigureAircraft(challenge.AircraftSetup);
+                await Task.Delay(250, ct);
+            }
+            else
+            {
+                progress?.Report("Positioning failed…");
+                Log($"Spawn apply failed: {spawnResult.Message}");
+            }
         }
         finally
         {
@@ -257,19 +290,25 @@ public sealed class SimConnectClient : ISimBridge
                 PauseSim(false);
         }
 
-        progress?.Report("Challenge armed.");
-        var tod = challenge.TimeOfDay ?? new TimeOfDayConfig();
-        Log(
-            $"Scenario load complete (safe path). Spawn IAS {challenge.Spawn.AirspeedKts:0} kt · " +
-            $"alt {challenge.Spawn.AltitudeFeet:0} ft · hdg {challenge.Spawn.HeadingDeg:0}° · " +
-            $"time {tod.Hour:00}:{tod.Minute:00} {(tod.UseZuluTime ? "Z" : "local")} · ac '{actualTitle ?? "?"}'.");
+        if (spawnResult.Success)
+        {
+            progress?.Report("Challenge armed.");
+            var tod = challenge.TimeOfDay ?? new TimeOfDayConfig();
+            Log(
+                $"Scenario load complete (safe path). Spawn IAS {challenge.Spawn.AirspeedKts:0} kt · " +
+                $"alt {challenge.Spawn.AltitudeFeet:0} ft · hdg {challenge.Spawn.HeadingDeg:0}° · " +
+                $"time {tod.Hour:00}:{tod.Minute:00} {(tod.UseZuluTime ? "Z" : "local")} · ac '{actualTitle ?? "?"}' · " +
+                $"verify horiz={spawnResult.HorizontalErrorM:0} m altErr={spawnResult.AltErrorFeet:0} ft ias={spawnResult.AirspeedKts:0}.");
+        }
+
+        return spawnResult;
     }
 
     /// <summary>
-    /// Apply spawn without relying on freeze (freeze can stick and make Start look like a no-op).
-    /// InitPosition + direct lat/lon/alt/heading, repeated while paused.
+    /// Mid-session airborne spawn: pause + freeze, InitPosition + pose + body velocity,
+    /// verify, one retry on failure. Always unfreezes via caller finally.
     /// </summary>
-    private async Task ApplySpawnAsync(SpawnConfig spawn, CancellationToken ct)
+    private async Task<SpawnApplyResult> ApplySpawnAsync(SpawnConfig spawn, CancellationToken ct)
     {
         EnsureEvents();
         EnsureDefinitions();
@@ -283,17 +322,185 @@ public sealed class SimConnectClient : ISimBridge
             $"bank={spawn.BankDeg:F2} ias={spawn.AirspeedKts:F0}");
 
         PauseSim(true);
-        await Task.Delay(100, ct);
+        FreezePose(true);
+        await Task.Delay(120, ct);
 
-        // Multiple applies — single InitPosition is often ignored for alt/heading in MSFS 2024.
-        for (var i = 1; i <= 4; i++)
+        await PulseSpawnAsync(spawn, SpawnPulseCount, ct);
+        await Task.Delay(350, ct);
+
+        var result = await VerifySpawnAsync(spawn, ct);
+        if (result.Success)
+            return result;
+
+        Log($"Spawn verify failed (attempt 1): {result.Message} — retrying pulses…");
+        await PulseSpawnAsync(spawn, SpawnPulseCount, ct);
+        await Task.Delay(400, ct);
+        result = await VerifySpawnAsync(spawn, ct);
+        if (!result.Success)
+            Log($"Spawn verify failed (attempt 2): {result.Message}");
+        return result;
+    }
+
+    private async Task PulseSpawnAsync(SpawnConfig spawn, int pulses, CancellationToken ct)
+    {
+        for (var i = 1; i <= pulses; i++)
         {
             Teleport(spawn);
             SetPoseDirect(spawn);
-            ReceiveMessage(); // keep SimConnect queue moving during load
+            SetVelocityForSpawn(spawn);
+            ReceiveMessage();
             await Task.Delay(280, ct);
-            Log($"ApplySpawn pulse {i}/4 done");
+            Log($"ApplySpawn pulse {i}/{pulses} done");
         }
+    }
+
+    /// <summary>
+    /// Zero rotation rates and inject body-forward speed matching spawn IAS.
+    /// Body axes: X right, Y up, Z forward (m/s).
+    /// </summary>
+    private void SetVelocityForSpawn(SpawnConfig spawn)
+    {
+        if (_sim is null) return;
+
+        try
+        {
+            EnsureDefinitions();
+            // knots → m/s; keep vertical/lateral near zero so residual freefall energy dies.
+            var speedMs = Math.Max(0, spawn.AirspeedKts) * 0.514444;
+            var pitchRad = spawn.PitchDeg * Math.PI / 180.0;
+            // Small vertical component from pitch only (pitch convention: +nose up).
+            var bodyZ = speedMs * Math.Cos(pitchRad);
+            var bodyY = speedMs * Math.Sin(pitchRad);
+
+            var vel = new VelocitySetStruct
+            {
+                BodyX = 0,
+                BodyY = bodyY,
+                BodyZ = bodyZ,
+                RotX = 0,
+                RotY = 0,
+                RotZ = 0
+            };
+
+            _sim.SetDataOnSimObject(
+                Definitions.VelocitySet,
+                MsfsSc.SIMCONNECT_OBJECT_ID_USER,
+                SIMCONNECT_DATA_SET_FLAG.DEFAULT,
+                vel);
+
+            Log($"VelocitySet bodyZ={bodyZ:F1} m/s bodyY={bodyY:F1} m/s (ias {spawn.AirspeedKts:F0} kt)");
+        }
+        catch (Exception ex)
+        {
+            Log($"SetVelocityForSpawn: {ex.Message}");
+        }
+    }
+
+    private async Task<SpawnApplyResult> VerifySpawnAsync(SpawnConfig spawn, CancellationToken ct)
+    {
+        var sample = await RequestSpawnSnapshotAsync(ct);
+        if (sample is null)
+            return SpawnApplyResult.Fail("Could not read back aircraft position after teleport.");
+
+        var horizM = HaversineMeters(spawn.Latitude, spawn.Longitude, sample.Value.Latitude, sample.Value.Longitude);
+        var altErr = Math.Abs(sample.Value.Altitude - spawn.AltitudeFeet);
+        var onGround = sample.Value.SimOnGround > 0.5;
+        var ias = sample.Value.Airspeed;
+        var minIas = spawn.AirspeedKts * MinAirspeedFraction;
+
+        Log(
+            $"Spawn verify: lat={sample.Value.Latitude:F5} lon={sample.Value.Longitude:F5} " +
+            $"alt={sample.Value.Altitude:F0} ias={ias:F0} onGround={onGround} " +
+            $"horizErr={horizM:F0} m altErr={altErr:F0} ft");
+
+        if (horizM > MaxHorizontalErrorM)
+        {
+            return SpawnApplyResult.Fail(
+                $"Aircraft still {horizM:0} m from spawn (limit {MaxHorizontalErrorM:0} m). Restart after crash may need a brief pause — try again.",
+                altErr, horizM, ias, onGround, sample.Value.Latitude, sample.Value.Longitude, sample.Value.Altitude);
+        }
+
+        if (altErr > MaxAltitudeErrorFeet)
+        {
+            return SpawnApplyResult.Fail(
+                $"Altitude error {altErr:0} ft (limit {MaxAltitudeErrorFeet:0} ft). Aircraft may still be on the ground.",
+                altErr, horizM, ias, onGround, sample.Value.Latitude, sample.Value.Longitude, sample.Value.Altitude);
+        }
+
+        // Spawn altitudes are mid-final (~thousands of feet) — must not remain on ground.
+        if (onGround && spawn.AltitudeFeet > 500)
+        {
+            return SpawnApplyResult.Fail(
+                "Aircraft still reports on ground after airborne spawn. Try Restart once more, or slew briefly then Restart.",
+                altErr, horizM, ias, onGround: true, sample.Value.Latitude, sample.Value.Longitude, sample.Value.Altitude);
+        }
+
+        if (spawn.AirspeedKts >= 80 && ias < minIas)
+        {
+            return SpawnApplyResult.Fail(
+                $"Airspeed too low after spawn ({ias:0} kt, expected ≥ {minIas:0} kt).",
+                altErr, horizM, ias, onGround, sample.Value.Latitude, sample.Value.Longitude, sample.Value.Altitude);
+        }
+
+        return SpawnApplyResult.Ok(
+            "Spawn verified.",
+            altErr, horizM, ias,
+            sample.Value.Latitude, sample.Value.Longitude, sample.Value.Altitude,
+            onGround);
+    }
+
+    private async Task<TelemetryStruct?> RequestSpawnSnapshotAsync(CancellationToken ct)
+    {
+        if (_sim is null) return null;
+
+        try
+        {
+            EnsureDefinitions();
+            var tcs = new TaskCompletionSource<TelemetryStruct>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _spawnVerifyTcs = tcs;
+
+            _sim.RequestDataOnSimObject(
+                Requests.SpawnVerify,
+                Definitions.Telemetry,
+                MsfsSc.SIMCONNECT_OBJECT_ID_USER,
+                SIMCONNECT_PERIOD.ONCE,
+                SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT,
+                0, 0, 0);
+
+            for (var i = 0; i < 40 && !tcs.Task.IsCompleted; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                ReceiveMessage();
+                await Task.Delay(50, ct);
+            }
+
+            if (!tcs.Task.IsCompleted)
+            {
+                Log("Spawn verify telemetry request timed out.");
+                _spawnVerifyTcs = null;
+                return null;
+            }
+
+            return await tcs.Task;
+        }
+        catch (Exception ex)
+        {
+            Log($"RequestSpawnSnapshot: {ex.Message}");
+            _spawnVerifyTcs = null;
+            return null;
+        }
+    }
+
+    private static double HaversineMeters(double lat1, double lon1, double lat2, double lon2)
+    {
+        const double r = 6371000.0;
+        var p1 = lat1 * Math.PI / 180.0;
+        var p2 = lat2 * Math.PI / 180.0;
+        var dp = (lat2 - lat1) * Math.PI / 180.0;
+        var dl = (lon2 - lon1) * Math.PI / 180.0;
+        var a = Math.Sin(dp / 2) * Math.Sin(dp / 2) +
+                Math.Cos(p1) * Math.Cos(p2) * Math.Sin(dl / 2) * Math.Sin(dl / 2);
+        return 2 * r * Math.Asin(Math.Sqrt(a));
     }
 
     public void ApplyTimeOfDay(TimeOfDayConfig? timeOfDay)
@@ -635,6 +842,25 @@ public sealed class SimConnectClient : ISimBridge
             return;
         }
 
+        if (data.dwRequestID == (uint)Requests.SpawnVerify)
+        {
+            try
+            {
+                var t = (TelemetryStruct)data.dwData[0];
+                _spawnVerifyTcs?.TrySetResult(t);
+            }
+            catch (Exception ex)
+            {
+                Log($"Spawn verify parse: {ex.Message}");
+                _spawnVerifyTcs?.TrySetException(ex);
+            }
+            finally
+            {
+                _spawnVerifyTcs = null;
+            }
+            return;
+        }
+
         if (data.dwRequestID != (uint)Requests.Telemetry) return;
 
         try
@@ -727,7 +953,7 @@ public sealed class SimConnectClient : ISimBridge
             SIMCONNECT_DATATYPE.STRING256, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.RegisterDataDefineStruct<AircraftTitleStruct>(Definitions.AircraftTitle);
 
-        // Direct pose write — lat/lon/alt/attitude/IAS (backup when InitPosition is flaky).
+        // Direct pose write — lat/lon/alt/attitude (backup when InitPosition is flaky).
         _sim.AddToDataDefinition(Definitions.PoseSet, "PLANE LATITUDE", "degrees",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.PoseSet, "PLANE LONGITUDE", "degrees",
@@ -741,6 +967,21 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.PoseSet, "PLANE HEADING DEGREES TRUE", "degrees",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.RegisterDataDefineStruct<PoseSetStruct>(Definitions.PoseSet);
+
+        // Body velocity kill + forward inject (do not mix into PoseSet).
+        _sim.AddToDataDefinition(Definitions.VelocitySet, "VELOCITY BODY X", "meters per second",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.VelocitySet, "VELOCITY BODY Y", "meters per second",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.VelocitySet, "VELOCITY BODY Z", "meters per second",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.VelocitySet, "ROTATION VELOCITY BODY X", "radians per second",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.VelocitySet, "ROTATION VELOCITY BODY Y", "radians per second",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.VelocitySet, "ROTATION VELOCITY BODY Z", "radians per second",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.RegisterDataDefineStruct<VelocitySetStruct>(Definitions.VelocitySet);
 
         _defsRegistered = true;
     }
