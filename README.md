@@ -62,18 +62,41 @@ tests/                        Unit tests (no sim required)
 
 Each challenge is **one file**: `config/challenges/<id>.json`.
 
-Edit spawn (lat/lon/alt/heading/**airspeedKts**), aircraft titles, weather, gear/flaps, runway, tips there.  
-At start the app **generates a minimal `.FLT`** from that JSON (under `%LocalAppData%\ChallengeLab\generated\`), then FlightLoads it and teleports again so JSON numbers win.
+Edit spawn (lat/lon/alt/heading/**airspeedKts**), aircraft titles, weather, **timeOfDay**, gear/flaps, runway, tips there.
 
-- Leave `"flightFile": ""` (default) — always generate from JSON  
-- Set `flightFile` only for rare hand-crafted overrides  
-- Change `spawn.airspeedKts` → restart challenge (no `.FLT` edit)
+### Safe Start Challenge (MSFS 2024)
 
-Session log shows:
+**Do not** force an aircraft change mid free-flight via `FlightLoad` — that path can **crash the sim**. Challenge Lab uses a **safe apply** only:
+
+1. Check live aircraft `TITLE` matches `aircraftTitles`
+2. Set **time of day** (SimConnect clock)
+3. Apply weather (METAR / custom)
+4. **Teleport** spawn + IAS (InitPosition)
+5. Gear / flaps → arm scoring
+
+**You must start free flight already in the challenge aircraft** (e.g. A330-200 (RR)):
+
+1. MSFS World Map → select **A330-200 (RR)** → Start free flight  
+2. Challenge Lab → Connect → Start Challenge  
+
+A minimal `.FLT` artifact is still written under `%LocalAppData%\ChallengeLab\generated\` for debugging — it is **not** FlightLoaded mid-session.
+
+- Leave `"flightFile": ""` (default)  
+- **`timeOfDay`** — fixed clock every start (default **12:00 local**)
+
+```json
+"timeOfDay": {
+  "hour": 12,
+  "minute": 0,
+  "useZuluTime": false
+}
+```
+
+Session log should show:
 
 ```
-Generated .FLT from challenge JSON → ...
-Spawn from JSON: IAS 170 kt · ...
+Safe start: no mid-session FlightLoad (teleport + time only).
+Aircraft OK: 'A330-200 (RR)'
 ```
 
 ## Configuring scoring (finetune without code)
@@ -125,10 +148,12 @@ Within each phase, metrics are weighted by `importancePercent` (renormalized if 
 | Issue | Fix |
 |-------|-----|
 | Never connects | Start MSFS first; run Challenge Lab as same user; confirm SDK SimConnect.dll next to the exe when published |
-| Wrong aircraft | Config lists `A330-200 (RR)` (from this machine’s CustomFlight). Change `aircraftTitles` / FLT `[Sim.0]` if your title differs |
-| FlightLoad fails | App still teleports using spawn from challenge JSON (IAS included) |
-| Wrong start speed | Edit only `spawn.airspeedKts` in the challenge JSON; leave `flightFile` empty so a matching .FLT is generated |
-| Weather not strong | METAR is applied via SimConnect; if the sim ignores it, set a custom wind preset manually once as fallback |
+| Wrong aircraft dialog | Load the listed plane from World Map free flight, then Start Challenge. Challenge Lab will **not** hot-swap aircraft (prevents CTD). |
+| Still in helo after Start | Expected if you were in a helo — dialog should appear; switch to A330 first. |
+| Sim crashed after “Waiting for aircraft load” (old builds) | That was mid-session FlightLoad. Use **BUILD 2225+** (safe path, no FlightLoad). Restore CustomFlight if needed: `%AppData%\Microsoft Flight Simulator 2024\MISSIONS\Custom\CustomFlight\` — delete `CustomFlight.FLT` or restore `*.challengelab.bak`. |
+| Night / wrong time | `timeOfDay` defaults to noon local. Turn off live time in the sim UI if it overrides. |
+| Wrong start speed | Edit `spawn.airspeedKts` in challenge JSON only. |
+| Weather not strong | METAR via SimConnect; set a custom wind preset manually if the sim ignores it. |
 | Highscores report empty / no metric cards | See **AGENTS.md** — usually `ProgressBar` TwoWay on a read-only property, or list binding/layout. Prefer `Mode=OneWay` on progress bars and code-behind paint for the report panel. |
 
 Highscores are stored in:

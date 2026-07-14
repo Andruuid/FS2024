@@ -16,18 +16,22 @@ public sealed class SimConnectClient : ISimBridge
     private Microsoft.FlightSimulator.SimConnect.SimConnect? _sim;
     private IntPtr _hwnd;
     private bool _defsRegistered;
+    private bool _eventsMapped;
     private SimConnectionState _state = SimConnectionState.Disconnected;
     private string? _statusMessage = "Not connected";
+    private TaskCompletionSource<string?>? _titleTcs;
 
     private enum Definitions
     {
         Telemetry = 1,
-        InitPosition = 2
+        InitPosition = 2,
+        AircraftTitle = 3
     }
 
     private enum Requests
     {
-        Telemetry = 1
+        Telemetry = 1,
+        AircraftTitle = 2
     }
 
     private enum Events
@@ -40,7 +44,11 @@ public sealed class SimConnectClient : ISimBridge
         FreezeLat = 6,
         FreezeLon = 7,
         FreezeAlt = 8,
-        FreezeAtt = 9
+        FreezeAtt = 9,
+        ClockHoursSet = 10,
+        ClockMinutesSet = 11,
+        ZuluHoursSet = 12,
+        ZuluMinutesSet = 13
     }
 
     private enum Groups
@@ -71,6 +79,13 @@ public sealed class SimConnectClient : ISimBridge
         public double RadioHeight;
         public double DesignSpeedVs0;
         public double TotalWeight;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
+    private struct AircraftTitleStruct
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+        public string Title;
     }
 
     public SimConnectionState State
@@ -172,57 +187,158 @@ public sealed class SimConnectClient : ISimBridge
         if (!IsConnected || _sim is null)
             throw new InvalidOperationException("Not connected to the simulator.");
 
-        progress?.Report("Preparing scenario…");
-        await Task.Delay(200, ct);
+        // flightFileAbsolutePath is retained for API compatibility / optional future
+        // same-aircraft situation loads. We intentionally do NOT call FlightLoad mid free-flight:
+        // cross-aircraft FlightLoad of CustomFlight/autosave templates has crashed MSFS 2024.
+        _ = flightFileAbsolutePath;
 
-        var loadedFlight = false;
-        if (!string.IsNullOrWhiteSpace(flightFileAbsolutePath) && File.Exists(flightFileAbsolutePath))
+        progress?.Report("Preparing scenario…");
+        await Task.Delay(150, ct);
+
+        // --- Gate: correct aircraft already loaded (no mid-session aircraft swap) ---
+        progress?.Report("Checking aircraft…");
+        var actualTitle = await RequestAircraftTitleAsync(ct);
+        Log($"Safe apply (no FlightLoad). Current TITLE='{actualTitle ?? "(unknown)"}'");
+
+        if (challenge.AircraftTitles.Count > 0 &&
+            actualTitle is not null &&
+            !AircraftTitleMatches(actualTitle, challenge.AircraftTitles))
         {
-            progress?.Report("Loading flight file…");
-            try
-            {
-                var fullPath = Path.GetFullPath(flightFileAbsolutePath);
-                Log($"FlightLoad path: {fullPath} (exists={File.Exists(fullPath)})");
-                _sim.FlightLoad(fullPath);
-                loadedFlight = true;
-                Log($"FlightLoad requested: {fullPath}");
-                // Real FLT loads can take a few seconds
-                await Task.Delay(5000, ct);
-            }
-            catch (Exception ex)
-            {
-                Log($"FlightLoad failed: {ex.Message}. Falling back to teleport.");
-            }
+            Log($"Aircraft mismatch — aborting load (no FlightLoad). sim='{actualTitle}' expected [{string.Join(", ", challenge.AircraftTitles)}]");
+            throw new AircraftMismatchException(actualTitle, challenge.AircraftTitles);
         }
-        else
-        {
-            Log($"Flight file missing: '{flightFileAbsolutePath}' — will teleport only.");
-        }
+
+        if (actualTitle is null && challenge.AircraftTitles.Count > 0)
+            Log("TITLE unavailable — continuing with spawn/time (cannot verify aircraft).");
+        else if (actualTitle is not null)
+            Log($"Aircraft OK: '{actualTitle}'");
+
+        // --- Safe apply: time + weather + teleport + gear (no FlightLoad) ---
+        progress?.Report("Setting time of day…");
+        PauseSim(true);
+        await Task.Delay(200, ct);
+        ApplyTimeOfDay(challenge.TimeOfDay);
+        await Task.Delay(250, ct);
 
         progress?.Report("Applying weather…");
         ApplyWeather(challenge.Weather);
-        await Task.Delay(500, ct);
+        await Task.Delay(300, ct);
 
-        // Always apply spawn from challenge JSON after FlightLoad.
-        // Flight files (e.g. autosave) often bake high IAS (ZVelBodyAxis_IAS=270); JSON must win.
-        progress?.Report(loadedFlight ? "Fine-tuning position & airspeed…" : "Positioning aircraft (teleport)…");
-        PauseSim(true);
-        await Task.Delay(200, ct);
+        progress?.Report("Positioning aircraft…");
         Teleport(challenge.Spawn);
-        await Task.Delay(600, ct);
-        // Second apply — MSFS sometimes keeps FLT velocity after the first InitPosition.
+        await Task.Delay(500, ct);
+        // Second apply — MSFS sometimes keeps prior velocity after the first InitPosition.
         Teleport(challenge.Spawn);
-        await Task.Delay(400, ct);
+        await Task.Delay(350, ct);
 
         progress?.Report("Configuring gear and flaps…");
         ConfigureAircraft(challenge.AircraftSetup);
-        await Task.Delay(400, ct);
+        await Task.Delay(300, ct);
 
         if (challenge.AircraftSetup.Unpause)
             PauseSim(false);
 
         progress?.Report("Challenge armed.");
-        Log($"Scenario load complete. Spawn IAS target: {challenge.Spawn.AirspeedKts:0} kt (from challenge JSON).");
+        var tod = challenge.TimeOfDay ?? new TimeOfDayConfig();
+        Log(
+            $"Scenario load complete (safe path). Spawn IAS {challenge.Spawn.AirspeedKts:0} kt · " +
+            $"time {tod.Hour:00}:{tod.Minute:00} {(tod.UseZuluTime ? "Z" : "local")} · ac '{actualTitle ?? "?"}'.");
+    }
+
+    public void ApplyTimeOfDay(TimeOfDayConfig? timeOfDay)
+    {
+        if (_sim is null) return;
+
+        var tod = timeOfDay ?? new TimeOfDayConfig();
+        var hour = (uint)Math.Clamp(tod.Hour, 0, 23);
+        var minute = (uint)Math.Clamp(tod.Minute, 0, 59);
+
+        try
+        {
+            EnsureEvents();
+            if (tod.UseZuluTime)
+            {
+                _sim.TransmitClientEvent(
+                    MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.ZuluHoursSet, hour,
+                    Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+                _sim.TransmitClientEvent(
+                    MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.ZuluMinutesSet, minute,
+                    Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+            }
+            else
+            {
+                _sim.TransmitClientEvent(
+                    MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.ClockHoursSet, hour,
+                    Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+                _sim.TransmitClientEvent(
+                    MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.ClockMinutesSet, minute,
+                    Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+            }
+
+            Log($"Time of day set: {hour:00}:{minute:00} {(tod.UseZuluTime ? "Zulu" : "local")}");
+        }
+        catch (Exception ex)
+        {
+            Log($"ApplyTimeOfDay: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// True if the live TITLE matches any configured title (substring either way, case-insensitive).
+    /// </summary>
+    internal static bool AircraftTitleMatches(string? actualTitle, IReadOnlyList<string> expectedTitles)
+    {
+        if (expectedTitles.Count == 0)
+            return true; // nothing configured → don't block
+        if (string.IsNullOrWhiteSpace(actualTitle))
+            return false;
+
+        foreach (var expected in expectedTitles)
+        {
+            if (string.IsNullOrWhiteSpace(expected))
+                continue;
+            if (actualTitle.Contains(expected, StringComparison.OrdinalIgnoreCase) ||
+                expected.Contains(actualTitle, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    private async Task<string?> RequestAircraftTitleAsync(CancellationToken ct)
+    {
+        if (_sim is null) return null;
+
+        try
+        {
+            EnsureDefinitions();
+            var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _titleTcs = tcs;
+
+            _sim.RequestDataOnSimObject(
+                Requests.AircraftTitle,
+                Definitions.AircraftTitle,
+                MsfsSc.SIMCONNECT_OBJECT_ID_USER,
+                SIMCONNECT_PERIOD.ONCE,
+                SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT,
+                0, 0, 0);
+
+            using var reg = ct.Register(() => tcs.TrySetCanceled(ct));
+            var completed = await Task.WhenAny(tcs.Task, Task.Delay(2500, ct));
+            if (completed != tcs.Task)
+            {
+                _titleTcs = null;
+                return null;
+            }
+
+            return await tcs.Task;
+        }
+        catch (Exception ex)
+        {
+            Log($"RequestAircraftTitle: {ex.Message}");
+            _titleTcs = null;
+            return null;
+        }
     }
 
     private void PauseSim(bool pause)
@@ -365,11 +481,42 @@ public sealed class SimConnectClient : ISimBridge
 
     private void OnRecvException(Microsoft.FlightSimulator.SimConnect.SimConnect sender, SIMCONNECT_RECV_EXCEPTION data)
     {
-        Log($"SimConnect exception: {data.dwException} (send {data.dwSendID}, index {data.dwIndex})");
+        var name = data.dwException switch
+        {
+            9 => "EVENT_ID_DUPLICATE",
+            14 => "WEATHER_INVALID_METAR",
+            20 => "DATA_ERROR (bad FlightLoad file type?)",
+            23 => "LOAD_FLIGHTPLAN_FAILED",
+            28 => "DEFINITION_ERROR",
+            29 => "DUPLICATE_ID",
+            _ => data.dwException.ToString()
+        };
+        Log($"SimConnect exception: {name} (code {data.dwException}, send {data.dwSendID}, index {data.dwIndex})");
     }
 
     private void OnRecvSimobjectData(Microsoft.FlightSimulator.SimConnect.SimConnect sender, SIMCONNECT_RECV_SIMOBJECT_DATA data)
     {
+        if (data.dwRequestID == (uint)Requests.AircraftTitle)
+        {
+            try
+            {
+                var title = data.dwData[0] is AircraftTitleStruct s
+                    ? s.Title
+                    : data.dwData[0]?.ToString();
+                _titleTcs?.TrySetResult(string.IsNullOrWhiteSpace(title) ? null : title.Trim());
+            }
+            catch (Exception ex)
+            {
+                Log($"Title parse: {ex.Message}");
+                _titleTcs?.TrySetResult(null);
+            }
+            finally
+            {
+                _titleTcs = null;
+            }
+            return;
+        }
+
         if (data.dwRequestID != (uint)Requests.Telemetry) return;
 
         try
@@ -458,12 +605,16 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.InitPosition, "Initial Position", null,
             SIMCONNECT_DATATYPE.INITPOSITION, 0, MsfsSc.SIMCONNECT_UNUSED);
 
+        _sim.AddToDataDefinition(Definitions.AircraftTitle, "TITLE", null,
+            SIMCONNECT_DATATYPE.STRING256, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.RegisterDataDefineStruct<AircraftTitleStruct>(Definitions.AircraftTitle);
+
         _defsRegistered = true;
     }
 
     private void EnsureEvents()
     {
-        if (_sim is null) return;
+        if (_sim is null || _eventsMapped) return;
         try
         {
             _sim.MapClientEventToSimEvent(Events.GearDown, "GEAR_DOWN");
@@ -471,15 +622,21 @@ public sealed class SimConnectClient : ISimBridge
             _sim.MapClientEventToSimEvent(Events.FlapsSet, "FLAPS_SET");
             _sim.MapClientEventToSimEvent(Events.PauseOff, "PAUSE_OFF");
             _sim.MapClientEventToSimEvent(Events.PauseOn, "PAUSE_ON");
+            _sim.MapClientEventToSimEvent(Events.ClockHoursSet, "CLOCK_HOURS_SET");
+            _sim.MapClientEventToSimEvent(Events.ClockMinutesSet, "CLOCK_MINUTES_SET");
+            _sim.MapClientEventToSimEvent(Events.ZuluHoursSet, "ZULU_HOURS_SET");
+            _sim.MapClientEventToSimEvent(Events.ZuluMinutesSet, "ZULU_MINUTES_SET");
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.GearDown, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.GearUp, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.FlapsSet, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.PauseOff, false);
+            _sim.AddClientEventToNotificationGroup(Groups.Input, Events.PauseOn, false);
             _sim.SetNotificationGroupPriority(Groups.Input, MsfsSc.SIMCONNECT_GROUP_PRIORITY_HIGHEST);
+            _eventsMapped = true;
         }
-        catch
+        catch (Exception ex)
         {
-            // may already be mapped
+            Log($"EnsureEvents: {ex.Message}");
         }
     }
 
@@ -509,6 +666,7 @@ public sealed class SimConnectClient : ISimBridge
         catch { /* ignore */ }
         _sim = null;
         _defsRegistered = false;
+        _eventsMapped = false;
     }
 
     private void Log(string message) => LogMessage?.Invoke(this, message);

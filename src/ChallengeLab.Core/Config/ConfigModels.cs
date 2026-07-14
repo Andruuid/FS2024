@@ -35,6 +35,12 @@ public sealed class ChallengeConfig
     public List<string> AircraftTitles { get; set; } = new();
 
     /// <summary>
+    /// Optional livery name for [Sim.0] Livery= (from a working CustomFlight/autosave).
+    /// Example: "200 AIRBUS RR" for the stock A330-200 (RR).
+    /// </summary>
+    public string AircraftLivery { get; set; } = "";
+
+    /// <summary>
     /// Optional hand-crafted .FLT override. Leave empty (recommended) so the app
     /// generates a minimal .FLT from this JSON (spawn, aircraft, gear/flaps) at start.
     /// </summary>
@@ -43,6 +49,13 @@ public sealed class ChallengeConfig
     public SpawnConfig Spawn { get; set; } = new();
     public WeatherConfig Weather { get; set; } = new();
     public AircraftSetupConfig AircraftSetup { get; set; } = new();
+
+    /// <summary>
+    /// Fixed scenario clock applied on Start Challenge (FLT DateTimeSeason + SimConnect).
+    /// Defaults to 12:00 local so restarts are always daytime at the airport.
+    /// </summary>
+    public TimeOfDayConfig TimeOfDay { get; set; } = new();
+
     public List<string> HudTips { get; set; } = new();
     public RunwayConfig Runway { get; set; } = new();
 
@@ -76,6 +89,31 @@ public sealed class WeatherConfig
     public int VisibilitySm { get; set; } = 6;
     public string? Metar { get; set; }
     public string? WeatherPresetFile { get; set; }
+}
+
+/// <summary>
+/// Scenario time of day. Independent of METAR text (observation only).
+/// When <see cref="UseZuluTime"/> is false, hour/minute are local at the spawn.
+/// </summary>
+public sealed class TimeOfDayConfig
+{
+    /// <summary>Hour 0–23. Default 12 (noon).</summary>
+    public int Hour { get; set; } = 12;
+
+    /// <summary>Minute 0–59. Default 0.</summary>
+    public int Minute { get; set; }
+
+    /// <summary>
+    /// When false (default), Hours/Minutes are local time at the airport.
+    /// When true, they are UTC (Zulu).
+    /// </summary>
+    public bool UseZuluTime { get; set; }
+
+    /// <summary>Calendar year for DateTimeSeason. Null = current year.</summary>
+    public int? Year { get; set; }
+
+    /// <summary>Day of year 1–365 for DateTimeSeason. Null = 180 (mid-year / summer).</summary>
+    public int? DayOfYear { get; set; }
 }
 
 public sealed class AircraftSetupConfig

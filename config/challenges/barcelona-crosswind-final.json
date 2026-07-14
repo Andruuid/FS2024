@@ -11,6 +11,7 @@
     "Airbus A330-200",
     "A330"
   ],
+  "aircraftLivery": "200 AIRBUS RR",
   "flightFile": "",
   "spawn": {
     "latitude": 43.346046,
@@ -29,6 +30,11 @@
     "visibilitySm": 6,
     "metar": "LFML 141200Z 34028G36KT 9999 SCT025 BKN040 14/08 Q1012"
   },
+  "timeOfDay": {
+    "hour": 12,
+    "minute": 0,
+    "useZuluTime": false
+  },
   "aircraftSetup": {
     "gearDown": false,
     "flapsHandleIndex": 2,
@@ -46,8 +52,8 @@
     "widthM": 45
   },
   "hudTips": [
-    "Scenario is fully defined in this challenge JSON.",
-    "Edit spawn.airspeedKts / position / weather — restart challenge (no .FLT edit).",
-    "Scoring curves live in landing-evaluation-key.json (global)."
+    "Start free flight in A330-200 (RR) first — Challenge Lab will not hot-swap aircraft.",
+    "Start Challenge sets spawn, noon local time, weather, and gear safely.",
+    "Edit spawn / timeOfDay / weather in this JSON, then restart the challenge."
   ]
 }

@@ -21,3 +21,5 @@ if (Test-Path $native) {
 Write-Host ""
 Write-Host "Done. Run: $out\ChallengeLab.exe"
 Write-Host "Start MSFS 2024 first, then launch Challenge Lab."
+Write-Host "Safe start: load the challenge aircraft in free flight BEFORE Start Challenge."
+Write-Host "(Challenge Lab does not FlightLoad mid-session — prevents MSFS CTDs.)"

@@ -447,11 +447,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
             var stages = new[]
             {
-                "Connecting…",
-                "Loading flight…",
-                "Positioning…",
+                "Preparing…",
+                "Checking aircraft…",
+                "time of day…",
                 "Weather…",
-                "Configuring aircraft…",
+                "Positioning…",
+                "Configuring…",
                 "Arming scoring…"
             };
 
@@ -461,28 +462,32 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 var idx = Array.FindIndex(stages, s => msg.Contains(s.TrimEnd('…'), StringComparison.OrdinalIgnoreCase));
                 if (idx < 0)
                 {
-                    if (msg.Contains("flight", StringComparison.OrdinalIgnoreCase)) idx = 1;
-                    else if (msg.Contains("Position", StringComparison.OrdinalIgnoreCase) || msg.Contains("teleport", StringComparison.OrdinalIgnoreCase)) idx = 2;
+                    if (msg.Contains("aircraft", StringComparison.OrdinalIgnoreCase) || msg.Contains("Check", StringComparison.OrdinalIgnoreCase)) idx = 1;
+                    else if (msg.Contains("time", StringComparison.OrdinalIgnoreCase)) idx = 2;
                     else if (msg.Contains("weather", StringComparison.OrdinalIgnoreCase)) idx = 3;
-                    else if (msg.Contains("gear", StringComparison.OrdinalIgnoreCase) || msg.Contains("Configur", StringComparison.OrdinalIgnoreCase)) idx = 4;
-                    else if (msg.Contains("armed", StringComparison.OrdinalIgnoreCase)) idx = 5;
+                    else if (msg.Contains("Position", StringComparison.OrdinalIgnoreCase) || msg.Contains("teleport", StringComparison.OrdinalIgnoreCase)) idx = 4;
+                    else if (msg.Contains("gear", StringComparison.OrdinalIgnoreCase) || msg.Contains("Configur", StringComparison.OrdinalIgnoreCase)) idx = 5;
+                    else if (msg.Contains("armed", StringComparison.OrdinalIgnoreCase)) idx = 6;
                     else idx = 0;
                 }
                 LoadProgress = (idx + 1) / (double)stages.Length * 100;
             });
 
-            // Challenge JSON is the source of truth. Generate a minimal .FLT unless
-            // flightFile points at an existing override (rare / special missions).
+            // Debug artifact only — never FlightLoad mid-session for aircraft swap (MSFS CTD risk).
             var (flightPath, generated) = FltScenarioBuilder.ResolveFlightFile(
                 challenge,
                 rel => _configLoader.ResolveFlightPath(rel));
             AppendLog(generated
-                ? $"Generated .FLT from challenge JSON → {flightPath}"
-                : $"Using flightFile override → {flightPath}");
+                ? $"Scenario artifact (debug) → {flightPath}"
+                : $"flightFile override artifact → {flightPath}");
+            AppendLog("Safe start: no mid-session FlightLoad (teleport + time only).");
+            var tod = challenge.TimeOfDay;
             AppendLog(
                 $"Spawn from JSON: IAS {challenge.Spawn.AirspeedKts:0} kt · " +
                 $"alt {challenge.Spawn.AltitudeFeet:0} ft · hdg {challenge.Spawn.HeadingDeg:0}° · " +
+                $"time {tod.Hour:00}:{tod.Minute:00} {(tod.UseZuluTime ? "Z" : "local")} · " +
                 $"ac {challenge.AircraftTitles.FirstOrDefault() ?? "?"}");
+
             await _sim.LoadScenarioAsync(challenge, flightPath, progress);
 
             LoadProgress = 100;
@@ -493,6 +498,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             RotateTips(challenge);
             RequestShowHud?.Invoke();
             (RestartCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+        catch (AircraftMismatchException acEx)
+        {
+            LoadStatus = "Wrong aircraft";
+            AppendLog($"Wrong aircraft: {acEx.ActualTitle} (need challenge aircraft — no FlightLoad).");
+            MessageBox.Show(acEx.Message, "Challenge Lab — load the correct aircraft first",
+                MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {

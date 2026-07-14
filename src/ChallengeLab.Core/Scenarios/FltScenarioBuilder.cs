@@ -5,14 +5,37 @@ using ChallengeLab.Core.Config;
 namespace ChallengeLab.Core.Scenarios;
 
 /// <summary>
-/// Builds a minimal MSFS free-flight .FLT from challenge JSON so the challenge file
-/// is the single source of truth (spawn speed, position, aircraft, gear/flaps).
+/// Builds a minimal MSFS free-flight .FLT from challenge JSON (spawn, aircraft title,
+/// gear/flaps, time). Used for review, publish artifacts, and optional freeflight prep —
+/// not for mid-session FlightLoad aircraft swaps (unsafe in MSFS 2024).
 /// </summary>
 public static class FltScenarioBuilder
 {
+    /// <summary>UTF-8 with BOM — matches real MSFS flight files.</summary>
+    public static Encoding FltFileEncoding { get; } = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+
     /// <summary>
-    /// Write a generated .FLT for this challenge under LocalAppData\ChallengeLab\generated.
-    /// Returns the absolute path.
+    /// Official MSFS 2024 free-flight slot. Only write here via explicit prep APIs —
+    /// never as part of an automatic mid-session aircraft swap.
+    /// </summary>
+    public static string? TryGetMsfsCustomFlightPath()
+    {
+        var path = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Microsoft Flight Simulator 2024",
+            "MISSIONS",
+            "Custom",
+            "CustomFlight",
+            "CustomFlight.FLT");
+        var dir = Path.GetDirectoryName(path);
+        if (dir is null || !Directory.Exists(dir))
+            return null;
+        return path;
+    }
+
+    /// <summary>
+    /// Write a generated .FLT for this challenge under LocalAppData\ChallengeLab\generated
+    /// (or <paramref name="outputDirectory"/>). Returns the absolute path.
     /// </summary>
     public static string Write(ChallengeConfig challenge, string? outputDirectory = null)
     {
@@ -27,32 +50,85 @@ public static class FltScenarioBuilder
             safeId = safeId.Replace(c, '_');
 
         var path = Path.Combine(dir, $"{safeId}.FLT");
-        File.WriteAllText(path, BuildContent(challenge), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        WriteFltFile(path, BuildContent(challenge));
         return Path.GetFullPath(path);
     }
 
-    /// <summary>Build FLT text only (for tests).</summary>
+    /// <summary>Write FLT text using MSFS-friendly encoding.</summary>
+    public static void WriteFltFile(string absolutePath, string content)
+    {
+        var dir = Path.GetDirectoryName(absolutePath);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
+        File.WriteAllText(absolutePath, content, FltFileEncoding);
+    }
+
+    /// <summary>
+    /// Resolve a debug/artifact .FLT path: optional hand override, else generate minimal
+    /// content under LocalAppData. Does <b>not</b> overwrite MSFS CustomFlight.
+    /// </summary>
+    public static (string Path, bool Generated) ResolveFlightFile(
+        ChallengeConfig challenge,
+        Func<string, string>? resolveOverridePath = null,
+        bool useMsfsCustomFlightSlot = false)
+    {
+        // useMsfsCustomFlightSlot intentionally ignored (always false behavior).
+        // Mid-session CustomFlight overwrite + FlightLoad caused MSFS 2024 CTDs.
+        _ = useMsfsCustomFlightSlot;
+
+        if (!string.IsNullOrWhiteSpace(challenge.FlightFile))
+        {
+            var resolved = resolveOverridePath is not null
+                ? resolveOverridePath(challenge.FlightFile)
+                : challenge.FlightFile;
+            if (File.Exists(resolved))
+                return (Path.GetFullPath(resolved), Generated: false);
+        }
+
+        return (Write(challenge), Generated: true);
+    }
+
+    /// <summary>
+    /// Optionally write a <b>minimal</b> scenario into CustomFlight with backup.
+    /// For user-driven freeflight prep only — caller must not FlightLoad mid-session for swaps.
+    /// </summary>
+    public static string? PrepareCustomFlightWithBackup(ChallengeConfig challenge)
+    {
+        var customPath = TryGetMsfsCustomFlightPath();
+        if (customPath is null)
+            return null;
+
+        if (File.Exists(customPath))
+        {
+            var bak = customPath + ".challengelab.bak";
+            File.Copy(customPath, bak, overwrite: true);
+        }
+
+        WriteFltFile(customPath, BuildContent(challenge));
+        return Path.GetFullPath(customPath);
+    }
+
+    /// <summary>Build minimal FLT text (for tests and artifacts).</summary>
     public static string BuildContent(ChallengeConfig challenge)
     {
         var spawn = challenge.Spawn ?? new SpawnConfig();
         var setup = challenge.AircraftSetup ?? new AircraftSetupConfig();
         var aircraft = challenge.AircraftTitles.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t))
                        ?? "A330-200 (RR)";
+        var livery = challenge.AircraftLivery?.Trim() ?? "";
 
         var ias = Math.Max(0, spawn.AirspeedKts);
-        // Body forward speed in FLT is typically close to IAS for these free-flight snippets.
         var zVel = ias;
         var gear = setup.GearDown ? 1 : 0;
-        // Map flaps handle index (0–4-ish) to 0–100%
         var flapsPct = Math.Clamp(setup.FlapsHandleIndex, 0, 5) / 4.0 * 100.0;
         if (flapsPct > 100) flapsPct = 100;
 
-        var title = string.IsNullOrWhiteSpace(challenge.Title)
+        var title = AsciiSafe(string.IsNullOrWhiteSpace(challenge.Title)
             ? "Challenge Lab"
-            : challenge.Title;
-        var desc = string.IsNullOrWhiteSpace(challenge.Description)
+            : challenge.Title);
+        var desc = AsciiSafe(string.IsNullOrWhiteSpace(challenge.Description)
             ? "Generated from challenge JSON"
-            : challenge.Description.Replace('\r', ' ').Replace('\n', ' ');
+            : challenge.Description.Replace('\r', ' ').Replace('\n', ' '));
         if (desc.Length > 200) desc = desc[..200];
 
         var location = challenge.Runway?.AirportIcao;
@@ -61,7 +137,7 @@ public static class FltScenarioBuilder
 
         var sb = new StringBuilder();
         sb.AppendLine("[Main]");
-        sb.AppendLine($"Title=Challenge Lab — {title}");
+        sb.AppendLine($"Title=Challenge Lab - {title}");
         sb.AppendLine($"Description={desc}");
         sb.AppendLine("AppVersion=12.0.1");
         sb.AppendLine("FlightVersion=1");
@@ -83,7 +159,7 @@ public static class FltScenarioBuilder
         sb.AppendLine();
         sb.AppendLine("[Sim.0]");
         sb.AppendLine($"Sim={aircraft}");
-        sb.AppendLine("Livery=");
+        sb.AppendLine($"Livery={livery}");
         sb.AppendLine("Pilot=");
         sb.AppendLine("Copilot=");
         sb.AppendLine("TailNumber=CLAB1");
@@ -104,6 +180,7 @@ public static class FltScenarioBuilder
         sb.AppendLine("WeatherCanBeLive=False");
         sb.AppendLine("FixedClouds=False");
         sb.AppendLine();
+        AppendDateTimeSeason(sb, challenge.TimeOfDay);
         sb.AppendLine("[Panels]");
         sb.AppendLine("Panel.On=True");
         sb.AppendLine("HUD.On=False");
@@ -187,23 +264,26 @@ public static class FltScenarioBuilder
     }
 
     /// <summary>
-    /// Resolve which .FLT to FlightLoad: optional override path if present,
-    /// otherwise generate from challenge JSON.
+    /// Emit [DateTimeSeason] so freeflight-from-menu loads can set a fixed clock.
     /// </summary>
-    public static (string Path, bool Generated) ResolveFlightFile(
-        ChallengeConfig challenge,
-        Func<string, string>? resolveOverridePath = null)
+    public static void AppendDateTimeSeason(StringBuilder sb, TimeOfDayConfig? timeOfDay)
     {
-        if (!string.IsNullOrWhiteSpace(challenge.FlightFile))
-        {
-            var resolved = resolveOverridePath is not null
-                ? resolveOverridePath(challenge.FlightFile)
-                : challenge.FlightFile;
-            if (File.Exists(resolved))
-                return (Path.GetFullPath(resolved), Generated: false);
-        }
+        var tod = timeOfDay ?? new TimeOfDayConfig();
+        var hour = Math.Clamp(tod.Hour, 0, 23);
+        var minute = Math.Clamp(tod.Minute, 0, 59);
+        var year = tod.Year is > 1900 and < 2200 ? tod.Year.Value : DateTime.Now.Year;
+        var day = tod.DayOfYear is >= 1 and <= 366 ? tod.DayOfYear.Value : 180;
+        var useZulu = tod.UseZuluTime;
 
-        return (Write(challenge), Generated: true);
+        sb.AppendLine("[DateTimeSeason]");
+        sb.AppendLine("Season=Summer");
+        sb.AppendLine($"Year={year}");
+        sb.AppendLine($"Day={day}");
+        sb.AppendLine($"Hours={hour}");
+        sb.AppendLine($"Minutes={minute}");
+        sb.AppendLine("Seconds=0");
+        sb.AppendLine($"UseZuluTime={(useZulu ? "True" : "False")}");
+        sb.AppendLine();
     }
 
     public static string FormatLatitude(double lat)
@@ -220,9 +300,44 @@ public static class FltScenarioBuilder
 
     public static string FormatAltitude(double feet)
     {
-        // Match LEBL template style: +001850.00
         var sign = feet >= 0 ? "+" : "-";
         return sign + Math.Abs(feet).ToString("000000.00", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Strip characters that break FLT metadata lines.</summary>
+    public static string AsciiSafe(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        var sb = new StringBuilder(text.Length);
+        foreach (var ch in text)
+        {
+            switch (ch)
+            {
+                case '\u2014':
+                case '\u2013':
+                case '\u2212':
+                    sb.Append('-');
+                    break;
+                case '\u2018':
+                case '\u2019':
+                case '\u201C':
+                case '\u201D':
+                    sb.Append('\'');
+                    break;
+                case '\u00B0':
+                    sb.Append(ch);
+                    break;
+                default:
+                    if (ch < 32 && ch is not '\t')
+                        sb.Append(' ');
+                    else if (ch <= 255)
+                        sb.Append(ch);
+                    else
+                        sb.Append('?');
+                    break;
+            }
+        }
+        return sb.ToString();
     }
 
     private static string FormatDms(double absDeg, string hemi)
@@ -231,8 +346,7 @@ public static class FltScenarioBuilder
         var minFloat = (absDeg - deg) * 60.0;
         var min = (int)Math.Floor(minFloat);
         var sec = (minFloat - min) * 60.0;
-        // Degree symbol as used in working MSFS FLT templates
         return string.Create(CultureInfo.InvariantCulture,
-            $"{hemi}{deg}° {min}' {sec:0.00}\"");
+            $"{hemi}{deg}\u00B0 {min}' {sec:0.00}\"");
     }
 }

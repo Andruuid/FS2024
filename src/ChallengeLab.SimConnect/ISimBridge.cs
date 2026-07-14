@@ -29,5 +29,6 @@ public interface ISimBridge : IDisposable
     Task LoadScenarioAsync(ChallengeConfig challenge, string flightFileAbsolutePath, IProgress<string>? progress = null, CancellationToken ct = default);
     void ConfigureAircraft(AircraftSetupConfig setup);
     void ApplyWeather(WeatherConfig weather);
+    void ApplyTimeOfDay(TimeOfDayConfig? timeOfDay);
     void Teleport(SpawnConfig spawn);
 }

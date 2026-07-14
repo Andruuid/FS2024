@@ -1,5 +1,20 @@
 # Challenge Lab — agent notes
 
+## Start Challenge / MSFS CTD (critical)
+
+### Do NOT mid-session FlightLoad for aircraft swap
+Forcing H125→A330 via `SimConnect_FlightLoad` of CustomFlight or a patched full autosave **crashed MSFS 2024** during “Waiting for aircraft load…”.
+
+### Safe path (BUILD 2225+)
+1. Read `TITLE` — if not in `aircraftTitles`, show guidance and **abort** (no FlightLoad).
+2. Apply time + weather + teleport + gear only.
+3. User must already be in the challenge aircraft (World Map free flight).
+
+### Related files
+- `SimConnectClient.LoadScenarioAsync` — no FlightLoad
+- `FltScenarioBuilder` — minimal FLT artifacts only; never overwrite CustomFlight on Start
+- `AircraftMismatchException` — wrong aircraft UX
+
 ## Highscores landing report (critical WPF lesson)
 
 ### Symptom
