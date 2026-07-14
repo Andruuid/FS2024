@@ -51,11 +51,29 @@ Run `dist\ChallengeLab\ChallengeLab.exe`. No Community package install is requir
 
 ```
 src/ChallengeLab.App          WPF UI + Companion HUD
-src/ChallengeLab.Core         Scoring, config, highscores
+src/ChallengeLab.Core         Scoring, config, highscores, FLT generator
 src/ChallengeLab.SimConnect   MSFS SimConnect bridge
-config/                       Challenge + scoring JSON
-flights/                      .FLT scenario files
+config/                       Challenge + scoring JSON  ← edit these
+flights/                      Optional hand .FLT overrides only
 tests/                        Unit tests (no sim required)
+```
+
+## Challenge scenario (single JSON source of truth)
+
+Each challenge is **one file**: `config/challenges/<id>.json`.
+
+Edit spawn (lat/lon/alt/heading/**airspeedKts**), aircraft titles, weather, gear/flaps, runway, tips there.  
+At start the app **generates a minimal `.FLT`** from that JSON (under `%LocalAppData%\ChallengeLab\generated\`), then FlightLoads it and teleports again so JSON numbers win.
+
+- Leave `"flightFile": ""` (default) — always generate from JSON  
+- Set `flightFile` only for rare hand-crafted overrides  
+- Change `spawn.airspeedKts` → restart challenge (no `.FLT` edit)
+
+Session log shows:
+
+```
+Generated .FLT from challenge JSON → ...
+Spawn from JSON: IAS 170 kt · ...
 ```
 
 ## Configuring scoring (finetune without code)
@@ -85,8 +103,8 @@ Within each phase, metrics are weighted by `importancePercent` (renormalized if 
 | File | Purpose |
 |------|---------|
 | `config/catalog.json` | Points at the evaluation key path |
-| `config/challenges/*.json` | Spawn, weather, runway, tips, `requireGearDown` |
-| `config/scoring/profiles/hardcore-crosswind-landing.json` | **Legacy** flat criteria (used only if evaluation key fails to load) |
+| `config/challenges/*.json` | **Full scenario** (spawn, IAS, aircraft, weather, gear/flaps, runway) — no parallel .FLT |
+| `config/scoring/profiles/landing-evaluation-key.json` | Authoritative scoring, timing, gear, and speed-target settings |
 
 ### Metric fields in the evaluation key
 
@@ -108,7 +126,8 @@ Within each phase, metrics are weighted by `importancePercent` (renormalized if 
 |-------|-----|
 | Never connects | Start MSFS first; run Challenge Lab as same user; confirm SDK SimConnect.dll next to the exe when published |
 | Wrong aircraft | Config lists `A330-200 (RR)` (from this machine’s CustomFlight). Change `aircraftTitles` / FLT `[Sim.0]` if your title differs |
-| FlightLoad fails | App teleports using spawn lat/lon/alt/heading from challenge JSON |
+| FlightLoad fails | App still teleports using spawn from challenge JSON (IAS included) |
+| Wrong start speed | Edit only `spawn.airspeedKts` in the challenge JSON; leave `flightFile` empty so a matching .FLT is generated |
 | Weather not strong | METAR is applied via SimConnect; if the sim ignores it, set a custom wind preset manually once as fallback |
 | Highscores report empty / no metric cards | See **AGENTS.md** — usually `ProgressBar` TwoWay on a read-only property, or list binding/layout. Prefer `Mode=OneWay` on progress bars and code-behind paint for the report panel. |
 

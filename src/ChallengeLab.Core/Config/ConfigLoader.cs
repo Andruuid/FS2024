@@ -77,7 +77,12 @@ public sealed class ConfigLoader
             if (!File.Exists(path))
                 return EvaluationKeyLoadResult.Failure(path, $"Evaluation key not found: {path}");
 
-            var key = LoadJson<LandingEvaluationKey>(path, StrictKeyJsonOptions);
+            var json = File.ReadAllText(path);
+            var corruption = FindCorruption(json);
+            if (corruption is not null)
+                return EvaluationKeyLoadResult.Failure(path, $"Evaluation key contains text-encoding corruption sequence '{corruption}'.");
+            var key = JsonSerializer.Deserialize<LandingEvaluationKey>(json, StrictKeyJsonOptions)
+                      ?? throw new InvalidOperationException($"Failed to deserialize {path}");
             var errors = EvaluationKeyValidator.Validate(key);
             return errors.Count == 0
                 ? EvaluationKeyLoadResult.Success(key, path)
@@ -154,6 +159,13 @@ public sealed class ConfigLoader
         var json = File.ReadAllText(path);
         return JsonSerializer.Deserialize<T>(json, options ?? JsonOptions)
                ?? throw new InvalidOperationException($"Failed to deserialize {path}");
+    }
+
+    private static string? FindCorruption(string text)
+    {
+        foreach (var sequence in new[] { "Ã", "Â", "â€", "â€“", "â€”", "â†", "�" })
+            if (text.Contains(sequence, StringComparison.Ordinal)) return sequence;
+        return null;
     }
 }
 

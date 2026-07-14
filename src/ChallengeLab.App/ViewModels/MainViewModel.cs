@@ -9,6 +9,7 @@ using MessageBoxImage = System.Windows.MessageBoxImage;
 using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Highscores;
 using ChallengeLab.Core.Models;
+using ChallengeLab.Core.Scenarios;
 using ChallengeLab.Core.Scoring;
 using ChallengeLab.SimConnect;
 // LandingEvaluationKey lives in ChallengeLab.Core.Config
@@ -469,7 +470,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 LoadProgress = (idx + 1) / (double)stages.Length * 100;
             });
 
-            var flightPath = _configLoader.ResolveFlightPath(challenge.FlightFile);
+            // Challenge JSON is the source of truth. Generate a minimal .FLT unless
+            // flightFile points at an existing override (rare / special missions).
+            var (flightPath, generated) = FltScenarioBuilder.ResolveFlightFile(
+                challenge,
+                rel => _configLoader.ResolveFlightPath(rel));
+            AppendLog(generated
+                ? $"Generated .FLT from challenge JSON → {flightPath}"
+                : $"Using flightFile override → {flightPath}");
+            AppendLog(
+                $"Spawn from JSON: IAS {challenge.Spawn.AirspeedKts:0} kt · " +
+                $"alt {challenge.Spawn.AltitudeFeet:0} ft · hdg {challenge.Spawn.HeadingDeg:0}° · " +
+                $"ac {challenge.AircraftTitles.FirstOrDefault() ?? "?"}");
             await _sim.LoadScenarioAsync(challenge, flightPath, progress);
 
             LoadProgress = 100;

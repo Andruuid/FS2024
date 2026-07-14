@@ -6,7 +6,6 @@ namespace ChallengeLab.Core.Scoring.Evaluators;
 /// Linear interpolation across ordered control points (metric value → score).
 /// JSON convention: <c>s</c> is the metric score in percent 0–100
 /// (e.g. <c>{ "v": -100, "s": 100 }</c> = perfect). Engine returns 0–1 for blending.
-/// Legacy 0–1 fractions are still accepted if every point has s ≤ 1.
 /// </summary>
 public sealed class PiecewiseEvaluator : IEvaluator
 {

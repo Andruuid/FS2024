@@ -33,7 +33,13 @@ public sealed class ChallengeConfig
     public bool Available { get; set; } = true;
     public string ComingSoonNote { get; set; } = "";
     public List<string> AircraftTitles { get; set; } = new();
+
+    /// <summary>
+    /// Optional hand-crafted .FLT override. Leave empty (recommended) so the app
+    /// generates a minimal .FLT from this JSON (spawn, aircraft, gear/flaps) at start.
+    /// </summary>
     public string FlightFile { get; set; } = "";
+
     public SpawnConfig Spawn { get; set; } = new();
     public WeatherConfig Weather { get; set; } = new();
     public AircraftSetupConfig AircraftSetup { get; set; } = new();

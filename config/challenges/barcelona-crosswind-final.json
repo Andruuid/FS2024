@@ -2,8 +2,8 @@
   "id": "barcelona-crosswind-final",
   "mode": "hardcore_landings",
   "title": "Barcelona Crosswind Final",
-  "subtitle": "TEST SPAWN · from your autosave (LFML area) · A330",
-  "description": "TEMPORARY TEST: spawn/position from autosave (LFML area). Airspeed comes from spawn.airspeedKts (JSON) after load — the .FLT used to bake ~270 kt IAS.",
+  "subtitle": "TEST SPAWN · LFML area · A330 · single JSON source of truth",
+  "description": "All scenario values (position, IAS, aircraft, gear/flaps, weather) come from this JSON. A minimal .FLT is generated at start — no hand-maintained flight file required.",
   "available": true,
   "requireGearDown": true,
   "aircraftTitles": [
@@ -11,7 +11,7 @@
     "Airbus A330-200",
     "A330"
   ],
-  "flightFile": "flights/Autosave_Test_Position.FLT",
+  "flightFile": "",
   "spawn": {
     "latitude": 43.346046,
     "longitude": 5.344348,
@@ -46,8 +46,8 @@
     "widthM": 45
   },
   "hudTips": [
-    "TEST MODE: position from your autosave (LFML area).",
-    "If you jump here, SimConnect load/teleport is working.",
-    "Gear was UP and flaps mid in the save — matching that for the test."
+    "Scenario is fully defined in this challenge JSON.",
+    "Edit spawn.airspeedKts / position / weather — restart challenge (no .FLT edit).",
+    "Scoring curves live in landing-evaluation-key.json (global)."
   ]
 }
