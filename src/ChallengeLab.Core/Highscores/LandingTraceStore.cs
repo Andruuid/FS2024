@@ -55,8 +55,8 @@ public sealed class LandingTraceStore
         {
             Id = id,
             Utc = result.ScoredAtUtc,
-            ChallengeId = result.ChallengeId,
-            ChallengeTitle = result.ChallengeTitle,
+            ChallengeId = result.ChallengeId ?? "",
+            ChallengeTitle = result.ChallengeTitle ?? "",
             ScorePercent = result.ScorePercent,
             Grade = result.Grade,
             IsRanked = result.IsRanked,
@@ -66,10 +66,10 @@ public sealed class LandingTraceStore
                 Id = c.Id,
                 DisplayName = c.DisplayName,
                 PhaseId = c.PhaseId,
-                ScorePercent = c.ScorePercent,
+                ScorePercent = c.ScorePercent is null ? null : Math.Round(c.ScorePercent.Value, 1),
                 RawValue = c.RawValue,
                 Unit = c.Unit,
-                Status = c.Status?.ToString()
+                Status = c.Status.ToString()
             }).ToList(),
             Snapshot = new LandingTraceSnapshot
             {
@@ -78,6 +78,11 @@ public sealed class LandingTraceStore
                 AirspeedAtTouchdownKts = snapshot.AirspeedAtTouchdownKts,
                 ApproachPathRms = snapshot.ApproachPathRms,
                 ApproachPathSampleCount = snapshot.ApproachPathSampleCount,
+                ApproachGlideslopeMeanAbsFt = snapshot.ApproachGlideslopeMeanAbsFt,
+                ApproachVerticalVariationFtPerSec = snapshot.ApproachVerticalVariationFtPerSec,
+                ApproachLateralWeaveIndex = snapshot.ApproachLateralWeaveIndex,
+                ApproachLateralDistanceM = snapshot.ApproachLateralDistanceM,
+                ApproachMetricDurationSec = snapshot.ApproachMetricDurationSec,
                 RolloutLateralMeanM = snapshot.RolloutLateralMeanM,
                 RolloutLateralPeakM = snapshot.RolloutLateralPeakM,
                 RolloutWeaveIndex = snapshot.RolloutWeaveIndex,
@@ -155,6 +160,11 @@ public sealed class LandingTraceSnapshot
     public double AirspeedAtTouchdownKts { get; set; }
     public double ApproachPathRms { get; set; }
     public int ApproachPathSampleCount { get; set; }
+    public double ApproachGlideslopeMeanAbsFt { get; set; }
+    public double ApproachVerticalVariationFtPerSec { get; set; }
+    public double ApproachLateralWeaveIndex { get; set; }
+    public double ApproachLateralDistanceM { get; set; }
+    public double ApproachMetricDurationSec { get; set; }
     public double RolloutLateralMeanM { get; set; }
     public double RolloutLateralPeakM { get; set; }
     public double RolloutWeaveIndex { get; set; }

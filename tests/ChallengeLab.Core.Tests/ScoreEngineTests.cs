@@ -42,6 +42,11 @@ public sealed class ScoreEngineTests
         TouchdownHeadingErrorDeg = 1,
         ApproachPathRms = 1,
         ApproachPathSampleCount = 3,
+        ApproachGlideslopeMeanAbsFt = 20,
+        ApproachVerticalVariationFtPerSec = 1.5,
+        ApproachLateralWeaveIndex = 0.01,
+        ApproachLateralDistanceM = 2000,
+        ApproachMetricDurationSec = 45,
         GroundTrackSampleCount = 4,
         GroundTrackBeforeSegmentCount = 1,
         GroundTrackAfterSegmentCount = 1,
@@ -141,16 +146,44 @@ public sealed class ScoreEngineTests
     }
 
     [Fact]
-    public void ApproachPath_SoftCurve_GivesPartialCreditForSteepButUsable()
+    public void ApproachPhase_HasThreeEqualWeightMetrics()
     {
         var (key, _) = Load();
-        var metric = key.Phases.SelectMany(p => p.Metrics).Single(m => m.Id == "approach_path");
-        // Full within 100 ft, zero by 900 ft RMS.
-        Assert.Equal(1.0, TargetEvaluator.Instance.Evaluate(50, metric), 6);
-        Assert.Equal(1.0, TargetEvaluator.Instance.Evaluate(100, metric), 6);
-        Assert.Equal(0.0, TargetEvaluator.Instance.Evaluate(900, metric), 6);
-        var steep = TargetEvaluator.Instance.Evaluate(660, metric);
-        Assert.InRange(steep, 0.25, 0.45);
+        var approach = key.Phases.Single(p => p.Id == "approach");
+        Assert.Equal(3, approach.Metrics.Count);
+        Assert.Contains(approach.Metrics, m => m.Id == "approach_glideslope");
+        Assert.Contains(approach.Metrics, m => m.Id == "approach_vertical_steady");
+        Assert.Contains(approach.Metrics, m => m.Id == "approach_lateral_steady");
+        Assert.Equal(100, approach.Metrics.Sum(m => m.ImportancePercent), 2);
+    }
+
+    [Fact]
+    public void ApproachGlideslope_SoftCurve_GivesPartialCreditForBias()
+    {
+        var (key, _) = Load();
+        var metric = key.Phases.SelectMany(p => p.Metrics).Single(m => m.Id == "approach_glideslope");
+        Assert.Equal(1.0, TargetEvaluator.Instance.Evaluate(20, metric), 6);
+        Assert.Equal(1.0, TargetEvaluator.Instance.Evaluate(40, metric), 6);
+        Assert.Equal(0.0, TargetEvaluator.Instance.Evaluate(350, metric), 6);
+        var mid = TargetEvaluator.Instance.Evaluate(195, metric); // halfway tol→max ≈ 50%
+        Assert.InRange(mid, 0.45, 0.55);
+    }
+
+    [Fact]
+    public void Hierarchy_ApproachUsesThreeMetricsNotSinglePath()
+    {
+        var (key, challenge) = Load();
+        var snap = CompleteSnapshot();
+        var result = new ScoreEngine(key).Evaluate(challenge, snap);
+        Assert.True(result.IsRanked, string.Join("; ", result.IncompleteReasons));
+        var approachIds = result.Criteria
+            .Where(c => c.PhaseId == "approach")
+            .Select(c => c.Id)
+            .OrderBy(x => x)
+            .ToList();
+        Assert.Equal(
+            new[] { "approach_glideslope", "approach_lateral_steady", "approach_vertical_steady" },
+            approachIds);
     }
 
     [Fact]

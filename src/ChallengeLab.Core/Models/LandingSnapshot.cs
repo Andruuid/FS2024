@@ -9,8 +9,33 @@ public sealed class LandingSnapshot
     public double MaxLateralOffsetM { get; set; }
     public double TouchdownLateralOffsetM { get; set; }
     public double TouchdownHeadingErrorDeg { get; set; }
+    /// <summary>Legacy / diagnostic: RMS altitude error vs 3° path on short final (ft).</summary>
     public double ApproachPathRms { get; set; }
     public int ApproachPathSampleCount { get; set; }
+
+    /// <summary>
+    /// Time-integrated average glideslope match: |∫ e(t) dt / T| where e is altitude error vs 3° path (ft).
+    /// Pure bias — oscillating equally above/below scores well here and is penalized in vertical steadiness.
+    /// </summary>
+    public double ApproachGlideslopeMeanAbsFt { get; set; }
+
+    /// <summary>
+    /// Vertical steadiness: total variation of altitude error per second = Σ|Δe| / T (ft/s).
+    /// High when the pilot pumps the path (above then below); near 0 for a steady capture.
+    /// </summary>
+    public double ApproachVerticalVariationFtPerSec { get; set; }
+
+    /// <summary>
+    /// Lateral steadiness on approach: Σ|Δd| / ground distance (m/m), same idea as rollout weave.
+    /// High when S-turning left/right of centerline; low for a straight-in track.
+    /// </summary>
+    public double ApproachLateralWeaveIndex { get; set; }
+
+    /// <summary>Ground distance used for approach lateral weave (metres).</summary>
+    public double ApproachLateralDistanceM { get; set; }
+
+    /// <summary>Duration of the short-final window used for approach metrics (seconds).</summary>
+    public double ApproachMetricDurationSec { get; set; }
     public double RolloutHeadingVariance { get; set; }
     /// <summary>Legacy flare heading-vs-runway (not scored; crab is wind-dependent).</summary>
     public double CrabAngleAtFlareDeg { get; set; }

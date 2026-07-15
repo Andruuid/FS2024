@@ -16,7 +16,6 @@ public sealed class LandingSession
     private bool _wasOnGround;
     private bool _touchdownCaptured;
     private int _airborneSampleCount;
-    private readonly List<double> _approachAltErrors = new();
     private readonly List<double> _rolloutHeadings = new();
 
     public LandingPhase Phase { get; private set; } = LandingPhase.Idle;
@@ -52,6 +51,11 @@ public sealed class LandingSession
         Snapshot.TouchdownHeadingErrorDeg = 0;
         Snapshot.ApproachPathRms = 0;
         Snapshot.ApproachPathSampleCount = 0;
+        Snapshot.ApproachGlideslopeMeanAbsFt = 0;
+        Snapshot.ApproachVerticalVariationFtPerSec = 0;
+        Snapshot.ApproachLateralWeaveIndex = 0;
+        Snapshot.ApproachLateralDistanceM = 0;
+        Snapshot.ApproachMetricDurationSec = 0;
         Snapshot.RolloutHeadingVariance = 0;
         Snapshot.CrabAngleAtFlareDeg = 0;
         Snapshot.GroundTrackErrorMeanDeg = 0;
@@ -88,7 +92,6 @@ public sealed class LandingSession
         _wasOnGround = false;
         _touchdownCaptured = false;
         _airborneSampleCount = 0;
-        _approachAltErrors.Clear();
         _rolloutHeadings.Clear();
     }
 
@@ -117,14 +120,6 @@ public sealed class LandingSession
                     SetPhase(LandingPhase.Approach);
 
                 Snapshot.ApproachSamples.Add(sample);
-                var distNm = _geo.DistanceToThresholdNm(sample.Latitude, sample.Longitude);
-                // Path accuracy uses short final only — high spawn / long intermediate approach
-                // would otherwise dominate RMS and force a permanent 0% (spawn is ~1000+ ft high).
-                if (distNm >= _settings.ApproachPathMinDistNm && distNm <= _settings.ApproachPathMaxDistNm)
-                {
-                    var expectedAlt = _challenge.Runway.ElevationFeet + distNm * 318.0; // ~3 deg
-                    _approachAltErrors.Add(sample.AltitudeFeet - expectedAlt);
-                }
 
                 if (agl <= _settings.FlareAglFeet && Phase != LandingPhase.Flare)
                 {
@@ -199,12 +194,7 @@ public sealed class LandingSession
 
     private void FinalizeSnapshot()
     {
-        Snapshot.ApproachPathSampleCount = _approachAltErrors.Count;
-        if (_approachAltErrors.Count > 0)
-        {
-            var meanSq = _approachAltErrors.Average(e => e * e);
-            Snapshot.ApproachPathRms = Math.Sqrt(meanSq);
-        }
+        ComputeApproachPathMetrics();
 
         if (_rolloutHeadings.Count > 1)
         {
@@ -219,6 +209,85 @@ public sealed class LandingSession
         ComputeGroundTrackWindowMetrics();
         ComputePostTouchdownAlignmentMetrics();
         ComputeRolloutPathIntegralMetrics();
+    }
+
+    /// <summary>
+    /// Short-final approach metrics (same distance window as config):
+    /// 1) time-integrated |mean| altitude error vs 3° path (average glideslope match),
+    /// 2) vertical total variation rate of that error (up/down steadiness),
+    /// 3) lateral weave Σ|Δd|/S (left/right steadiness).
+    /// Also keeps diagnostic RMS.
+    /// </summary>
+    private void ComputeApproachPathMetrics()
+    {
+        var elev = _challenge.Runway.ElevationFeet;
+        var minNm = _settings.ApproachPathMinDistNm;
+        var maxNm = _settings.ApproachPathMaxDistNm;
+
+        var points = Snapshot.ApproachSamples
+            .Where(s => !s.SimOnGround)
+            .Select(s =>
+            {
+                var distNm = _geo.DistanceToThresholdNm(s.Latitude, s.Longitude);
+                var lateralM = _geo.LateralOffsetMeters(s.Latitude, s.Longitude);
+                var expectedAlt = elev + distNm * 318.0; // ~3°
+                var altErr = s.AltitudeFeet - expectedAlt;
+                return (Sample: s, DistNm: distNm, LateralM: lateralM, AltErrFt: altErr);
+            })
+            .Where(p => p.DistNm >= minNm && p.DistNm <= maxNm)
+            .OrderBy(p => p.Sample.Timestamp)
+            .ToList();
+
+        Snapshot.ApproachPathSampleCount = points.Count;
+        if (points.Count < 2)
+            return;
+
+        // Diagnostic RMS (not scored by current key).
+        Snapshot.ApproachPathRms = Math.Sqrt(points.Average(p => p.AltErrFt * p.AltErrFt));
+
+        double integralE = 0;      // ∫ e dt
+        double integralAbsDe = 0;  // Σ|Δe|
+        double duration = 0;
+        double integralAbsDd = 0;  // Σ|Δd|
+        double alongTrack = 0;
+
+        for (var i = 1; i < points.Count; i++)
+        {
+            var prev = points[i - 1];
+            var cur = points[i];
+            var dt = (cur.Sample.Timestamp - prev.Sample.Timestamp).TotalSeconds;
+            // Ignore pause / huge gaps so freezes do not zero the rate metrics.
+            if (dt is <= 0 or > 2.0)
+                continue;
+
+            // Trapezoid for mean altitude error over time.
+            integralE += 0.5 * (prev.AltErrFt + cur.AltErrFt) * dt;
+            duration += dt;
+            integralAbsDe += Math.Abs(cur.AltErrFt - prev.AltErrFt);
+
+            var ds = GeoUtil.HaversineMetersPublic(
+                prev.Sample.Latitude, prev.Sample.Longitude,
+                cur.Sample.Latitude, cur.Sample.Longitude);
+            if (ds >= 0.05)
+            {
+                alongTrack += ds;
+                integralAbsDd += Math.Abs(cur.LateralM - prev.LateralM);
+            }
+        }
+
+        Snapshot.ApproachMetricDurationSec = duration;
+        Snapshot.ApproachLateralDistanceM = alongTrack;
+
+        if (duration >= 0.5)
+        {
+            // Average glideslope match: absolute value of time-mean signed path error.
+            Snapshot.ApproachGlideslopeMeanAbsFt = Math.Abs(integralE / duration);
+            // Vertical steadiness: how aggressively the path error is driven up/down.
+            Snapshot.ApproachVerticalVariationFtPerSec = integralAbsDe / duration;
+        }
+
+        if (alongTrack >= 10.0)
+            Snapshot.ApproachLateralWeaveIndex = integralAbsDd / alongTrack;
     }
 
     /// <summary>

@@ -2,8 +2,8 @@
   "id": "barcelona-crosswind-final",
   "mode": "hardcore_landings",
   "title": "Barcelona Crosswind Final",
-  "subtitle": "TEST SPAWN · LFML area · A330 · single JSON source of truth",
-  "description": "All scenario values (position, IAS, aircraft, gear/flaps, weather) come from this JSON. A minimal .FLT is generated at start — no hand-maintained flight file required.",
+  "subtitle": "LFML 31R · 4 NM short final on 3° path · A330",
+  "description": "All scenario values (position, IAS, aircraft, gear/flaps, weather) come from this JSON. A minimal .FLT is generated at start — no hand-maintained flight file required. Spawn is on extended centerline ~4 NM from threshold at elev+dist×318 ft (nominal 3°).",
   "available": true,
   "requireGearDown": true,
   "aircraftTitles": [
@@ -14,13 +14,13 @@
   "aircraftLivery": "200 AIRBUS RR",
   "flightFile": "",
   "spawn": {
-    "latitude": 43.346046,
-    "longitude": 5.344348,
-    "altitudeFeet": 3594.47,
-    "headingDeg": 313.71,
-    "airspeedKts": 170,
-    "pitchDeg": -1.57,
-    "bankDeg": 0.77
+    "latitude": 43.388098,
+    "longitude": 5.286659,
+    "altitudeFeet": 1313.83,
+    "headingDeg": 313.0,
+    "airspeedKts": 155,
+    "pitchDeg": -3.0,
+    "bankDeg": 0.0
   },
   "weather": {
     "useLiveWeather": false,

@@ -53,8 +53,15 @@ public static class MetricExplanations
         "flaps" =>
             "Flaps handle index in the expected landing range for this challenge setup.",
         "approach_path" =>
-            "How steadily you held the short-final approach path (altitude vs nominal 3° path, " +
-            "roughly 0.2–3.0 NM from threshold). Intermediate high approach after spawn is ignored.",
+            "Legacy single-metric approach path (RMS altitude error vs 3°). Replaced by average glideslope + steadiness.",
+        "approach_glideslope" =>
+            "Time-averaged altitude bias versus the nominal 3° path on short final (|∫e dt / T|). " +
+            "Measures whether you were systematically high or low — not how much you corrected.",
+        "approach_vertical_steady" =>
+            "Vertical path steadiness: total variation of altitude error per second. " +
+            "Penalizes pumping above then below the glideslope even when the average is perfect.",
+        "approach_lateral_steady" =>
+            "Lateral path steadiness on short final: how much you weave left/right of centerline per metre flown.",
         "ground_track" =>
             "Mean error between ground track (direction the CG moves over the ground) and runway heading, " +
             "from 3 seconds before touchdown to 3 seconds after. Not wind-dependent crab angle.",
@@ -102,6 +109,15 @@ public static class MetricExplanations
                 $"Measured: flaps index {snap.FlapsIndexAtTouchdown}.",
             "approach_path" =>
                 $"Measured: path RMS {snap.ApproachPathRms:0} ft.",
+            "approach_glideslope" =>
+                $"Measured: |mean path error| {snap.ApproachGlideslopeMeanAbsFt:0} ft " +
+                $"(window {snap.ApproachMetricDurationSec:0.0}s, n={snap.ApproachPathSampleCount}).",
+            "approach_vertical_steady" =>
+                $"Measured: vertical variation {snap.ApproachVerticalVariationFtPerSec:0.00} ft/s " +
+                $"(window {snap.ApproachMetricDurationSec:0.0}s).",
+            "approach_lateral_steady" =>
+                $"Measured: approach weave {snap.ApproachLateralWeaveIndex:0.000} m/m " +
+                $"over {snap.ApproachLateralDistanceM:0} m.",
             "ground_track" =>
                 $"Measured: mean track error {snap.GroundTrackErrorMeanDeg:0.0}° " +
                 $"(peak {snap.GroundTrackErrorPeakDeg:0.0}°, n={snap.GroundTrackSampleCount}).",

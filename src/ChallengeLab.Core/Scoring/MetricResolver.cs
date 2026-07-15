@@ -23,6 +23,9 @@ public static class MetricResolver
         "flapsIndex",
         "bankAtTouchdownDeg",
         "approachPathRms",
+        "approachGlideslopeMeanAbsFt",
+        "approachVerticalVariationFtPerSec",
+        "approachLateralWeaveIndex",
         "groundTrackErrorMeanDeg",
         "postTouchdownAlignmentMeanDeg",
         "rolloutLateralMeanM",
@@ -55,6 +58,21 @@ public static class MetricResolver
                 MetricObservation.Available(snap.ApproachPathRms),
             "approachpathrms" =>
                 MetricObservation.Unavailable("Approach path requires at least two airborne samples."),
+            "approachglideslopemeanabsft" when snap.ApproachPathSampleCount >= 2
+                                              && snap.ApproachMetricDurationSec >= 0.5 =>
+                MetricObservation.Available(snap.ApproachGlideslopeMeanAbsFt),
+            "approachglideslopemeanabsft" =>
+                MetricObservation.Unavailable("Approach glideslope requires a short-final sample window."),
+            "approachverticalvariationftpersec" when snap.ApproachPathSampleCount >= 2
+                                                     && snap.ApproachMetricDurationSec >= 0.5 =>
+                MetricObservation.Available(snap.ApproachVerticalVariationFtPerSec),
+            "approachverticalvariationftpersec" =>
+                MetricObservation.Unavailable("Approach vertical steadiness requires a short-final sample window."),
+            "approachlateralweaveindex" when snap.ApproachPathSampleCount >= 2
+                                             && snap.ApproachLateralDistanceM >= 10 =>
+                MetricObservation.Available(snap.ApproachLateralWeaveIndex),
+            "approachlateralweaveindex" =>
+                MetricObservation.Unavailable("Approach lateral steadiness requires at least 10 m of short-final track."),
             "groundtrackerrormeandeg" when snap.GroundTrackBeforeSegmentCount >= 1
                                                    && snap.GroundTrackAfterSegmentCount >= 1 =>
                 MetricObservation.Available(snap.GroundTrackErrorMeanDeg),

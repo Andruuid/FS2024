@@ -104,6 +104,217 @@ public sealed class LandingSessionTests
     }
 
     [Fact]
+    public void ApproachPathRms_IgnoresHighIntermediateAndUsesShortFinalOnly()
+    {
+        var (challenge, settings) = Load();
+        Assert.True(settings.ApproachPathMaxDistNm <= 5);
+        Assert.True(settings.ApproachPathMinDistNm < settings.ApproachPathMaxDistNm);
+
+        var session = new LandingSession(challenge, settings);
+        var t0 = DateTimeOffset.UtcNow;
+        session.Arm();
+
+        // Far / high (spawn-like): ~7.5 NM, ~3500 ft — must NOT dominate path RMS.
+        session.Ingest(new TelemetrySample
+        {
+            Timestamp = t0.AddSeconds(5),
+            SimOnGround = false,
+            Latitude = 43.346046,
+            Longitude = 5.344348,
+            AltitudeFeet = 3594,
+            AglFeet = 3500,
+            RadioHeightFeet = 3500,
+            HeadingTrueDeg = 313,
+            GroundTrackTrueDeg = 313,
+            GroundSpeedKts = 170,
+            AirspeedKts = 170,
+            VerticalSpeedFpm = -700,
+            GearHandlePosition = 0,
+            FlapsHandleIndex = 2,
+            GForce = 1
+        });
+
+        // Short final ~1.0 NM on a perfect 3° path: elev + 1*318.
+        var elev = challenge.Runway.ElevationFeet;
+        var perfectAlt = elev + 318.0;
+        // Point ~1 NM along runway heading from threshold
+        var h = challenge.Runway.HeadingTrueDeg * Math.PI / 180.0;
+        var nm = 1.0;
+        var m = nm * 1852.0;
+        var dLat = (m * Math.Cos(h)) / 111320.0;
+        var dLon = (m * Math.Sin(h)) / (111320.0 * Math.Cos(challenge.Runway.ThresholdLatitude * Math.PI / 180.0));
+        // Approach is FROM outside toward threshold, so go opposite runway heading.
+        var lat1 = challenge.Runway.ThresholdLatitude - dLat;
+        var lon1 = challenge.Runway.ThresholdLongitude - dLon;
+
+        for (var i = 0; i < 10; i++)
+        {
+            session.Ingest(new TelemetrySample
+            {
+                Timestamp = t0.AddSeconds(6 + i * 0.2),
+                SimOnGround = false,
+                Latitude = lat1,
+                Longitude = lon1,
+                AltitudeFeet = perfectAlt,
+                AglFeet = perfectAlt - elev,
+                RadioHeightFeet = perfectAlt - elev,
+                HeadingTrueDeg = challenge.Runway.HeadingTrueDeg,
+                GroundTrackTrueDeg = challenge.Runway.HeadingTrueDeg,
+                GroundSpeedKts = 140,
+                AirspeedKts = 140,
+                VerticalSpeedFpm = -700,
+                GearHandlePosition = 1,
+                FlapsHandleIndex = 3,
+                GForce = 1
+            });
+        }
+
+        // Force finalize by touchdown + settle.
+        var td = t0.AddSeconds(10);
+        session.Ingest(new TelemetrySample
+        {
+            Timestamp = td,
+            SimOnGround = true,
+            Latitude = challenge.Runway.ThresholdLatitude,
+            Longitude = challenge.Runway.ThresholdLongitude,
+            AltitudeFeet = elev,
+            AglFeet = 0,
+            RadioHeightFeet = 0,
+            HeadingTrueDeg = challenge.Runway.HeadingTrueDeg,
+            GroundTrackTrueDeg = challenge.Runway.HeadingTrueDeg,
+            GroundSpeedKts = 120,
+            AirspeedKts = 138,
+            VerticalSpeedFpm = -150,
+            GearHandlePosition = 1,
+            FlapsHandleIndex = 3,
+            GForce = 1.1
+        });
+        for (var i = 1; i <= 8; i++)
+        {
+            session.Ingest(new TelemetrySample
+            {
+                Timestamp = td.AddSeconds(i * 0.5),
+                SimOnGround = true,
+                Latitude = challenge.Runway.ThresholdLatitude,
+                Longitude = challenge.Runway.ThresholdLongitude,
+                AltitudeFeet = elev,
+                AglFeet = 0,
+                RadioHeightFeet = 0,
+                HeadingTrueDeg = challenge.Runway.HeadingTrueDeg,
+                GroundTrackTrueDeg = challenge.Runway.HeadingTrueDeg,
+                GroundSpeedKts = i < 6 ? 80 : 20,
+                AirspeedKts = 80,
+                VerticalSpeedFpm = 0,
+                GearHandlePosition = 1,
+                FlapsHandleIndex = 3,
+                GForce = 1
+            });
+        }
+
+        Assert.True(session.IsComplete || session.Phase is LandingPhase.Settled or LandingPhase.Scored);
+        // Perfect short final should yield near-zero average bias / variation; high spawn must not pollute.
+        Assert.True(session.Snapshot.ApproachPathSampleCount >= 2);
+        Assert.True(session.Snapshot.ApproachPathRms < 80,
+            $"Expected short-final RMS near 0, got {session.Snapshot.ApproachPathRms}");
+        Assert.True(session.Snapshot.ApproachGlideslopeMeanAbsFt < 50,
+            $"Expected near-zero mean GS bias, got {session.Snapshot.ApproachGlideslopeMeanAbsFt}");
+        Assert.True(session.Snapshot.ApproachVerticalVariationFtPerSec < 5,
+            $"Expected calm vertical variation, got {session.Snapshot.ApproachVerticalVariationFtPerSec}");
+    }
+
+    [Fact]
+    public void ApproachMetrics_SeparateBiasFromVerticalPumping()
+    {
+        var (challenge, settings) = Load();
+        var session = new LandingSession(challenge, settings);
+        var t0 = DateTimeOffset.UtcNow;
+        session.Arm();
+
+        var elev = challenge.Runway.ElevationFeet;
+        var h = challenge.Runway.HeadingTrueDeg * Math.PI / 180.0;
+        // ~1 NM short final, fixed ground point; alternate +200 / −200 ft path error → mean ≈ 0, high variation.
+        var nm = 1.0;
+        var m = nm * 1852.0;
+        var dLat = (m * Math.Cos(h)) / 111320.0;
+        var dLon = (m * Math.Sin(h)) / (111320.0 * Math.Cos(challenge.Runway.ThresholdLatitude * Math.PI / 180.0));
+        var lat = challenge.Runway.ThresholdLatitude - dLat;
+        var lon = challenge.Runway.ThresholdLongitude - dLon;
+        var perfectAlt = elev + nm * 318.0;
+
+        for (var i = 0; i < 20; i++)
+        {
+            var err = (i % 2 == 0) ? 200.0 : -200.0;
+            session.Ingest(new TelemetrySample
+            {
+                Timestamp = t0.AddSeconds(5 + i * 0.5),
+                SimOnGround = false,
+                Latitude = lat,
+                Longitude = lon,
+                AltitudeFeet = perfectAlt + err,
+                AglFeet = perfectAlt + err - elev,
+                RadioHeightFeet = perfectAlt + err - elev,
+                HeadingTrueDeg = challenge.Runway.HeadingTrueDeg,
+                GroundTrackTrueDeg = challenge.Runway.HeadingTrueDeg,
+                GroundSpeedKts = 140,
+                AirspeedKts = 140,
+                VerticalSpeedFpm = -700,
+                GearHandlePosition = 1,
+                FlapsHandleIndex = 3,
+                GForce = 1
+            });
+        }
+
+        var td = t0.AddSeconds(20);
+        session.Ingest(new TelemetrySample
+        {
+            Timestamp = td,
+            SimOnGround = true,
+            Latitude = challenge.Runway.ThresholdLatitude,
+            Longitude = challenge.Runway.ThresholdLongitude,
+            AltitudeFeet = elev,
+            AglFeet = 0,
+            RadioHeightFeet = 0,
+            HeadingTrueDeg = challenge.Runway.HeadingTrueDeg,
+            GroundTrackTrueDeg = challenge.Runway.HeadingTrueDeg,
+            GroundSpeedKts = 120,
+            AirspeedKts = 138,
+            VerticalSpeedFpm = -150,
+            GearHandlePosition = 1,
+            FlapsHandleIndex = 3,
+            GForce = 1.1
+        });
+        for (var i = 1; i <= 8; i++)
+        {
+            session.Ingest(new TelemetrySample
+            {
+                Timestamp = td.AddSeconds(i * 0.5),
+                SimOnGround = true,
+                Latitude = challenge.Runway.ThresholdLatitude,
+                Longitude = challenge.Runway.ThresholdLongitude,
+                AltitudeFeet = elev,
+                AglFeet = 0,
+                RadioHeightFeet = 0,
+                HeadingTrueDeg = challenge.Runway.HeadingTrueDeg,
+                GroundTrackTrueDeg = challenge.Runway.HeadingTrueDeg,
+                GroundSpeedKts = i < 6 ? 80 : 20,
+                AirspeedKts = 80,
+                VerticalSpeedFpm = 0,
+                GearHandlePosition = 1,
+                FlapsHandleIndex = 3,
+                GForce = 1
+            });
+        }
+
+        Assert.True(session.Snapshot.ApproachMetricDurationSec >= 0.5);
+        // Mean of +200/−200 ≈ 0 → excellent average match.
+        Assert.True(session.Snapshot.ApproachGlideslopeMeanAbsFt < 30,
+            $"Mean bias should be near 0, got {session.Snapshot.ApproachGlideslopeMeanAbsFt}");
+        // But pumping 400 ft every 0.5 s is ~800 ft/s of |Δe| average — very unsteady.
+        Assert.True(session.Snapshot.ApproachVerticalVariationFtPerSec > 100,
+            $"Expected large vertical variation, got {session.Snapshot.ApproachVerticalVariationFtPerSec}");
+    }
+
+    [Fact]
     public void GroundEdgeBeforeAirborneGate_IsIgnored_ThenRealTdWorks()
     {
         var (challenge, settings) = Load();

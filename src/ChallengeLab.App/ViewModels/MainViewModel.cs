@@ -20,6 +20,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 {
     private readonly ConfigLoader _configLoader;
     private readonly HighscoreStore _highscores;
+    private readonly LandingTraceStore _landingTraces;
     private readonly ScoreEngine? _scoreEngine;
     private readonly LandingEvaluationKey? _evaluationKey;
     private readonly LandingSessionSettings? _sessionSettings;
@@ -54,6 +55,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _sim = sim;
         _configLoader = configLoader ?? new ConfigLoader();
         _highscores = highscores ?? new HighscoreStore();
+        _landingTraces = new LandingTraceStore();
 
         // Load phase-weighted evaluation key from repo JSON at startup (finetune without code changes).
         _evaluationKeyLoad = _configLoader.LoadEvaluationKey();
@@ -587,6 +589,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             var result = _scoreEngine.Evaluate(_activeChallenge, _session.Snapshot);
             LastScore = result;
             ResultVisible = true;
+
+            string? tracePath = null;
+            try
+            {
+                // Always keep a time-series dump for offline analysis (even unranked).
+                tracePath = _landingTraces.Save(result, _session.Snapshot, samplesPerSecond: 5);
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Landing trace save failed: {ex.Message}");
+            }
+
             if (result.IsRanked)
             {
                 _highscores.Add(result);
@@ -606,6 +620,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             AppendLog(result.IsRanked
                 ? $"Scored {result.ScorePercent}% ({result.Grade}) on {result.ChallengeTitle} — {result.Criteria.Count} metrics stored"
                 : $"Unranked landing on {result.ChallengeTitle}: {string.Join(" | ", result.IncompleteReasons)}");
+            if (tracePath is not null)
+                AppendLog($"Landing trace: {tracePath}");
         });
     }
 

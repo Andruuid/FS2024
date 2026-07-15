@@ -1,6 +1,6 @@
 {
   "id": "landing-evaluation-key",
-  "version": 2,
+  "version": 4,
   "description": "Single authoritative landing score. Every metric scores 0-100%; phases and metrics use literal percentage weights; gear is a safety gate and never awards points.",
   "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply gear multiplier last when required",
   "settle": {
@@ -159,17 +159,37 @@
       "id": "approach",
       "displayName": "Approach",
       "weightPercent": 25,
-      "note": "Accuracy relative to the nominal three-degree approach path.",
+      "note": "Short final (≈0.2–3.0 NM): average 3° path match, vertical steadiness, and lateral steadiness share the phase equally.",
       "metrics": [
         {
-          "id": "approach_path",
-          "displayName": "3° path accuracy",
-          "importancePercent": 100,
-          "unit": "ft RMS",
+          "id": "approach_glideslope",
+          "displayName": "Average glideslope match",
+          "importancePercent": 33.34,
+          "unit": "ft",
           "evaluator": "target",
-          "metric": "approachPathRms",
-          "note": "RMS altitude error vs a nominal 3° path on short final only (≈0.2–3.0 NM from threshold). High spawn / intermediate approach is ignored.",
-          "params": { "ideal": 0, "tolerance": 100, "maxError": 900 }
+          "metric": "approachGlideslopeMeanAbsFt",
+          "note": "Time-integrated average altitude bias vs the nominal 3° path: |∫e(t) dt / T|. Oscillating equally high/low can still score well here; that is scored under vertical steadiness.",
+          "params": { "ideal": 0, "tolerance": 40, "maxError": 350 }
+        },
+        {
+          "id": "approach_vertical_steady",
+          "displayName": "Vertical steadiness",
+          "importancePercent": 33.33,
+          "unit": "ft/s",
+          "evaluator": "target",
+          "metric": "approachVerticalVariationFtPerSec",
+          "note": "How much you pump the path: total variation of altitude error per second (Σ|Δe| / T). Steady capture scores high; constant above/below corrections score low.",
+          "params": { "ideal": 0, "tolerance": 3, "maxError": 25 }
+        },
+        {
+          "id": "approach_lateral_steady",
+          "displayName": "Lateral steadiness",
+          "importancePercent": 33.33,
+          "unit": "m/m",
+          "evaluator": "target",
+          "metric": "approachLateralWeaveIndex",
+          "note": "Left/right corrections on short final: Σ|Δ lateral offset| / ground distance. A straight track scores high; S-turns left and right of centerline score low.",
+          "params": { "ideal": 0, "tolerance": 0.02, "maxError": 0.20 }
         }
       ]
     },
