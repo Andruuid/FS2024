@@ -279,7 +279,7 @@
                                 <Border Background="#FF3A3010" CornerRadius="12" Padding="14" Margin="0,14,0,0"
                                         BorderBrush="#FFFFB020" BorderThickness="2">
                                     <StackPanel>
-                                        <TextBlock Text="PRIMARY METRIC" FontSize="10" FontWeight="Bold"
+                                        <TextBlock Text="PRIMARY · VERTICAL SPEED" FontSize="10" FontWeight="Bold"
                                                    Foreground="#FFFFB020"/>
                                         <TextBlock Text="{Binding LandingReport.VerticalSpeedHeadline}" FontSize="16"
                                                    FontWeight="SemiBold" Margin="0,6,0,0" TextWrapping="Wrap"
@@ -289,6 +289,26 @@
                                         <ProgressBar Height="12" Minimum="0" Maximum="100" Margin="0,10,0,0"
                                                      Value="{Binding LandingReport.VerticalSpeedScorePercent, Mode=OneWay, TargetNullValue=0, FallbackValue=0}"/>
                                         <TextBlock Text="{Binding LandingReport.VerticalSpeedExplanation}" TextWrapping="Wrap"
+                                                   FontSize="12" Foreground="#FFFFFFFF" Margin="0,10,0,0" LineHeight="17"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Background="#FF102A3A" CornerRadius="12" Padding="14" Margin="0,10,0,0"
+                                        BorderBrush="#FF2DE2E6" BorderThickness="2">
+                                    <StackPanel>
+                                        <TextBlock Text="PRIMARY · LANDING SPEED" FontSize="10" FontWeight="Bold"
+                                                   Foreground="#FF2DE2E6"/>
+                                        <TextBlock Text="{Binding LandingReport.AirspeedHeadline}" FontSize="16"
+                                                   FontWeight="SemiBold" Margin="0,6,0,0" TextWrapping="Wrap"
+                                                   Foreground="#FFFFFFFF"/>
+                                        <TextBlock Text="{Binding LandingReport.AirspeedDisplay}" FontSize="13"
+                                                   Margin="0,4,0,0" FontFamily="{StaticResource MonoFont}"
+                                                   Foreground="#FFB8F0F2" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding LandingReport.AirspeedScoreLabel}" FontSize="12"
+                                                   Margin="0,4,0,0" Foreground="#FFA0E0FF"/>
+                                        <ProgressBar Height="12" Minimum="0" Maximum="100" Margin="0,10,0,0"
+                                                     Value="{Binding LandingReport.AirspeedScorePercent, Mode=OneWay, TargetNullValue=0, FallbackValue=0}"/>
+                                        <TextBlock Text="{Binding LandingReport.AirspeedExplanation}" TextWrapping="Wrap"
                                                    FontSize="12" Foreground="#FFFFFFFF" Margin="0,10,0,0" LineHeight="17"/>
                                     </StackPanel>
                                 </Border>
@@ -324,6 +344,8 @@
                         <StackPanel>
                             <TextBlock Text="LIVE TELEMETRY" FontSize="11" FontWeight="Bold" Foreground="{StaticResource BrushTextMuted}"/>
                             <TextBlock Text="{Binding LiveStats}" FontFamily="{StaticResource MonoFont}" FontSize="14" Margin="0,8,0,0"/>
+                            <TextBlock Text="{Binding SpeedTargetInfo}" FontFamily="{StaticResource MonoFont}" FontSize="13"
+                                       Margin="0,8,0,0" Foreground="{StaticResource BrushAccentCyan}" TextWrapping="Wrap"/>
                             <TextBlock Margin="0,10,0,0">
                                 <Run Text="Phase: " Foreground="{StaticResource BrushTextMuted}"/>
                                 <Run Text="{Binding PhaseLabel, Mode=OneWay}" Foreground="{StaticResource BrushAccentCyan}" FontWeight="SemiBold"/>

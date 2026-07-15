@@ -89,7 +89,8 @@ public static class MetricExplanations
         return id switch
         {
             "touchdown_vs" =>
-                $"Measured: {snap.VerticalSpeedAtTouchdownFpm:0} fpm.",
+                $"Measured: {snap.VerticalSpeedAtTouchdownFpm:0} fpm " +
+                $"(absolute sink rate {Math.Abs(snap.VerticalSpeedAtTouchdownFpm):0} fpm).",
             "peak_g" =>
                 $"Measured: {snap.PeakGForce:0.00} G.",
             "centerline" =>
@@ -97,8 +98,8 @@ public static class MetricExplanations
             "alignment" =>
                 $"Measured: {Math.Abs(snap.TouchdownHeadingErrorDeg):0.0}° heading error at touchdown.",
             "airspeed" =>
-                $"Measured: {snap.AirspeedAtTouchdownKts:0.0} kt IAS · target {snap.TargetTouchdownIasKts:0.0} kt " +
-                $"(VAPP {snap.VappKts:0.0}, {snap.SpeedTargetSource}) · error {Signed(snap.TouchdownIasErrorKts)} kt.",
+                $"Measured: {snap.AirspeedAtTouchdownKts:0.0} kt IAS vs optimal target {snap.TargetTouchdownIasKts:0.0} kt " +
+                $"(VAPP {snap.VappKts:0.0}, {snap.SpeedTargetSource}) · delta {Signed(snap.TouchdownIasErrorKts)} kt.",
             "excess_speed" =>
                 $"Measured: +{snap.ExcessSpeedOverVappKts:0.0} kt over VAPP ({snap.AirspeedAtTouchdownKts:0.0} vs {snap.VappKts:0.0}).",
             "bank" =>

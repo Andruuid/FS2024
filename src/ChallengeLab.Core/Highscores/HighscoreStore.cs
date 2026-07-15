@@ -110,7 +110,9 @@ public sealed class HighscoreEntry
         get
         {
             var verticalSpeed = ResolveVerticalSpeedFpm();
-            return verticalSpeed is null ? "—" : $"{verticalSpeed:0} fpm";
+            if (verticalSpeed is null) return "—";
+            // Grid column: signed value + absolute sink rate for quick reading.
+            return $"{verticalSpeed:0} ({Math.Abs(verticalSpeed.Value):0} abs)";
         }
     }
 

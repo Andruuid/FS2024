@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using ChallengeLab.Core.Highscores;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scoring;
@@ -19,14 +21,29 @@ public sealed class LandingReportViewModel : ViewModelBase
         CriteriaStored = entry.Criteria?.Count ?? 0;
 
         VerticalSpeedRaw = entry.ResolveVerticalSpeedFpm();
-        VerticalSpeedDisplay = entry.VerticalSpeedDisplay;
+        VerticalSpeedDisplay = FormatVerticalSpeedDisplay(VerticalSpeedRaw);
         var firmness = entry.Criteria?.FirstOrDefault(IsVs);
         VerticalSpeedScorePercent = firmness?.ScorePercent;
         VerticalSpeedExplanation = EnrichNote(firmness)
             ?? (VerticalSpeedRaw is null
                 ? "Vertical speed at main-gear touchdown was not recorded for this attempt."
                 : MetricExplanations.DefaultCatalog("touchdown_vs", "Touchdown firmness") +
-                  $" Measured: {VerticalSpeedRaw:0} fpm. Historical score unavailable.");
+                  $" Measured: {FormatVerticalSpeedDisplay(VerticalSpeedRaw)}. Historical score unavailable.");
+
+        var airspeed = entry.Criteria?.FirstOrDefault(IsAirspeed);
+        AirspeedRawKts = airspeed?.RawValue;
+        AirspeedScorePercent = airspeed?.ScorePercent;
+        AirspeedTargetKts = TryParseTargetKts(airspeed?.Note);
+        AirspeedVappKts = TryParseVappKts(airspeed?.Note);
+        AirspeedErrorKts = AirspeedRawKts is not null && AirspeedTargetKts is not null
+            ? AirspeedRawKts - AirspeedTargetKts
+            : TryParseErrorKts(airspeed?.Note);
+        AirspeedDisplay = FormatAirspeedDisplay(AirspeedRawKts, AirspeedTargetKts, AirspeedVappKts, AirspeedErrorKts);
+        AirspeedExplanation = EnrichNote(airspeed)
+            ?? (AirspeedRawKts is null
+                ? "Touchdown airspeed was not recorded for this attempt."
+                : MetricExplanations.DefaultCatalog("airspeed", "IAS versus touchdown target") +
+                  $" Measured: {AirspeedDisplay}.");
 
         Metrics = new ObservableCollection<ReportMetricViewModel>();
         var source = entry.CriteriaForReport;
@@ -57,11 +74,79 @@ public sealed class LandingReportViewModel : ViewModelBase
     public string VerticalSpeedExplanation { get; }
     public string VerticalSpeedHeadline => VerticalSpeedRaw is null
         ? "Vertical speed at touchdown: not recorded"
-        : $"Vertical speed at touchdown: {VerticalSpeedRaw:0} fpm";
+        : $"Vertical speed: {VerticalSpeedRaw:0} fpm  ·  absolute sink {Math.Abs(VerticalSpeedRaw.Value):0} fpm";
     public string VerticalSpeedScoreLabel => VerticalSpeedScorePercent is null
         ? "Score: N/A"
         : $"Metric score: {VerticalSpeedScorePercent:0}%";
+
+    public double? AirspeedRawKts { get; }
+    public double? AirspeedTargetKts { get; }
+    public double? AirspeedVappKts { get; }
+    public double? AirspeedErrorKts { get; }
+    public double? AirspeedScorePercent { get; }
+    public string AirspeedDisplay { get; }
+    public string AirspeedExplanation { get; }
+    public string AirspeedHeadline => AirspeedRawKts is null
+        ? "Landing speed: not recorded"
+        : AirspeedTargetKts is null
+            ? $"Landing speed: {AirspeedRawKts:0.0} kt IAS"
+            : $"Landing speed: {AirspeedRawKts:0.0} kt  vs  optimal {AirspeedTargetKts:0.0} kt" +
+              (AirspeedErrorKts is null ? "" : $"  ({Signed(AirspeedErrorKts.Value)} kt)");
+    public string AirspeedScoreLabel => AirspeedScorePercent is null
+        ? "Score: N/A"
+        : $"Metric score: {AirspeedScorePercent:0}%";
+
     public ObservableCollection<ReportMetricViewModel> Metrics { get; }
+
+    internal static string FormatVerticalSpeedDisplay(double? fpm)
+    {
+        if (fpm is null) return "—";
+        var v = fpm.Value;
+        return $"{v:0} fpm  (abs {Math.Abs(v):0} fpm sink)";
+    }
+
+    internal static string FormatAirspeedDisplay(
+        double? ias,
+        double? target,
+        double? vapp,
+        double? error)
+    {
+        if (ias is null) return "—";
+        if (target is null)
+            return $"{ias:0.0} kt IAS";
+        var delta = error ?? (ias - target);
+        var vappPart = vapp is null ? "" : $" · VAPP {vapp:0.0}";
+        return $"{ias:0.0} kt IAS vs optimal {target:0.0} kt ({Signed(delta.Value)} kt{vappPart})";
+    }
+
+    private static string Signed(double v) => v >= 0 ? $"+{v:0.0}" : $"{v:0.0}";
+
+    private static double? TryParseTargetKts(string? note)
+    {
+        if (string.IsNullOrWhiteSpace(note)) return null;
+        // "target 138.0 kt" or "optimal target 138.0 kt"
+        var m = Regex.Match(note, @"(?:optimal\s+)?target\s+(-?\d+(?:\.\d+)?)\s*kt",
+            RegexOptions.IgnoreCase);
+        return m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v)
+            ? v : null;
+    }
+
+    private static double? TryParseVappKts(string? note)
+    {
+        if (string.IsNullOrWhiteSpace(note)) return null;
+        var m = Regex.Match(note, @"VAPP\s+(-?\d+(?:\.\d+)?)", RegexOptions.IgnoreCase);
+        return m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v)
+            ? v : null;
+    }
+
+    private static double? TryParseErrorKts(string? note)
+    {
+        if (string.IsNullOrWhiteSpace(note)) return null;
+        var m = Regex.Match(note, @"(?:error|delta)\s*([+\-]?\d+(?:\.\d+)?)\s*kt",
+            RegexOptions.IgnoreCase);
+        return m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v)
+            ? v : null;
+    }
 
     private static string? EnrichNote(HighscoreCriterionDetail? criterion)
     {
@@ -87,6 +172,12 @@ public sealed class LandingReportViewModel : ViewModelBase
     private static bool IsVs(HighscoreCriterionDetail criterion) =>
         criterion.Id is "touchdown_vs" or "touchdownVerticalSpeedFpm" ||
         criterion.DisplayName.Contains("firmness", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsAirspeed(HighscoreCriterionDetail criterion) =>
+        criterion.Id is "airspeed" or "touchdownIasErrorKts" ||
+        criterion.DisplayName.Contains("IAS", StringComparison.OrdinalIgnoreCase) ||
+        criterion.DisplayName.Contains("airspeed", StringComparison.OrdinalIgnoreCase) ||
+        criterion.DisplayName.Contains("touchdown target", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed class ReportMetricViewModel
@@ -104,11 +195,7 @@ public sealed class ReportMetricViewModel
         ScorePercent = criterion.ScorePercent;
         ScoreDisplay = ScorePercent is null ? "N/A" : $"{ScorePercent:0}%";
         IsPrimary = isPrimary;
-        RawDisplay = criterion.RawValue is null
-            ? "—"
-            : criterion.Unit is null
-                ? $"{criterion.RawValue:0.##}"
-                : $"{criterion.RawValue:0.##} {criterion.Unit}";
+        RawDisplay = FormatRawDisplay(criterion);
         InfluenceDisplay = criterion.MaxOverallPoints > 0
             ? $"{criterion.PhaseImportancePercent:0.##}% of {criterion.PhaseDisplayName} · {criterion.MaxOverallPoints:0.##} max overall points"
             : criterion.Weight > 0
@@ -157,4 +244,43 @@ public sealed class ReportMetricViewModel
     public MetricStatus Status { get; }
     public bool IsScored => Status == MetricStatus.Scored;
     public double BarValue => ScorePercent ?? 0;
+
+    private static string FormatRawDisplay(HighscoreCriterionDetail criterion)
+    {
+        if (criterion.RawValue is null) return "—";
+
+        var id = criterion.Id ?? "";
+        if (id is "touchdown_vs" or "touchdownVerticalSpeedFpm"
+            || criterion.DisplayName.Contains("firmness", StringComparison.OrdinalIgnoreCase)
+            || (criterion.Unit?.Equals("fpm", StringComparison.OrdinalIgnoreCase) == true
+                && criterion.DisplayName.Contains("Vertical", StringComparison.OrdinalIgnoreCase)))
+        {
+            return LandingReportViewModel.FormatVerticalSpeedDisplay(criterion.RawValue);
+        }
+
+        if (id is "airspeed" or "touchdownIasErrorKts"
+            || criterion.DisplayName.Contains("IAS", StringComparison.OrdinalIgnoreCase)
+            || criterion.DisplayName.Contains("airspeed", StringComparison.OrdinalIgnoreCase)
+            || criterion.DisplayName.Contains("touchdown target", StringComparison.OrdinalIgnoreCase))
+        {
+            var target = TryParseFromNote(criterion.Note, @"(?:optimal\s+)?target\s+(-?\d+(?:\.\d+)?)\s*kt");
+            var vapp = TryParseFromNote(criterion.Note, @"VAPP\s+(-?\d+(?:\.\d+)?)");
+            var error = TryParseFromNote(criterion.Note, @"(?:error|delta)\s*([+\-]?\d+(?:\.\d+)?)\s*kt");
+            return LandingReportViewModel.FormatAirspeedDisplay(criterion.RawValue, target, vapp, error);
+        }
+
+        return criterion.Unit is null
+            ? $"{criterion.RawValue:0.##}"
+            : $"{criterion.RawValue:0.##} {criterion.Unit}";
+    }
+
+    private static double? TryParseFromNote(string? note, string pattern)
+    {
+        if (string.IsNullOrWhiteSpace(note)) return null;
+        var m = Regex.Match(note, pattern, RegexOptions.IgnoreCase);
+        return m.Success
+               && double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v)
+            ? v
+            : null;
+    }
 }

@@ -38,6 +38,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _hudTip = "Start a challenge to begin.";
     private string _phaseLabel = "Idle";
     private string _liveStats = "—";
+    private string _speedTargetInfo = "Optimal landing speed: —";
     private ScoreResult? _lastScore;
     private LandingSession? _session;
     private ChallengeConfig? _activeChallenge;
@@ -329,6 +330,16 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _liveStats, value);
     }
 
+    /// <summary>
+    /// Informational HUD line: optimal touchdown IAS (VAPP − offset) and live IAS delta.
+    /// Not a scored readout by itself — scoring uses the same target at touchdown.
+    /// </summary>
+    public string SpeedTargetInfo
+    {
+        get => _speedTargetInfo;
+        set => SetProperty(ref _speedTargetInfo, value);
+    }
+
     public ScoreResult? LastScore
     {
         get => _lastScore;
@@ -521,6 +532,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             LoadStatus = "Armed — fly the landing!";
             _session.Arm();
             PhaseLabel = "Armed";
+            // Seed optimal landing speed before first telemetry tick.
+            UpdateSpeedTargetInfo(challenge, sample: null, liveIas: null);
             HudTip = challenge.HudTips.FirstOrDefault() ?? "Good luck.";
             RotateTips(challenge);
             RequestShowHud?.Invoke();
@@ -630,12 +643,40 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         Application.Current.Dispatcher.Invoke(() =>
         {
             LiveStats =
-                $"GS {sample.GroundSpeedKts:0} kt  ·  VS {sample.VerticalSpeedFpm:0} fpm  ·  " +
-                $"Bank {sample.BankDeg:0.0}°  ·  Wind {sample.WindDirectionDeg:000}/{sample.WindVelocityKts:0}kt  ·  " +
+                $"IAS {sample.AirspeedKts:0} kt  ·  GS {sample.GroundSpeedKts:0} kt  ·  " +
+                $"VS {sample.VerticalSpeedFpm:0} fpm  ·  Bank {sample.BankDeg:0.0}°  ·  " +
+                $"Wind {sample.WindDirectionDeg:000}/{sample.WindVelocityKts:0}kt  ·  " +
                 $"{(sample.SimOnGround ? "GND" : "AIR")}";
+
+            if (_activeChallenge is not null && _sessionSettings is not null)
+                UpdateSpeedTargetInfo(_activeChallenge, sample, sample.AirspeedKts);
 
             _session?.Ingest(sample);
         });
+    }
+
+    private void UpdateSpeedTargetInfo(ChallengeConfig challenge, TelemetrySample? sample, double? liveIas)
+    {
+        if (_sessionSettings is null)
+        {
+            SpeedTargetInfo = "Optimal landing speed: —";
+            return;
+        }
+
+        var (vapp, targetTd, source) = SpeedTargetCalculator.Resolve(challenge, _sessionSettings, sample);
+        // Informational only — same formula used at scoring time (VAPP − offset, default −5 kt).
+        if (liveIas is null)
+        {
+            SpeedTargetInfo =
+                $"Optimal landing speed: {targetTd:0} kt  ·  VAPP {vapp:0} kt  ({source})";
+            return;
+        }
+
+        var delta = liveIas.Value - targetTd;
+        var sign = delta >= 0 ? "+" : "";
+        SpeedTargetInfo =
+            $"Optimal landing speed: {targetTd:0} kt  ·  VAPP {vapp:0}  ·  " +
+            $"IAS now {liveIas:0} ({sign}{delta:0} kt)  ·  {source}";
     }
 
     private void OnSimStateChanged(object? sender, SimConnectionState state)
