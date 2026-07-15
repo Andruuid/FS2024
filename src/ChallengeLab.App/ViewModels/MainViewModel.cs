@@ -504,7 +504,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 "Weather…",
                 "Positioning…",
                 "Configuring…",
-                "Arming scoring…"
+                "settle",
+                "Ready"
             };
 
             var progress = new Progress<string>(msg =>
@@ -518,8 +519,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     else if (msg.Contains("weather", StringComparison.OrdinalIgnoreCase)) idx = 3;
                     else if (msg.Contains("Position", StringComparison.OrdinalIgnoreCase) || msg.Contains("teleport", StringComparison.OrdinalIgnoreCase)
                              || msg.Contains("failed", StringComparison.OrdinalIgnoreCase)) idx = 4;
-                    else if (msg.Contains("gear", StringComparison.OrdinalIgnoreCase) || msg.Contains("Configur", StringComparison.OrdinalIgnoreCase)) idx = 5;
-                    else if (msg.Contains("armed", StringComparison.OrdinalIgnoreCase)) idx = 6;
+                    else if (msg.Contains("gear", StringComparison.OrdinalIgnoreCase) || msg.Contains("Configur", StringComparison.OrdinalIgnoreCase)
+                             || msg.Contains("spoiler", StringComparison.OrdinalIgnoreCase)) idx = 5;
+                    else if (msg.Contains("settle", StringComparison.OrdinalIgnoreCase) || msg.Contains("Waiting", StringComparison.OrdinalIgnoreCase)) idx = 6;
+                    else if (msg.Contains("Ready", StringComparison.OrdinalIgnoreCase) || msg.Contains("PAUSED", StringComparison.OrdinalIgnoreCase)
+                             || msg.Contains("armed", StringComparison.OrdinalIgnoreCase)) idx = 7;
                     else idx = 0;
                 }
                 LoadProgress = (idx + 1) / (double)stages.Length * 100;
@@ -565,20 +569,42 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 $"Spawn verified: horiz={spawnResult.HorizontalErrorM:0} m · " +
                 $"altErr={spawnResult.AltErrorFeet:0} ft · ias={spawnResult.AirspeedKts:0} kt");
 
+            var setup = challenge.AircraftSetup;
+            AppendLog(
+                $"Start config: gear={(setup.GearDown ? "down" : "up")} · flaps={setup.FlapsHandleIndex} · " +
+                $"spoilers={(setup.SpoilersRetracted ? "in" : "as-is")} · " +
+                $"parkBrake={(setup.ParkingBrakeOn ? "on" : "off")} · " +
+                $"autoUnpause={setup.Unpause}");
+
             _session = new LandingSession(challenge, _sessionSettings);
             _session.PhaseChanged += OnSessionPhaseChanged;
             _session.SettledReady += OnSettledReady;
 
             LoadProgress = 100;
-            LoadStatus = "Armed — fly the landing!";
+            if (setup.Unpause)
+            {
+                LoadStatus = "Armed — fly the landing!";
+                HudTip = challenge.HudTips.FirstOrDefault() ?? "Good luck.";
+                SetPreviewPerfect();
+            }
+            else
+            {
+                // SET PAUSE ON end state (same after Restart from flying or from ESC menu pause).
+                // Not "active pause". Resume with Pause Off / your resume control, or ESC → Resume.
+                LoadStatus = "Ready — sim PAUSED · resume when ready to fly";
+                HudTip = "Sim is PAUSED (not active pause) — resume when ready to fly.";
+                AppendLog(
+                    "Sim left on SET PAUSE after config settle (same if you Restarted while flying or while ESC-paused). " +
+                    "Resume when ready — this is not active pause.");
+                SetPreviewPerfect("armed · sim PAUSED · resume when ready · metrics assumed 100%");
+            }
+
             _session.Arm();
             PhaseLabel = "Armed";
             ResultVisible = false;
             LastScore = null;
             // Seed optimal landing speed before first telemetry tick.
             UpdateSpeedTargetInfo(challenge, sample: null, liveIas: null);
-            SetPreviewPerfect();
-            HudTip = challenge.HudTips.FirstOrDefault() ?? "Good luck.";
             RotateTips(challenge);
             RequestShowHud?.Invoke();
             (RestartCommand as RelayCommand)?.RaiseCanExecuteChanged();

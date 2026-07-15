@@ -118,9 +118,23 @@ public sealed class TimeOfDayConfig
 
 public sealed class AircraftSetupConfig
 {
+    /// <summary>Landing gear handle down when true.</summary>
     public bool GearDown { get; set; } = true;
-    public int FlapsHandleIndex { get; set; } = 4;
-    public bool Unpause { get; set; } = true;
+
+    /// <summary>Flaps handle index (0 = clean / up for most airliners).</summary>
+    public int FlapsHandleIndex { get; set; }
+
+    /// <summary>When true, command spoilers fully retracted at challenge start.</summary>
+    public bool SpoilersRetracted { get; set; } = true;
+
+    /// <summary>When true, set parking brake on; when false, ensure it is released.</summary>
+    public bool ParkingBrakeOn { get; set; }
+
+    /// <summary>
+    /// When true, auto-unpause after spawn/config. Default false — pilot unpauses
+    /// when ready so the aircraft can settle in a paused, reproducible state.
+    /// </summary>
+    public bool Unpause { get; set; }
 
     /// <summary>
     /// Optional approach speed (VAPP) in KIAS for this challenge.

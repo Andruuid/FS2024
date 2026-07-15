@@ -248,12 +248,12 @@ public static class FltScenarioBuilder
         sb.AppendLine("GForceSettle=True");
         sb.AppendLine();
         sb.AppendLine("[Controls.0]");
-        sb.AppendLine("SpoilersHandle=000.00");
+        sb.AppendLine(setup.SpoilersRetracted ? "SpoilersHandle=000.00" : "SpoilersHandle=100.00");
         sb.AppendLine($"FlapsHandle={flapsPct.ToString("000.00", CultureInfo.InvariantCulture)}");
         sb.AppendLine($"GearHandle={gear}");
         sb.AppendLine("BrakeLeft=0");
         sb.AppendLine("BrakeRight=0");
-        sb.AppendLine("ParkingBrake=0");
+        sb.AppendLine(setup.ParkingBrakeOn ? "ParkingBrake=1" : "ParkingBrake=0");
         sb.AppendLine("YokeX=0");
         sb.AppendLine("YokeY=0");
         sb.AppendLine("Rudder=0");

@@ -44,6 +44,13 @@ public sealed class SimConnectClient : ISimBridge
     private const double MinAirspeedFraction = 0.45;
     private const int SpawnPulseCount = 6;
 
+    // Aircraft config settle after teleport (reproducible start; pilot unpauses).
+    private const int ConfigPulseCount = 3;
+    private const int ConfigPulseDelayMs = 450;
+    private const int MinConfigSettleMs = 5000;
+    private const int MaxConfigSettleMs = 12000;
+    private const int ConfigPollMs = 350;
+
     private enum Events
     {
         GearDown = 1,
@@ -57,7 +64,12 @@ public sealed class SimConnectClient : ISimBridge
         ClockHoursSet = 10,
         ClockMinutesSet = 11,
         ZuluHoursSet = 12,
-        ZuluMinutesSet = 13
+        ZuluMinutesSet = 13,
+        SpoilersOff = 14,
+        SpoilersSet = 15,
+        ParkingBrakeSet = 16,
+        ActivePauseOn = 17,
+        ActivePauseOff = 18
     }
 
     private enum Groups
@@ -88,6 +100,8 @@ public sealed class SimConnectClient : ISimBridge
         public double RadioHeight;
         public double DesignSpeedVs0;
         public double TotalWeight;
+        public double SpoilersHandle;
+        public double ParkingBrake;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
@@ -252,14 +266,23 @@ public sealed class SimConnectClient : ISimBridge
         else if (actualTitle is not null)
             Log($"Aircraft OK: '{actualTitle}'");
 
-        // --- Safe apply: time + weather + teleport + gear (no FlightLoad) ---
-        // Always unpause/unfreeze in finally so the plane is never left stuck.
+        // --- Safe apply: time + weather + teleport + config (no FlightLoad) ---
+        //
+        // MSFS pause modes (must not be mixed up):
+        // 1) Flying — sim running, pilot in control.
+        // 2) ESC / menu pause — Escape opens menu; Resume to fly again. (what pilots mean by "paused")
+        // 3) Active pause — separate "freeze plane, world keeps going" mode (PAUSE key). NOT (2).
+        // 4) SET PAUSE ON/OFF (SimConnect PAUSE_ON/OFF) — full sim pause we control programmatically;
+        //    end state when Unpause=false so pilot must resume before flying (same intent as (2)).
+        //
+        // Restart must behave identically for (1) and (2). We cannot close the ESC menu via
+        // SimConnect; we pin the aircraft with FREEZE + SET PAUSE and always finish the same way.
         SpawnApplyResult spawnResult = SpawnApplyResult.Fail("Spawn did not complete.");
         progress?.Report("Setting time of day…");
         try
         {
-            PauseSim(true);
-            await Task.Delay(150, ct);
+            // Identical entry whether currently flying or already ESC-/SET-paused.
+            await NormalizeLoadEntryAsync(ct);
             ApplyTimeOfDay(challenge.TimeOfDay);
             await Task.Delay(200, ct);
 
@@ -272,9 +295,7 @@ public sealed class SimConnectClient : ISimBridge
 
             if (spawnResult.Success)
             {
-                progress?.Report("Configuring gear and flaps…");
-                ConfigureAircraft(challenge.AircraftSetup);
-                await Task.Delay(250, ct);
+                await ConfigureAndSettleAsync(challenge.AircraftSetup, progress, ct);
             }
             else
             {
@@ -284,24 +305,91 @@ public sealed class SimConnectClient : ISimBridge
         }
         finally
         {
-            // Critical: never leave freeze/pause stuck — that looks like "Start does nothing".
-            FreezePose(false);
+            // SET PAUSE before unfreeze so we never get a free-flight frame mid-Restart.
             if (challenge.AircraftSetup.Unpause)
+            {
+                EnsureActivePauseOff(); // third state only — do not leave active-pause on
                 PauseSim(false);
+            }
+            else
+            {
+                // Same end state for Restart-from-flying and Restart-from-ESC-pause:
+                // SET PAUSE ON (not active pause). Pilot resumes when ready.
+                ForceSetPauseOn();
+            }
+
+            // Never leave FREEZE stuck (plane unresponsive after pilot resumes).
+            FreezePose(false);
         }
 
         if (spawnResult.Success)
         {
-            progress?.Report("Challenge armed.");
+            progress?.Report(
+                challenge.AircraftSetup.Unpause
+                    ? "Challenge armed."
+                    : "Ready — sim PAUSED (resume to fly). Not active pause.");
             var tod = challenge.TimeOfDay ?? new TimeOfDayConfig();
             Log(
                 $"Scenario load complete (safe path). Spawn IAS {challenge.Spawn.AirspeedKts:0} kt · " +
                 $"alt {challenge.Spawn.AltitudeFeet:0} ft · hdg {challenge.Spawn.HeadingDeg:0}° · " +
                 $"time {tod.Hour:00}:{tod.Minute:00} {(tod.UseZuluTime ? "Z" : "local")} · ac '{actualTitle ?? "?"}' · " +
-                $"verify horiz={spawnResult.HorizontalErrorM:0} m altErr={spawnResult.AltErrorFeet:0} ft ias={spawnResult.AirspeedKts:0}.");
+                $"verify horiz={spawnResult.HorizontalErrorM:0} m altErr={spawnResult.AltErrorFeet:0} ft ias={spawnResult.AirspeedKts:0} · " +
+                $"setPause={!challenge.AircraftSetup.Unpause}.");
         }
 
         return spawnResult;
+    }
+
+    /// <summary>
+    /// Normalize entry for Restart/Start so flying and ESC-/SET-paused take the same path.
+    /// Pins pose with FREEZE + SET PAUSE ON. Clears active pause only as a third-state safety
+    /// (active pause ≠ ESC menu pause).
+    /// </summary>
+    private async Task NormalizeLoadEntryAsync(CancellationToken ct)
+    {
+        EnsureEvents();
+        EnsureActivePauseOff();
+        ForceSetPauseOn();
+        FreezePose(true);
+        await Task.Delay(200, ct);
+        // Re-assert: MSFS can drop the first PAUSE_ON if ESC menu or active-pause was active.
+        ForceSetPauseOn();
+        await Task.Delay(150, ct);
+        Log("Load entry normalized: SET PAUSE ON + pose frozen (ESC vs flying entry unified; active-pause cleared if any).");
+    }
+
+    /// <summary>
+    /// Assert SimConnect SET PAUSE ON (PAUSE_ON). Not active pause, not ESC menu UI.
+    /// Safe when already SET-paused, ESC-paused, or flying.
+    /// </summary>
+    private void ForceSetPauseOn()
+    {
+        EnsureActivePauseOff();
+        PauseSim(true);
+        PauseSim(true); // second pulse; PAUSE_ON is set-style, not toggle
+    }
+
+    /// <summary>
+    /// Active pause is a third MSFS mode (freeze plane / world keeps going). Clear it so it
+    /// cannot block SET PAUSE or leave the aircraft in a hybrid freeze. Does not open/close ESC.
+    /// </summary>
+    private void EnsureActivePauseOff()
+    {
+        if (_sim is null) return;
+        try
+        {
+            EnsureEvents();
+            _sim.TransmitClientEvent(
+                MsfsSc.SIMCONNECT_OBJECT_ID_USER,
+                Events.ActivePauseOff,
+                0,
+                Groups.Input,
+                SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+        }
+        catch (Exception ex)
+        {
+            Log($"EnsureActivePauseOff: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -321,7 +409,8 @@ public sealed class SimConnectClient : ISimBridge
             $"alt={spawn.AltitudeFeet:F0} ft hdg={spawn.HeadingDeg:F1}° pitch={spawn.PitchDeg:F2} " +
             $"bank={spawn.BankDeg:F2} ias={spawn.AirspeedKts:F0}");
 
-        PauseSim(true);
+        // Entry may already be SET-paused+frozen from NormalizeLoadEntryAsync; re-assert anyway.
+        ForceSetPauseOn();
         FreezePose(true);
         await Task.Delay(120, ct);
 
@@ -612,6 +701,7 @@ public sealed class SimConnectClient : ISimBridge
         try
         {
             EnsureEvents();
+            // PAUSE_ON / PAUSE_OFF are set-style (not toggle) — safe from any prior state.
             _sim.TransmitClientEvent(
                 MsfsSc.SIMCONNECT_OBJECT_ID_USER,
                 pause ? Events.PauseOn : Events.PauseOff,
@@ -636,17 +726,146 @@ public sealed class SimConnectClient : ISimBridge
                 setup.GearDown ? Events.GearDown : Events.GearUp, 0,
                 Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
 
-            // FLAPS_SET uses 0–16383
-            var flaps = (uint)Math.Clamp(setup.FlapsHandleIndex * (16383 / 4), 0, 16383);
+            // FLAPS_SET uses 0–16383 (index 0 = clean; ~4096 per step for 0–4).
+            var flapsIndex = Math.Clamp(setup.FlapsHandleIndex, 0, 5);
+            var flaps = (uint)Math.Clamp(flapsIndex * (16383 / 4), 0, 16383);
             _sim.TransmitClientEvent(MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.FlapsSet, flaps,
                 Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
 
-            // Unpause is applied by LoadScenarioAsync after spawn airspeed is set.
+            if (setup.SpoilersRetracted)
+            {
+                _sim.TransmitClientEvent(MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.SpoilersOff, 0,
+                    Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+                _sim.TransmitClientEvent(MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.SpoilersSet, 0,
+                    Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+            }
+
+            // PARKING_BRAKE_SET: 1 = on, 0 = off (preferred over toggle).
+            _sim.TransmitClientEvent(
+                MsfsSc.SIMCONNECT_OBJECT_ID_USER,
+                Events.ParkingBrakeSet,
+                setup.ParkingBrakeOn ? 1u : 0u,
+                Groups.Input,
+                SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
         }
         catch (Exception ex)
         {
             Log($"ConfigureAircraft: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Apply gear/flaps/spoilers/parking brake with systems allowed to run under FREEZE.
+    /// SET PAUSE ON freezes surface travel, so we temporarily PAUSE_OFF while holding FREEZE.
+    /// Always ends on SET PAUSE ON so Restart-from-flying and Restart-from-ESC-pause match.
+    /// </summary>
+    private async Task ConfigureAndSettleAsync(
+        AircraftSetupConfig setup,
+        IProgress<string>? progress,
+        CancellationToken ct)
+    {
+        progress?.Report("Configuring gear, flaps, spoilers…");
+        var started = DateTimeOffset.UtcNow;
+
+        // Pin pose; release SET PAUSE so hydraulics/surfaces can move.
+        // (Active pause is unrelated — only cleared so it cannot block surface motion.)
+        FreezePose(true);
+        EnsureActivePauseOff();
+        PauseSim(false);
+        await Task.Delay(120, ct);
+        Log("Config settle: systems running under FREEZE (SET PAUSE off; not active pause).");
+
+        for (var i = 1; i <= ConfigPulseCount; i++)
+        {
+            ConfigureAircraft(setup);
+            // Keep pin in case resume/ESC interactions cleared freeze on some builds.
+            FreezePose(true);
+            Log($"Config pulse {i}/{ConfigPulseCount} " +
+                $"(gear={(setup.GearDown ? "down" : "up")} flaps={setup.FlapsHandleIndex} " +
+                $"spoilersIn={setup.SpoilersRetracted} parkBrake={setup.ParkingBrakeOn})");
+            await Task.Delay(ConfigPulseDelayMs, ct);
+        }
+
+        progress?.Report("Waiting for aircraft to settle (min 5s)…");
+
+        var matched = false;
+        string? lastDetail = null;
+        while ((DateTimeOffset.UtcNow - started).TotalMilliseconds < MaxConfigSettleMs)
+        {
+            FreezePose(true);
+            var elapsed = (DateTimeOffset.UtcNow - started).TotalMilliseconds;
+            var sample = await RequestSpawnSnapshotAsync(ct);
+            if (sample is not null)
+            {
+                matched = ConfigMatches(setup, sample.Value, out lastDetail);
+                if (matched && elapsed >= MinConfigSettleMs)
+                {
+                    Log($"Config settled OK after {elapsed:0} ms — {lastDetail}");
+                    break;
+                }
+            }
+
+            if (matched && (DateTimeOffset.UtcNow - started).TotalMilliseconds >= MinConfigSettleMs)
+                break;
+
+            await Task.Delay(ConfigPollMs, ct);
+        }
+
+        var remaining = MinConfigSettleMs - (DateTimeOffset.UtcNow - started).TotalMilliseconds;
+        if (remaining > 0)
+        {
+            progress?.Report("Waiting for aircraft to settle (min 5s)…");
+            await Task.Delay((int)Math.Ceiling(remaining), ct);
+            var sample = await RequestSpawnSnapshotAsync(ct);
+            if (sample is not null)
+                matched = ConfigMatches(setup, sample.Value, out lastDetail);
+        }
+
+        // Final config pulse + SET PAUSE ON — same end state for every Restart entry path.
+        ConfigureAircraft(setup);
+        ForceSetPauseOn();
+        await Task.Delay(100, ct);
+        ForceSetPauseOn();
+
+        if (matched)
+        {
+            progress?.Report("Config ready — sim PAUSED (resume to fly). Not active pause.");
+            Log($"Config verify OK: {lastDetail}");
+        }
+        else
+        {
+            // Soft-fail: do not block restart forever (aircraft-specific surface quirks).
+            progress?.Report("Config timeout — sim PAUSED. Check gear/flaps/spoilers, then resume.");
+            Log($"Config verify soft-fail after settle: {lastDetail ?? "no telemetry"} " +
+                $"(gear want={(setup.GearDown ? "down" : "up")} flaps={setup.FlapsHandleIndex} " +
+                $"spoilersIn={setup.SpoilersRetracted} parkBrake={setup.ParkingBrakeOn})");
+        }
+    }
+
+    private static bool ConfigMatches(
+        AircraftSetupConfig setup,
+        TelemetryStruct t,
+        out string detail)
+    {
+        var gearDown = t.GearHandle > 0.5;
+        var flaps = (int)Math.Round(t.FlapsIndex);
+        // Normalize spoiler handle to 0–1 (sim may report position or percent).
+        var spoiler01 = t.SpoilersHandle > 1.5 ? t.SpoilersHandle / 100.0 : t.SpoilersHandle;
+        var spoilersOut = spoiler01 > 0.05;
+        var parkOn = t.ParkingBrake > 0.5;
+
+        var gearOk = gearDown == setup.GearDown;
+        var flapsOk = flaps == Math.Clamp(setup.FlapsHandleIndex, 0, 5);
+        var spoilersOk = !setup.SpoilersRetracted || !spoilersOut;
+        var brakeOk = setup.ParkingBrakeOn == parkOn;
+
+        detail =
+            $"gear={(gearDown ? "down" : "up")}({(gearOk ? "ok" : "want " + (setup.GearDown ? "down" : "up"))}) " +
+            $"flaps={flaps}({(flapsOk ? "ok" : "want " + setup.FlapsHandleIndex)}) " +
+            $"spoilers={t.SpoilersHandle:0.##}({(spoilersOk ? "ok" : "want in")}) " +
+            $"park={(parkOn ? "on" : "off")}({(brakeOk ? "ok" : "want " + (setup.ParkingBrakeOn ? "on" : "off"))})";
+
+        return gearOk && flapsOk && spoilersOk && brakeOk;
     }
 
     public void ApplyWeather(WeatherConfig weather)
@@ -943,6 +1162,10 @@ public sealed class SimConnectClient : ISimBridge
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "TOTAL WEIGHT", "pounds",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "SPOILERS HANDLE POSITION", "position",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "BRAKE PARKING POSITION", "position",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
 
         _sim.RegisterDataDefineStruct<TelemetryStruct>(Definitions.Telemetry);
 
@@ -1003,11 +1226,20 @@ public sealed class SimConnectClient : ISimBridge
             _sim.MapClientEventToSimEvent(Events.ClockMinutesSet, "CLOCK_MINUTES_SET");
             _sim.MapClientEventToSimEvent(Events.ZuluHoursSet, "ZULU_HOURS_SET");
             _sim.MapClientEventToSimEvent(Events.ZuluMinutesSet, "ZULU_MINUTES_SET");
+            _sim.MapClientEventToSimEvent(Events.SpoilersOff, "SPOILERS_OFF");
+            _sim.MapClientEventToSimEvent(Events.SpoilersSet, "SPOILERS_SET");
+            _sim.MapClientEventToSimEvent(Events.ParkingBrakeSet, "PARKING_BRAKE_SET");
+            _sim.MapClientEventToSimEvent(Events.ActivePauseOn, "ACTIVE_PAUSE_ON");
+            _sim.MapClientEventToSimEvent(Events.ActivePauseOff, "ACTIVE_PAUSE_OFF");
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.GearDown, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.GearUp, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.FlapsSet, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.PauseOff, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.PauseOn, false);
+            _sim.AddClientEventToNotificationGroup(Groups.Input, Events.SpoilersOff, false);
+            _sim.AddClientEventToNotificationGroup(Groups.Input, Events.SpoilersSet, false);
+            _sim.AddClientEventToNotificationGroup(Groups.Input, Events.ParkingBrakeSet, false);
+            _sim.AddClientEventToNotificationGroup(Groups.Input, Events.ActivePauseOff, false);
             _sim.SetNotificationGroupPriority(Groups.Input, MsfsSc.SIMCONNECT_GROUP_PRIORITY_HIGHEST);
             _eventsMapped = true;
         }

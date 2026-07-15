@@ -3,7 +3,7 @@
   "mode": "hardcore_landings",
   "title": "Barcelona Crosswind Final",
   "subtitle": "LFML 31R · 4 NM short final on 3° path · A330",
-  "description": "All scenario values (position, IAS, aircraft, gear/flaps, weather) come from this JSON. A minimal .FLT is generated at start — no hand-maintained flight file required. Spawn is on extended centerline ~4 NM from threshold at elev+dist×318 ft (nominal 3°).",
+  "description": "All scenario values (position, IAS, aircraft, gear/flaps/spoilers, weather) come from this JSON. A minimal .FLT is generated at start — no hand-maintained flight file required. Spawn is on extended centerline ~4 NM from threshold at elev+dist×318 ft (nominal 3°). Start/Restart leaves the sim paused after config settle — unpause when ready to fly.",
   "available": true,
   "requireGearDown": true,
   "aircraftTitles": [
@@ -37,8 +37,10 @@
   },
   "aircraftSetup": {
     "gearDown": false,
-    "flapsHandleIndex": 2,
-    "unpause": true,
+    "flapsHandleIndex": 0,
+    "spoilersRetracted": true,
+    "parkingBrakeOn": false,
+    "unpause": false,
     "vappKts": 143
   },
   "runway": {
@@ -53,7 +55,8 @@
   },
   "hudTips": [
     "Start free flight in A330-200 (RR) first — Challenge Lab will not hot-swap aircraft.",
-    "Start Challenge sets spawn, noon local time, weather, and gear safely.",
+    "After Start/Restart the sim stays PAUSED (resume to fly) — same if you Restart while flying or from ESC pause. Not active pause.",
+    "Start config: gear up, flaps 0, spoilers in, parking brake off. Set landing flaps on approach.",
     "Edit spawn / timeOfDay / weather in this JSON, then restart the challenge."
   ]
 }
