@@ -84,7 +84,7 @@ public sealed class EvaluationTiming
     /// Short-final upper bound (NM from threshold) for approach path RMS.
     /// High intermediate approach / spawn is excluded so the metric reflects final path only.
     /// </summary>
-    public double ApproachPathMaxDistNm { get; set; } = 3.0;
+    public double ApproachPathMaxDistNm { get; set; } = 3.8;
 }
 
 public sealed class EvaluationSpeedTarget

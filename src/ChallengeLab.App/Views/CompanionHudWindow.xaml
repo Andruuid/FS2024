@@ -41,13 +41,14 @@
                        Foreground="#FFFFB020" FontSize="13"/>
 
             <StackPanel Grid.Row="2">
-                <!-- Live projected overall % (missing metrics = 100%) -->
+                <!-- Live projected overall % (caption explains measuring vs assumed 100%) -->
                 <Border Margin="0,0,0,10" Background="#330A2A20" CornerRadius="10" Padding="12,10"
                         BorderBrush="#66FFB020" BorderThickness="1"
                         Visibility="{Binding PreviewActive, Converter={StaticResource BoolToVis}}">
                     <StackPanel>
                         <TextBlock Text="PREVIEW SCORE" FontSize="10" FontWeight="Bold"
-                                   Foreground="#FFFFB020"/>
+                                   Foreground="#FFFFB020"
+                                   ToolTip="Live projection only — not a highscore. Unmeasured metrics count as 100% until their flight phase is sampled."/>
                         <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                             <TextBlock Text="{Binding PreviewScoreDisplay}" FontSize="40" FontWeight="Bold"
                                        Foreground="#FF2DE2E6"/>

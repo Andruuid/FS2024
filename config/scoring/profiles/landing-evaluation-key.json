@@ -1,6 +1,6 @@
 {
   "id": "landing-evaluation-key",
-  "version": 6,
+  "version": 7,
   "description": "Single authoritative landing score. Every metric scores 0-100%; phases and metrics use literal percentage weights; gear and flaps are safety gates and never award points.",
   "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply gear/flaps multipliers last when required",
   "settle": {
@@ -17,7 +17,7 @@
     "minAirborneAglFeet": 80,
     "minAirborneSamples": 8,
     "approachPathMinDistNm": 0.2,
-    "approachPathMaxDistNm": 3.0
+    "approachPathMaxDistNm": 3.8
   },
   "speedTarget": {
     "defaultVappKts": 143,
@@ -156,7 +156,7 @@
       "id": "approach",
       "displayName": "Approach",
       "weightPercent": 25,
-      "note": "Short final (≈0.2–3.0 NM): average 3° path match, vertical steadiness, and lateral steadiness share the phase equally.",
+      "note": "Short final (≈0.2–3.8 NM): average 3° path match, vertical steadiness, and lateral steadiness share the phase equally.",
       "metrics": [
         {
           "id": "approach_glideslope",

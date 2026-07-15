@@ -635,8 +635,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         LastScore = null;
         ResultVisible = false;
         PhaseLabel = "Armed";
-        SetPreviewPerfect();
-        PreviewCaption = "cleaned · remaining metrics assumed 100%";
+        SetPreviewPerfect("cleaned · waiting for approach window · unmeasured = 100%");
         AppendLog("Clean: landing metrics wiped — re-armed from this moment (preview 100%).");
         (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
@@ -728,13 +727,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         });
     }
 
-    private void SetPreviewPerfect()
+    private void SetPreviewPerfect(string? caption = null)
     {
         PreviewActive = true;
         PreviewScorePercent = 100;
         PreviewScoreDisplay = "100.0%";
         PreviewGrade = "S";
-        PreviewCaption = "remaining metrics assumed 100%";
+        PreviewCaption = caption ?? BuildPreviewCaption(_session, measuredPreview: false);
         _lastPreviewUtc = DateTimeOffset.UtcNow;
     }
 
@@ -777,7 +776,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             if (_session.Phase is LandingPhase.Armed)
             {
                 // Before airborne samples: pure 100% projection.
-                SetPreviewPerfect();
+                SetPreviewPerfect("armed · not airborne yet · all metrics assumed 100%");
                 return;
             }
 
@@ -786,12 +785,49 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             PreviewScorePercent = preview.ScorePercent;
             PreviewScoreDisplay = preview.ScoreDisplay;
             PreviewGrade = preview.Grade;
-            PreviewCaption = "remaining metrics assumed 100%";
+            PreviewCaption = BuildPreviewCaption(_session, measuredPreview: true);
         }
         catch (Exception ex)
         {
             AppendLog($"Preview score failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Honest HUD status: 100% often means "not measuring yet", not "perfect flying".
+    /// </summary>
+    private string BuildPreviewCaption(LandingSession? session, bool measuredPreview)
+    {
+        if (session is null)
+            return "unmeasured metrics assumed 100%";
+
+        if (session.Phase is LandingPhase.Armed)
+            return "armed · not airborne yet · all metrics assumed 100%";
+
+        var snap = session.Snapshot;
+        var maxNm = _sessionSettings?.ApproachPathMaxDistNm ?? 3.8;
+        var measuringApproach = snap.ApproachPathSampleCount >= 2;
+        var hasTouchdown = snap.Touchdown is not null;
+
+        if (!measuringApproach && !hasTouchdown)
+        {
+            return $"outside approach window (>{maxNm:0.#} NM) · not measuring yet · assumed 100%";
+        }
+
+        if (measuringApproach && !hasTouchdown)
+            return "measuring approach · touchdown & rollout assumed 100%";
+
+        // After TD: approach + TD are real; rollout fills in as samples arrive.
+        var rolloutLive = snap.RolloutPathSegmentCount >= 2 || snap.PostTouchdownAlignmentSampleCount >= 2;
+        if (hasTouchdown && !rolloutLive)
+            return "measuring approach + touchdown · rollout assumed 100%";
+
+        if (hasTouchdown)
+            return "measuring approach + touchdown + rollout · live projection";
+
+        return measuredPreview
+            ? "live projection · unmeasured metrics assumed 100%"
+            : "unmeasured metrics assumed 100%";
     }
 
     private void UpdateSpeedTargetInfo(ChallengeConfig challenge, TelemetrySample? sample, double? liveIas)
