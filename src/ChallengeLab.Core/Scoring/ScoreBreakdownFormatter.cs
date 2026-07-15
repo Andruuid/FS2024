@@ -10,6 +10,7 @@ public static class ScoreBreakdownFormatter
         result.Grade,
         result.ScoreBeforeGatesPercent,
         result.GearUpPenaltyApplied,
+        result.FlapsPenaltyApplied,
         result.PhaseScores,
         result.Criteria,
         result.IncompleteReasons);
@@ -19,6 +20,7 @@ public static class ScoreBreakdownFormatter
         string grade,
         double? scoreBeforeGatesPercent,
         bool gearUpPenaltyApplied,
+        bool flapsPenaltyApplied,
         IReadOnlyList<PhaseScore> phaseScores,
         IReadOnlyList<CriterionScore> criteria,
         IReadOnlyList<string>? incompleteReasons = null)
@@ -30,10 +32,12 @@ public static class ScoreBreakdownFormatter
             sb.Append("Total UNRANKED — incomplete telemetry");
         sb.AppendLine();
 
-        if (gearUpPenaltyApplied)
+        if (gearUpPenaltyApplied || flapsPenaltyApplied)
         {
-            sb.Append("(pre-gate ").Append(Pct(scoreBeforeGatesPercent))
-                .Append(" · gear-up penalty applied)");
+            sb.Append("(pre-gate ").Append(Pct(scoreBeforeGatesPercent));
+            if (gearUpPenaltyApplied) sb.Append(" · gear-up penalty");
+            if (flapsPenaltyApplied) sb.Append(" · flaps penalty");
+            sb.Append(')');
             sb.AppendLine();
         }
 
@@ -56,10 +60,14 @@ public static class ScoreBreakdownFormatter
                 AppendMetricLine(sb, metric.Id, metric.DisplayName, metric.ScorePercent);
         }
 
-        if (gearUpPenaltyApplied || criteria.Any(c => c.Status == MetricStatus.GateFailed))
+        if (gearUpPenaltyApplied || flapsPenaltyApplied
+            || criteria.Any(c => c.Status == MetricStatus.GateFailed))
         {
             sb.AppendLine();
-            sb.AppendLine("GEAR UP (hard penalty)");
+            if (gearUpPenaltyApplied)
+                sb.AppendLine("GEAR UP (hard penalty)");
+            if (flapsPenaltyApplied)
+                sb.AppendLine("FLAPS NOT SET (penalty)");
         }
 
         return sb.ToString().TrimEnd() + Environment.NewLine;
@@ -70,6 +78,17 @@ public static class ScoreBreakdownFormatter
         string grade,
         double? scoreBeforeGates,
         bool gearUpPenalty,
+        IReadOnlyList<HighscorePhaseDetail>? phases,
+        IEnumerable<StoredMetric> metrics)
+        => FormatFromStored(scorePercent, grade, scoreBeforeGates, gearUpPenalty,
+            flapsPenalty: false, phases, metrics);
+
+    public static string FormatFromStored(
+        double scorePercent,
+        string grade,
+        double? scoreBeforeGates,
+        bool gearUpPenalty,
+        bool flapsPenalty,
         IReadOnlyList<HighscorePhaseDetail>? phases,
         IEnumerable<StoredMetric> metrics)
     {
@@ -109,6 +128,7 @@ public static class ScoreBreakdownFormatter
             grade,
             scoreBeforeGates ?? scorePercent,
             gearUpPenalty,
+            flapsPenalty,
             phaseScores,
             criteria);
     }

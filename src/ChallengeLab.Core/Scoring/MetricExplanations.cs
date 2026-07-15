@@ -51,7 +51,8 @@ public static class MetricExplanations
             "Safety gate: gear-down is required baseline and awards no points. " +
             "Gear-up applies a heavy overall score cut (~90%) unless the challenge allows gear-up landings.",
         "flaps" =>
-            "Flaps handle index in the expected landing range for this challenge setup.",
+            "Safety gate like gear: landing flaps are required baseline and award no points. " +
+            "Flaps not set (or outside the landing band) multiplies the overall score.",
         "approach_path" =>
             "Legacy single-metric approach path (RMS altitude error vs 3°). Replaced by average glideslope + steadiness.",
         "approach_glideslope" =>

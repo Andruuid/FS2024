@@ -120,10 +120,27 @@ public sealed class EvaluationMetric
 public sealed class EvaluationGates
 {
     public GearGateConfig? Gear { get; set; }
+    public FlapsGateConfig? Flaps { get; set; }
 }
 
 public sealed class GearGateConfig
 {
     public double MultiplierOnFail { get; set; } = 0.1;
+    public string? PenaltyDescription { get; set; }
+}
+
+/// <summary>
+/// Flaps safety gate (like gear): correct setting awards no points;
+/// out of range multiplies the overall ranked score.
+/// </summary>
+public sealed class FlapsGateConfig
+{
+    /// <summary>Minimum flaps handle index for a valid landing config (inclusive).</summary>
+    public double MinIndex { get; set; } = 2;
+
+    /// <summary>Maximum flaps handle index for a valid landing config (inclusive).</summary>
+    public double MaxIndex { get; set; } = 5;
+
+    public double MultiplierOnFail { get; set; } = 0.5;
     public string? PenaltyDescription { get; set; }
 }

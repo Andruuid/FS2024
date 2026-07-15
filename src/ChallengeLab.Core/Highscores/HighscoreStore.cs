@@ -57,6 +57,7 @@ public sealed class HighscoreEntry
     public string? Notes { get; set; }
     public double? ScoreBeforeGatesPercent { get; set; }
     public bool GearUpPenaltyApplied { get; set; }
+    public bool FlapsPenaltyApplied { get; set; }
     public List<HighscorePhaseDetail> Phases { get; set; } = new();
     public double? VerticalSpeedFpm { get; set; }
     public List<HighscoreCriterionDetail> Criteria { get; set; } = new();
@@ -83,6 +84,7 @@ public sealed class HighscoreEntry
                 Grade,
                 ScoreBeforeGatesPercent,
                 GearUpPenaltyApplied,
+                FlapsPenaltyApplied,
                 Phases,
                 Criteria.Select(c => new ScoreBreakdownFormatter.StoredMetric
                 {
@@ -228,6 +230,7 @@ public sealed class HighscoreStore
             Notes = result.Summary,
             ScoreBeforeGatesPercent = result.ScoreBeforeGatesPercent,
             GearUpPenaltyApplied = result.GearUpPenaltyApplied,
+            FlapsPenaltyApplied = result.FlapsPenaltyApplied,
             Phases = phases,
             VerticalSpeedFpm = verticalSpeed,
             Criteria = criteria

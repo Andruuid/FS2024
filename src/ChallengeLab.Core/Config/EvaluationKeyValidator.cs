@@ -22,6 +22,7 @@ public static class EvaluationKeyValidator
         ValidateTiming(key.Timing, errors);
         ValidateSpeedTarget(key.SpeedTarget, errors);
         ValidateGear(key.Gates?.Gear, errors);
+        ValidateFlapsGate(key.Gates?.Flaps, errors);
 
         if (key.Phases.Count == 0)
             errors.Add("phases must contain at least one phase.");
@@ -216,6 +217,18 @@ public static class EvaluationKeyValidator
         if (gear is null) { errors.Add("gates.gear is required."); return; }
         if (!double.IsFinite(gear.MultiplierOnFail) || gear.MultiplierOnFail is <= 0 or > 1)
             errors.Add("gates.gear.multiplierOnFail must be greater than 0 and at most 1.");
+    }
+
+    private static void ValidateFlapsGate(FlapsGateConfig? flaps, List<string> errors)
+    {
+        // Optional for older keys; when present must be well-formed.
+        if (flaps is null) return;
+        if (!double.IsFinite(flaps.MinIndex) || flaps.MinIndex < 0)
+            errors.Add("gates.flaps.minIndex must be at least zero.");
+        if (!double.IsFinite(flaps.MaxIndex) || flaps.MaxIndex < flaps.MinIndex)
+            errors.Add("gates.flaps.maxIndex must be >= minIndex.");
+        if (!double.IsFinite(flaps.MultiplierOnFail) || flaps.MultiplierOnFail is <= 0 or > 1)
+            errors.Add("gates.flaps.multiplierOnFail must be greater than 0 and at most 1.");
     }
 
     private static bool IsPositiveFinite(double value) => double.IsFinite(value) && value > 0;

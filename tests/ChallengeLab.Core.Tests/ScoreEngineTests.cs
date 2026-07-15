@@ -26,10 +26,11 @@ public sealed class ScoreEngineTests
         return (loaded.Key!, loader.LoadChallenge("challenges/barcelona-crosswind-final.json"));
     }
 
-    private static LandingSnapshot CompleteSnapshot(bool gearDown = true) => new()
+    private static LandingSnapshot CompleteSnapshot(bool gearDown = true, int flapsIndex = 3) => new()
     {
         Touchdown = new TelemetrySample { Timestamp = DateTimeOffset.UtcNow, SimOnGround = true },
         GearDownAtTouchdown = gearDown,
+        FlapsIndexAtTouchdown = flapsIndex,
         VerticalSpeedAtTouchdownFpm = -100,
         AirspeedAtTouchdownKts = 138,
         VappKts = 143,
@@ -167,6 +168,40 @@ public sealed class ScoreEngineTests
         challenge.RequireGearDown = false;
         var free = engine.Evaluate(challenge, CompleteSnapshot(false));
         Assert.Equal(down.ScorePercent, free.ScorePercent);
+    }
+
+    [Fact]
+    public void FlapsGate_IsInformationalWhenSet_PenaltyWhenNot()
+    {
+        var (key, challenge) = Load();
+        Assert.NotNull(key.Gates?.Flaps);
+        var engine = new ScoreEngine(key);
+
+        var ok = engine.Evaluate(challenge, CompleteSnapshot(flapsIndex: 3));
+        Assert.True(ok.IsRanked);
+        Assert.False(ok.FlapsPenaltyApplied);
+        var flapsOk = ok.Criteria.Single(c => c.Id == "flaps");
+        Assert.Equal(MetricStatus.Informational, flapsOk.Status);
+        Assert.Null(flapsOk.ScorePercent); // no phase points
+
+        var bare = engine.Evaluate(challenge, CompleteSnapshot(flapsIndex: 0));
+        Assert.True(bare.IsRanked);
+        Assert.True(bare.FlapsPenaltyApplied);
+        Assert.Equal(
+            Math.Round(ok.ScorePercent!.Value * key.Gates!.Flaps!.MultiplierOnFail, 1),
+            bare.ScorePercent!.Value,
+            6);
+        Assert.DoesNotContain(ok.Criteria, c =>
+            c.Id == "flaps" && c.PhaseId == "touchdown");
+    }
+
+    [Fact]
+    public void TouchdownPhase_NoLongerIncludesFlapsMetric()
+    {
+        var (key, _) = Load();
+        var td = key.Phases.Single(p => p.Id == "touchdown");
+        Assert.DoesNotContain(td.Metrics, m => m.Id == "flaps");
+        Assert.Equal(100, td.Metrics.Sum(m => m.ImportancePercent), 2);
     }
 
     [Fact]

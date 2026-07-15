@@ -13,6 +13,7 @@ public sealed class ScoreResult
     public string? Summary { get; init; }
     public double? ScoreBeforeGatesPercent { get; init; }
     public bool GearUpPenaltyApplied { get; init; }
+    public bool FlapsPenaltyApplied { get; init; }
     public IReadOnlyList<PhaseScore> PhaseScores { get; init; } = Array.Empty<PhaseScore>();
 
     /// <summary>

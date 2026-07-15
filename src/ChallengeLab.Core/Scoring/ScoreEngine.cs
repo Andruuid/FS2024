@@ -148,11 +148,15 @@ public sealed class ScoreEngine
         var gearFailed = preview
             ? AppendGearGatePreview(challenge, snapshot, criteria)
             : AppendGearGate(challenge, snapshot, criteria, incompleteReasons);
+        var flapsFailed = preview
+            ? AppendFlapsGatePreview(snapshot, criteria)
+            : AppendFlapsGate(snapshot, criteria, incompleteReasons);
         var ranked = preview || incompleteReasons.Count == 0;
         double? scoreBeforeGates = null;
         double? scorePercent = null;
         var grade = "UNRANKED";
         var gearPenaltyApplied = false;
+        var flapsPenaltyApplied = false;
 
         if (ranked)
         {
@@ -164,6 +168,12 @@ public sealed class ScoreEngine
                 gearPenaltyApplied = true;
             }
 
+            if (flapsFailed)
+            {
+                final *= _key.Gates!.Flaps!.MultiplierOnFail;
+                flapsPenaltyApplied = true;
+            }
+
             scorePercent = Math.Round(Math.Clamp(final, 0, 100), 1);
             grade = ScoreResult.GradeFromPercent(scorePercent.Value);
         }
@@ -173,6 +183,7 @@ public sealed class ScoreEngine
             grade,
             scoreBeforeGates,
             gearPenaltyApplied,
+            flapsPenaltyApplied,
             phases,
             criteria,
             incompleteReasons);
@@ -191,6 +202,7 @@ public sealed class ScoreEngine
             Summary = summary,
             ScoreBeforeGatesPercent = scoreBeforeGates,
             GearUpPenaltyApplied = gearPenaltyApplied,
+            FlapsPenaltyApplied = flapsPenaltyApplied,
             PhaseScores = phases
         };
     }
@@ -275,6 +287,91 @@ public sealed class ScoreEngine
             Note =
                 $"Gear up at touchdown. Ranked overall score × {multiplier:0.##} " +
                 $"(~{(1 - multiplier) * 100:0}% cut). {_key.Gates.Gear.PenaltyDescription}"
+        });
+        return true;
+    }
+
+    /// <summary>Preview flaps: no TD yet → assume OK; after TD use real flaps index.</summary>
+    private bool AppendFlapsGatePreview(LandingSnapshot snapshot, List<CriterionScore> criteria)
+    {
+        if (_key.Gates?.Flaps is null)
+            return false;
+
+        if (snapshot.Touchdown is null)
+        {
+            criteria.Add(new CriterionScore
+            {
+                Id = "flaps",
+                DisplayName = "Flaps (safety gate)",
+                Status = MetricStatus.Informational,
+                Note = "[PREVIEW · assumed OK] Flaps not yet assessed (no touchdown)."
+            });
+            return false;
+        }
+
+        var incomplete = new List<string>();
+        return AppendFlapsGate(snapshot, criteria, incomplete);
+    }
+
+    /// <summary>
+    /// Flaps gate like gear: correct landing flaps award no points;
+    /// flaps not set (out of min/max index) multiplies overall score.
+    /// </summary>
+    private bool AppendFlapsGate(
+        LandingSnapshot snapshot,
+        List<CriterionScore> criteria,
+        List<string> incompleteReasons)
+    {
+        var cfg = _key.Gates?.Flaps;
+        if (cfg is null)
+            return false;
+
+        if (snapshot.Touchdown is null)
+        {
+            const string reason = "Touchdown telemetry was not captured.";
+            incompleteReasons.Add("Flaps gate: " + reason);
+            criteria.Add(new CriterionScore
+            {
+                Id = "flaps",
+                DisplayName = "Flaps (safety gate)",
+                Status = MetricStatus.Unavailable,
+                UnavailableReason = reason,
+                Note = reason
+            });
+            return false;
+        }
+
+        var index = snapshot.FlapsIndexAtTouchdown;
+        var min = cfg.MinIndex;
+        var max = cfg.MaxIndex;
+        if (index >= min && index <= max)
+        {
+            criteria.Add(new CriterionScore
+            {
+                Id = "flaps",
+                DisplayName = "Flaps (safety gate)",
+                RawValue = index,
+                Unit = "index",
+                Status = MetricStatus.Informational,
+                Note =
+                    $"Flaps index {index} in required landing band [{min:0}…{max:0}]. " +
+                    "Baseline only — awards no score credit."
+            });
+            return false;
+        }
+
+        var multiplier = cfg.MultiplierOnFail;
+        criteria.Add(new CriterionScore
+        {
+            Id = "flaps",
+            DisplayName = "Flaps not set — penalty",
+            RawValue = index,
+            Unit = "index",
+            Status = MetricStatus.GateFailed,
+            Note =
+                $"Flaps index {index} outside landing band [{min:0}…{max:0}]. " +
+                $"Ranked overall score × {multiplier:0.##} " +
+                $"(~{(1 - multiplier) * 100:0}% cut). {cfg.PenaltyDescription}"
         });
         return true;
     }

@@ -1,8 +1,8 @@
 {
   "id": "landing-evaluation-key",
-  "version": 4,
-  "description": "Single authoritative landing score. Every metric scores 0-100%; phases and metrics use literal percentage weights; gear is a safety gate and never awards points.",
-  "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply gear multiplier last when required",
+  "version": 5,
+  "description": "Single authoritative landing score. Every metric scores 0-100%; phases and metrics use literal percentage weights; gear and flaps are safety gates and never award points.",
+  "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply gear/flaps multipliers last when required",
   "settle": {
     "groundSpeedKts": 50,
     "holdSeconds": 1.0
@@ -28,6 +28,12 @@
     "gear": {
       "multiplierOnFail": 0.1,
       "penaltyDescription": "If gear is required and up, multiply the complete ranked score by 0.1. Gear down is the required baseline and awards no points."
+    },
+    "flaps": {
+      "minIndex": 2,
+      "maxIndex": 5,
+      "multiplierOnFail": 0.5,
+      "penaltyDescription": "If flaps are not set for landing (index below min / above max), multiply the complete ranked score by 0.5. Correct flaps award no points."
     }
   },
   "phases": [
@@ -138,20 +144,11 @@
         {
           "id": "alignment",
           "displayName": "Heading versus runway",
-          "importancePercent": 1,
+          "importancePercent": 2,
           "unit": "deg",
           "evaluator": "target",
           "metric": "alignmentDeg",
           "params": { "ideal": 0, "tolerance": 2, "maxError": 12 }
-        },
-        {
-          "id": "flaps",
-          "displayName": "Flaps setting",
-          "importancePercent": 1,
-          "unit": "index",
-          "evaluator": "range",
-          "metric": "flapsIndex",
-          "params": { "min": 3, "max": 5, "zeroBelow": 1, "zeroAbove": 6 }
         }
       ]
     },
