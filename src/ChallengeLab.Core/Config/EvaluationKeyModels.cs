@@ -13,8 +13,13 @@ public sealed class LandingEvaluationKey
     public EvaluationSpeedTarget? SpeedTarget { get; set; }
     public List<EvaluationPhase> Phases { get; set; } = new();
     public EvaluationGates? Gates { get; set; }
+    public LandingContactMapping ContactMapping { get; set; } = new();
 
-    public LandingSessionSettings ToSessionSettings() => new(
+    public LandingSessionSettings ToSessionSettings()
+    {
+        var flare = Phases.SelectMany(p => p.Metrics)
+            .FirstOrDefault(m => m.Id.Equals("flare_efficiency", StringComparison.OrdinalIgnoreCase));
+        return new LandingSessionSettings(
         Settle!.GroundSpeedKts,
         Settle.HoldSeconds,
         Timing!.GroundTrackWindowBeforeSeconds,
@@ -27,9 +32,20 @@ public sealed class LandingEvaluationKey
         Timing.MinAirborneSamples,
         Timing.ApproachPathMinDistNm,
         Timing.ApproachPathMaxDistNm,
+        Timing.ImpactPreWindowSeconds,
+        Timing.ImpactWindowSeconds,
+        Timing.ImpactFilterCutoffHz,
+        Timing.ImpactPeakQuantile,
+        Timing.MinImpactSamples,
+        Timing.BounceMinAirborneSeconds,
+        Timing.BounceWindowSeconds,
         SpeedTarget!.DefaultVappKts,
         SpeedTarget.TouchdownOffsetKts,
-        SpeedTarget.Vs0Factor);
+        SpeedTarget.Vs0Factor,
+        ContactMapping,
+        flare?.Params.GetValueOrDefault("entryVerticalSpeedFpm", -80) ?? -80,
+        flare?.Params.GetValueOrDefault("minSustainSeconds", 0.15) ?? 0.15);
+    }
 }
 
 public sealed record LandingSessionSettings(
@@ -45,9 +61,49 @@ public sealed record LandingSessionSettings(
     int MinAirborneSamples,
     double ApproachPathMinDistNm,
     double ApproachPathMaxDistNm,
+    double ImpactPreWindowSeconds,
+    double ImpactWindowSeconds,
+    double ImpactFilterCutoffHz,
+    double ImpactPeakQuantile,
+    int MinImpactSamples,
+    double BounceMinAirborneSeconds,
+    double BounceWindowSeconds,
     double DefaultVappKts,
     double TouchdownOffsetKts,
-    double Vs0Factor);
+    double Vs0Factor,
+    LandingContactMapping ContactMapping,
+    double FlareEntryVerticalSpeedFpm,
+    double FlareMinSustainSeconds)
+{
+    /// <summary>Compatibility constructor for existing callers that use the pre-v9 settings shape.</summary>
+    public LandingSessionSettings(
+        double SettledGroundSpeedKts,
+        double SettledHoldSeconds,
+        double GroundTrackWindowBeforeSeconds,
+        double GroundTrackWindowAfterSeconds,
+        double PostTouchdownAlignmentDelaySeconds,
+        double FlareAglFeet,
+        double PostArmIgnoreSeconds,
+        bool RequireAirborneBeforeTouchdown,
+        double MinAirborneAglFeet,
+        int MinAirborneSamples,
+        double ApproachPathMinDistNm,
+        double ApproachPathMaxDistNm,
+        double DefaultVappKts,
+        double TouchdownOffsetKts,
+        double Vs0Factor)
+        : this(
+            SettledGroundSpeedKts, SettledHoldSeconds,
+            GroundTrackWindowBeforeSeconds, GroundTrackWindowAfterSeconds,
+            PostTouchdownAlignmentDelaySeconds, FlareAglFeet, PostArmIgnoreSeconds,
+            RequireAirborneBeforeTouchdown, MinAirborneAglFeet, MinAirborneSamples,
+            ApproachPathMinDistNm, ApproachPathMaxDistNm,
+            0.25, 0.75, 10, 0.99, 8, 0.08, 3,
+            DefaultVappKts, TouchdownOffsetKts, Vs0Factor,
+            new LandingContactMapping(), -80, 0.15)
+    {
+    }
+}
 
 public sealed class EvaluationSettle
 {
@@ -85,6 +141,31 @@ public sealed class EvaluationTiming
     /// High intermediate approach / spawn is excluded so the metric reflects final path only.
     /// </summary>
     public double ApproachPathMaxDistNm { get; set; } = 4.5;
+
+    public double ImpactPreWindowSeconds { get; set; } = 0.25;
+    public double ImpactWindowSeconds { get; set; } = 0.75;
+    public double ImpactFilterCutoffHz { get; set; } = 10.0;
+    public double ImpactPeakQuantile { get; set; } = 0.99;
+    public int MinImpactSamples { get; set; } = 8;
+    public double BounceMinAirborneSeconds { get; set; } = 0.08;
+    public double BounceWindowSeconds { get; set; } = 3.0;
+}
+
+/// <summary>
+/// Logical landing-gear mapping over the indexed GEAR IS ON GROUND telemetry.
+/// MSFS conventional-gear defaults are center/nose 0, left 1, right 2.
+/// </summary>
+public sealed class LandingContactMapping
+{
+    public int LeftMainGearIndex { get; set; } = 1;
+    public int RightMainGearIndex { get; set; } = 2;
+    public int NoseGearIndex { get; set; } = 0;
+
+    /// <summary>
+    /// True only when a challenge/aircraft profile deliberately supplied this mapping.
+    /// The conventional 1/2/0 fallback must not be assumed for incompatible gear layouts.
+    /// </summary>
+    public bool IsAircraftSpecific { get; set; }
 }
 
 public sealed class EvaluationSpeedTarget
@@ -115,6 +196,10 @@ public sealed class EvaluationMetric
     public string SampleAt { get; set; } = "touchdown";
     public Dictionary<string, double> Params { get; set; } = new();
     public List<ScorePoint>? Points { get; set; }
+
+    /// <summary>Named piecewise curves used by composite landing evaluators.</summary>
+    public Dictionary<string, List<ScorePoint>> Curves { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class EvaluationGates

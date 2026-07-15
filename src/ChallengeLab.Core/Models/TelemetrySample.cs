@@ -5,6 +5,12 @@ public sealed class TelemetrySample
 {
     public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
 
+    /// <summary>
+    /// Pause-aware seconds since the simulation started. Scoring windows use this monotonic clock;
+    /// <see cref="Timestamp"/> remains for display and persistence.
+    /// </summary>
+    public double SimulationTimeSeconds { get; init; } = double.NaN;
+
     public double Latitude { get; init; }
     public double Longitude { get; init; }
     public double AltitudeFeet { get; init; }
@@ -33,10 +39,17 @@ public sealed class TelemetrySample
     public double GForce { get; init; }
     public bool SimOnGround { get; init; }
 
+    /// <summary>Last touchdown velocity along the ground normal, in feet/second.</summary>
+    public double? TouchdownNormalVelocityFps { get; init; }
+
+    /// <summary>Indexed GEAR IS ON GROUND values (0-15). Null means not sampled.</summary>
+    public IReadOnlyDictionary<int, bool>? GearOnGroundByIndex { get; init; }
+
     public double GearHandlePosition { get; init; }
     public bool IsGearRetractable { get; init; }
     public bool IsGearWheels { get; init; }
     public bool IsGearFloats { get; init; }
+    public bool IsTailDragger { get; init; }
     public int FlapsHandleIndex { get; init; }
 
     /// <summary>

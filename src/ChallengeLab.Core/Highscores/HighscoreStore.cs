@@ -39,7 +39,7 @@ public sealed class HighscoreCriterionDetail
     });
 
     [JsonIgnore]
-    public bool Applied => EffectiveStatus == MetricStatus.Scored;
+    public bool Applied => EffectiveStatus is MetricStatus.Scored or MetricStatus.Degraded;
 }
 
 public sealed class HighscoreEntry
@@ -61,9 +61,15 @@ public sealed class HighscoreEntry
     public List<HighscorePhaseDetail> Phases { get; set; } = new();
     public double? VerticalSpeedFpm { get; set; }
     public List<HighscoreCriterionDetail> Criteria { get; set; } = new();
+    public string? EvaluationKeyId { get; set; }
+    public int? EvaluationKeyVersion { get; set; }
+    public string? ScoringProfileHash { get; set; }
+    public string? RankedBucketId { get; set; }
+    public LandingResultDiagnostics? Diagnostics { get; set; }
 
     [JsonIgnore]
-    public bool IsLegacy => !string.IsNullOrWhiteSpace(Level)
+    public bool IsLegacy => string.IsNullOrWhiteSpace(RankedBucketId)
+                            || !string.IsNullOrWhiteSpace(Level)
                             || Phases.Count == 0
                             || !Criteria.Any(c => !string.IsNullOrWhiteSpace(c.PhaseId));
 
@@ -120,10 +126,20 @@ public sealed class HighscoreEntry
 
     public double? ResolveVerticalSpeedFpm()
     {
+        if (Diagnostics is not null) return Diagnostics.TouchdownVerticalSpeedFpm;
         if (VerticalSpeedFpm is not null) return VerticalSpeedFpm;
         var verticalSpeed = Criteria.FirstOrDefault(IsVerticalSpeedCriterion);
         return verticalSpeed?.RawValue;
     }
+
+    [JsonIgnore]
+    public string EffectiveRankedBucketId =>
+        string.IsNullOrWhiteSpace(RankedBucketId) ? "legacy|unknown-scoring-profile" : RankedBucketId;
+
+    [JsonIgnore]
+    public string ScoringProfileDisplay => EvaluationKeyVersion is null
+        ? "Legacy"
+        : $"v{EvaluationKeyVersion} · {ScoringProfileHash ?? "unknown"}";
 
     [JsonIgnore]
     public IReadOnlyList<HighscoreCriterionDetail> CriteriaForReport
@@ -131,8 +147,10 @@ public sealed class HighscoreEntry
         get
         {
             if (Criteria.Count == 0) return Criteria;
-            var verticalSpeed = Criteria.Where(IsVerticalSpeedCriterion).ToList();
-            var rest = Criteria.Where(c => !IsVerticalSpeedCriterion(c))
+            var verticalSpeed = Criteria.Where(c => c.Id == "touchdown_impact").ToList();
+            if (verticalSpeed.Count == 0)
+                verticalSpeed = Criteria.Where(IsVerticalSpeedCriterion).ToList();
+            var rest = Criteria.Where(c => c.Id != "touchdown_impact" && !IsVerticalSpeedCriterion(c))
                 .OrderBy(c => c.EffectiveStatus == MetricStatus.Unavailable)
                 .ThenByDescending(c => c.MaxOverallPoints > 0 ? c.MaxOverallPoints : c.Weight)
                 .ThenBy(c => c.DisplayName)
@@ -214,10 +232,12 @@ public sealed class HighscoreStore
             Used = phase.IsComplete
         }).ToList();
 
-        var verticalSpeed = criteria.FirstOrDefault(criterion =>
+        var verticalSpeed = result.Diagnostics.TouchdownVerticalSpeedFpm;
+        if (Math.Abs(verticalSpeed) < 0.001)
+            verticalSpeed = criteria.FirstOrDefault(criterion =>
                 criterion.Id is "touchdown_vs" or "touchdownVerticalSpeedFpm" ||
                 criterion.DisplayName.Contains("firmness", StringComparison.OrdinalIgnoreCase))
-            ?.RawValue;
+            ?.RawValue ?? 0;
 
         var entry = new HighscoreEntry
         {
@@ -233,7 +253,12 @@ public sealed class HighscoreStore
             FlapsPenaltyApplied = result.FlapsPenaltyApplied,
             Phases = phases,
             VerticalSpeedFpm = verticalSpeed,
-            Criteria = criteria
+            Criteria = criteria,
+            EvaluationKeyId = result.EvaluationKeyId,
+            EvaluationKeyVersion = result.EvaluationKeyVersion,
+            ScoringProfileHash = result.ScoringProfileHash,
+            RankedBucketId = result.RankedBucketId,
+            Diagnostics = result.Diagnostics
         };
 
         lock (_lock)

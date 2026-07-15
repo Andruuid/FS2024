@@ -23,6 +23,7 @@ public static class EvaluationKeyValidator
         ValidateSpeedTarget(key.SpeedTarget, errors);
         ValidateGear(key.Gates?.Gear, errors);
         ValidateFlapsGate(key.Gates?.Flaps, errors);
+        ValidateContactMapping(key.ContactMapping, errors);
 
         if (key.Phases.Count == 0)
             errors.Add("phases must contain at least one phase.");
@@ -65,14 +66,18 @@ public static class EvaluationKeyValidator
         var path = $"{phasePath} metric '{metric.Id}'";
         RequireText(metric.Id, $"{path}.id", errors);
         RequireText(metric.DisplayName, $"{path}.displayName", errors);
-        RequireText(metric.Metric, $"{path}.metric", errors);
         RequireText(metric.Evaluator, $"{path}.evaluator", errors);
         if (!string.IsNullOrWhiteSpace(metric.Id) && !metricIds.Add(metric.Id))
             errors.Add($"Duplicate metric id '{metric.Id}'.");
         if (!IsPositiveFinite(metric.ImportancePercent))
             errors.Add($"{path}.importancePercent must be finite and greater than zero.");
-        if (!string.IsNullOrWhiteSpace(metric.Metric) && !MetricResolver.IsKnownMetric(metric.Metric))
-            errors.Add($"{path}.metric '{metric.Metric}' is unknown.");
+        var composite = EvaluatorFactory.IsComposite(metric.Evaluator);
+        if (!composite)
+        {
+            RequireText(metric.Metric, $"{path}.metric", errors);
+            if (!string.IsNullOrWhiteSpace(metric.Metric) && !MetricResolver.IsKnownMetric(metric.Metric))
+                errors.Add($"{path}.metric '{metric.Metric}' is unknown.");
+        }
         if (!string.IsNullOrWhiteSpace(metric.Evaluator) && !EvaluatorFactory.IsKnown(metric.Evaluator))
             errors.Add($"{path}.evaluator '{metric.Evaluator}' is unknown.");
 
@@ -119,6 +124,75 @@ public static class EvaluationKeyValidator
                 if (TryFinite(metric, "failScore", out var failScore) && failScore is < 0 or > 1)
                     errors.Add($"{path}.params.failScore must be between 0 and 1.");
                 break;
+            case "landingimpact":
+                ValidateComposite(metric, path, errors,
+                    new[] { "verticalSpeedWeight", "peakGWeight" },
+                    new[] { "verticalSpeed", "peakG" },
+                    new[] { "verticalSpeedWeight", "peakGWeight" });
+                break;
+            case "flareefficiency":
+                ValidateComposite(metric, path, errors,
+                    new[] { "entryVerticalSpeedFpm", "minSustainSeconds", "distanceWeight", "timeWeight", "positiveVerticalSpeedWeight" },
+                    new[] { "distance", "time", "positiveVerticalSpeedSeconds" },
+                    new[] { "distanceWeight", "timeWeight", "positiveVerticalSpeedWeight" });
+                if (TryFinite(metric, "minSustainSeconds", out var sustain) && sustain < 0)
+                    errors.Add($"{path}.params.minSustainSeconds must be at least zero.");
+                break;
+            case "contactstability":
+                ValidateComposite(metric, path, errors,
+                    new[] { "countWeight", "maxAirborneDurationWeight", "worstSecondaryImpactWeight" },
+                    new[] { "count", "maxAirborneDuration" },
+                    new[] { "countWeight", "maxAirborneDurationWeight", "worstSecondaryImpactWeight" });
+                break;
+        }
+    }
+
+    private static void ValidateComposite(
+        EvaluationMetric metric,
+        string path,
+        List<string> errors,
+        IReadOnlyCollection<string> allowedParams,
+        IReadOnlyCollection<string> requiredCurves,
+        IReadOnlyCollection<string> componentWeights)
+    {
+        ValidateExactParams(metric, path, errors, allowedParams.ToArray());
+        foreach (var name in requiredCurves)
+        {
+            if (!metric.Curves.TryGetValue(name, out var curve))
+            {
+                errors.Add($"{path}.curves.{name} is required.");
+                continue;
+            }
+            ValidateCurve(curve, $"{path}.curves.{name}", errors);
+        }
+        foreach (var unknown in metric.Curves.Keys.Where(k => !requiredCurves.Contains(k, StringComparer.Ordinal)))
+            errors.Add($"{path}.curves contains unknown key '{unknown}'.");
+
+        double total = 0;
+        foreach (var weight in componentWeights)
+        {
+            if (!TryFinite(metric, weight, out var value)) continue;
+            if (value < 0) errors.Add($"{path}.params.{weight} must be nonnegative.");
+            total += Math.Max(0, value);
+        }
+        if (componentWeights.All(w => TryFinite(metric, w, out _)) && total <= 0)
+            errors.Add($"{path} component weights must contain at least one positive value.");
+    }
+
+    private static void ValidateCurve(IReadOnlyList<ScorePoint> points, string path, List<string> errors)
+    {
+        if (points.Count < 2)
+        {
+            errors.Add($"{path} must contain at least two control points.");
+            return;
+        }
+        var values = new HashSet<double>();
+        foreach (var point in points)
+        {
+            if (!double.IsFinite(point.V)) errors.Add($"{path} contains a non-finite v value.");
+            if (!double.IsFinite(point.S) || point.S is < 0 or > 100)
+                errors.Add($"{path} score s must be between 0 and 100.");
+            if (!values.Add(point.V)) errors.Add($"{path} contains duplicate v value {point.V}.");
         }
     }
 
@@ -199,6 +273,20 @@ public static class EvaluationKeyValidator
             errors.Add("timing.approachPathMaxDistNm must be greater than zero.");
         if (timing.ApproachPathMaxDistNm <= timing.ApproachPathMinDistNm)
             errors.Add("timing.approachPathMaxDistNm must be greater than approachPathMinDistNm.");
+        if (!double.IsFinite(timing.ImpactPreWindowSeconds) || timing.ImpactPreWindowSeconds < 0)
+            errors.Add("timing.impactPreWindowSeconds must be at least zero.");
+        if (!IsPositiveFinite(timing.ImpactWindowSeconds))
+            errors.Add("timing.impactWindowSeconds must be greater than zero.");
+        if (!IsPositiveFinite(timing.ImpactFilterCutoffHz))
+            errors.Add("timing.impactFilterCutoffHz must be greater than zero.");
+        if (!double.IsFinite(timing.ImpactPeakQuantile) || timing.ImpactPeakQuantile is < 0 or > 1)
+            errors.Add("timing.impactPeakQuantile must be between zero and one.");
+        if (timing.MinImpactSamples < 1)
+            errors.Add("timing.minImpactSamples must be at least one.");
+        if (!IsPositiveFinite(timing.BounceMinAirborneSeconds))
+            errors.Add("timing.bounceMinAirborneSeconds must be greater than zero.");
+        if (!IsPositiveFinite(timing.BounceWindowSeconds))
+            errors.Add("timing.bounceWindowSeconds must be greater than zero.");
     }
 
     private static void ValidateSpeedTarget(EvaluationSpeedTarget? speed, List<string> errors)
@@ -229,6 +317,20 @@ public static class EvaluationKeyValidator
             errors.Add("gates.flaps.maxIndex must be >= minIndex.");
         if (!double.IsFinite(flaps.MultiplierOnFail) || flaps.MultiplierOnFail is <= 0 or > 1)
             errors.Add("gates.flaps.multiplierOnFail must be greater than 0 and at most 1.");
+    }
+
+    private static void ValidateContactMapping(LandingContactMapping? mapping, List<string> errors)
+    {
+        if (mapping is null) { errors.Add("contactMapping is required."); return; }
+        foreach (var (name, value) in new[]
+                 {
+                     ("leftMainGearIndex", mapping.LeftMainGearIndex),
+                     ("rightMainGearIndex", mapping.RightMainGearIndex),
+                     ("noseGearIndex", mapping.NoseGearIndex)
+                 })
+            if (value is < 0 or > 15) errors.Add($"contactMapping.{name} must be between 0 and 15.");
+        if (mapping.LeftMainGearIndex == mapping.RightMainGearIndex)
+            errors.Add("contactMapping left and right main gear indices must differ.");
     }
 
     private static bool IsPositiveFinite(double value) => double.IsFinite(value) && value > 0;

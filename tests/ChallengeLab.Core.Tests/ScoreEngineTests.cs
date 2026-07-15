@@ -63,7 +63,15 @@ public sealed class ScoreEngineTests
         RolloutDistanceM = 10,
         RolloutLateralMeanM = 1,
         RolloutLateralPeakM = 2,
-        RolloutWeaveIndex = .01
+        RolloutWeaveIndex = .01,
+        InitialImpact = new ImpactAnalysis(
+            true, false, 10, -100, "PLANE TOUCHDOWN NORMAL VELOCITY",
+            1.2, 1.2, 10, 1.0, null),
+        FloatAnalysis = new FloatAnalysis(
+            true, false, 0, 0, 0, 0, 0, null),
+        ContactStability = new ContactStabilityAnalysis(
+            true, Array.Empty<BounceEvent>(), 0, 0, null),
+        TouchdownAnalysisComplete = true
     };
 
     [Fact]
@@ -75,19 +83,20 @@ public sealed class ScoreEngineTests
     }
 
     [Fact]
-    public void TouchdownVs_ExtremeHardLanding_ScoresZeroNotSeventy()
+    public void TouchdownImpactVerticalSpeed_ExtremeHardLanding_ScoresZeroNotSeventy()
     {
         var (key, _) = Load();
         var metric = key.Phases
             .SelectMany(p => p.Metrics)
-            .Single(m => m.Id == "touchdown_vs");
+            .Single(m => m.Id == "touchdown_impact");
+        var curve = metric.Curves["verticalSpeed"];
 
         // Catastrophic sink rates must not clamp to the old −600→70% end score.
-        Assert.Equal(0, PiecewiseEvaluator.Instance.Evaluate(-9805, metric), 6);
-        Assert.Equal(0, PiecewiseEvaluator.Instance.Evaluate(-2000, metric), 6);
-        Assert.True(PiecewiseEvaluator.Instance.Evaluate(-1200, metric) < 0.2);
-        Assert.Equal(0.70, PiecewiseEvaluator.Instance.Evaluate(-600, metric), 6);
-        Assert.Equal(1.0, PiecewiseEvaluator.Instance.Evaluate(-100, metric), 6);
+        Assert.Equal(0, CompositeScoringMath.PiecewiseScorePercent(-9805, curve), 6);
+        Assert.Equal(0, CompositeScoringMath.PiecewiseScorePercent(-2000, curve), 6);
+        Assert.True(CompositeScoringMath.PiecewiseScorePercent(-1200, curve) < 20);
+        Assert.Equal(70, CompositeScoringMath.PiecewiseScorePercent(-600, curve), 6);
+        Assert.Equal(100, CompositeScoringMath.PiecewiseScorePercent(-100, curve), 6);
     }
 
     [Fact]
@@ -97,8 +106,20 @@ public sealed class ScoreEngineTests
         var result = new ScoreEngine(key).Evaluate(challenge, CompleteSnapshot());
         Assert.True(result.IsRanked, string.Join("; ", result.IncompleteReasons));
         Assert.NotNull(result.ScorePercent);
-        Assert.Equal(86.0, 95 * .70 + 60 * .25 + 90 * .05, 6);
+        var literalWeightedTotal = result.PhaseScores.Sum(p => p.ScorePercent!.Value * p.WeightPercent / 100.0);
+        Assert.Equal(Math.Round(literalWeightedTotal, 1), result.ScorePercent!.Value, 6);
         Assert.Equal(70, result.PhaseScores.Single(p => p.PhaseId == "touchdown").WeightPercent);
+    }
+
+    [Fact]
+    public void PerfectResult_RemainsExactlyOneHundredPercent()
+    {
+        var (key, challenge) = Load();
+        var result = new ScoreEngine(key).Evaluate(challenge, CompleteSnapshot());
+        Assert.True(result.IsRanked, string.Join("; ", result.IncompleteReasons));
+        Assert.Equal(100, result.ScoreBeforeGatesPercent!.Value, 6);
+        Assert.Equal(100, result.ScorePercent!.Value, 6);
+        Assert.Equal("S", result.Grade);
     }
 
     [Fact]
@@ -210,7 +231,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(8, loaded.Key.Version);
+        Assert.Equal(9, loaded.Key.Version);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
 
@@ -223,6 +244,7 @@ public sealed class ScoreEngineTests
 
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("free-flight-evaluation-key", loaded.Key!.Id);
+        Assert.Equal(2, loaded.Key.Version);
         Assert.Equal(70, loaded.Key.SpeedTarget!.DefaultVappKts);
         Assert.Null(loaded.Key.Gates!.Flaps);
     }

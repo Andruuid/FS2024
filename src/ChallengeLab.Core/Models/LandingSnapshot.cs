@@ -112,6 +112,13 @@ public sealed class LandingSnapshot
 
     public string SpeedTargetSource { get; set; } = "";
 
+    public ImpactAnalysis? InitialImpact { get; set; }
+    public FloatAnalysis? FloatAnalysis { get; set; }
+    public ContactStabilityAnalysis? ContactStability { get; set; }
+    public bool TouchdownAnalysisComplete { get; set; }
+    public bool ContactMappingDegraded { get; set; }
+
     public List<TelemetrySample> ApproachSamples { get; } = new();
     public List<TelemetrySample> RolloutSamples { get; } = new();
+    public List<LandingTelemetrySample> LandingEventSamples { get; } = new();
 }

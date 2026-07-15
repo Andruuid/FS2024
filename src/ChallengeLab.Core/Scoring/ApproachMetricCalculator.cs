@@ -171,12 +171,17 @@ internal static class ApproachMetricCalculator
             return false;
 
         point = new ApproachPoint(
-            sample.Timestamp,
+            ScoringTimestamp(sample),
             path.ApproachDistanceMeters,
             path.LateralMeters,
             path.AltitudeErrorFeet);
         return true;
     }
+
+    private static DateTimeOffset ScoringTimestamp(TelemetrySample sample) =>
+        double.IsFinite(sample.SimulationTimeSeconds)
+            ? DateTimeOffset.UnixEpoch.AddSeconds(sample.SimulationTimeSeconds)
+            : sample.Timestamp;
 
     private static List<ApproachPoint> Resample(IReadOnlyList<ApproachPoint> rawPoints)
     {

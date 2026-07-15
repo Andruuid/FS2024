@@ -96,6 +96,7 @@ public sealed class SimConnectClient : ISimBridge
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
     private struct TelemetryStruct
     {
+        public double SimulationTime;
         public double Latitude;
         public double Longitude;
         public double Altitude;
@@ -107,12 +108,30 @@ public sealed class SimConnectClient : ISimBridge
         public double Airspeed;
         public double GroundVelocity;
         public double VerticalSpeed;
+        public double TouchdownNormalVelocity;
         public double GForce;
         public double SimOnGround;
+        public double GearOnGround0;
+        public double GearOnGround1;
+        public double GearOnGround2;
+        public double GearOnGround3;
+        public double GearOnGround4;
+        public double GearOnGround5;
+        public double GearOnGround6;
+        public double GearOnGround7;
+        public double GearOnGround8;
+        public double GearOnGround9;
+        public double GearOnGround10;
+        public double GearOnGround11;
+        public double GearOnGround12;
+        public double GearOnGround13;
+        public double GearOnGround14;
+        public double GearOnGround15;
         public double GearHandle;
         public double IsGearRetractable;
         public double IsGearWheels;
         public double IsGearFloats;
+        public double IsTailDragger;
         public double FlapsIndex;
         public double WindDir;
         public double WindVel;
@@ -1559,6 +1578,7 @@ public sealed class SimConnectClient : ISimBridge
             var sample = new TelemetrySample
             {
                 Timestamp = DateTimeOffset.UtcNow,
+                SimulationTimeSeconds = t.SimulationTime,
                 Latitude = t.Latitude,
                 Longitude = t.Longitude,
                 AltitudeFeet = t.Altitude,
@@ -1570,12 +1590,27 @@ public sealed class SimConnectClient : ISimBridge
                 AirspeedKts = t.Airspeed,
                 GroundSpeedKts = t.GroundVelocity,
                 VerticalSpeedFpm = t.VerticalSpeed,
+                TouchdownNormalVelocityFps = double.IsFinite(t.TouchdownNormalVelocity)
+                    ? t.TouchdownNormalVelocity
+                    : null,
                 GForce = t.GForce,
                 SimOnGround = t.SimOnGround > 0.5,
+                GearOnGroundByIndex = new Dictionary<int, bool>
+                {
+                    [0] = t.GearOnGround0 > 0.5, [1] = t.GearOnGround1 > 0.5,
+                    [2] = t.GearOnGround2 > 0.5, [3] = t.GearOnGround3 > 0.5,
+                    [4] = t.GearOnGround4 > 0.5, [5] = t.GearOnGround5 > 0.5,
+                    [6] = t.GearOnGround6 > 0.5, [7] = t.GearOnGround7 > 0.5,
+                    [8] = t.GearOnGround8 > 0.5, [9] = t.GearOnGround9 > 0.5,
+                    [10] = t.GearOnGround10 > 0.5, [11] = t.GearOnGround11 > 0.5,
+                    [12] = t.GearOnGround12 > 0.5, [13] = t.GearOnGround13 > 0.5,
+                    [14] = t.GearOnGround14 > 0.5, [15] = t.GearOnGround15 > 0.5
+                },
                 GearHandlePosition = t.GearHandle,
                 IsGearRetractable = t.IsGearRetractable > 0.5,
                 IsGearWheels = t.IsGearWheels > 0.5,
                 IsGearFloats = t.IsGearFloats > 0.5,
+                IsTailDragger = t.IsTailDragger > 0.5,
                 FlapsHandleIndex = (int)Math.Round(t.FlapsIndex),
                 SpoilersHandlePosition = t.SpoilersHandle,
                 // Max panel deflection is ground truth; handle alone mis-reports "armed" as out.
@@ -1598,6 +1633,8 @@ public sealed class SimConnectClient : ISimBridge
     {
         if (_sim is null || _defsRegistered) return;
 
+        _sim.AddToDataDefinition(Definitions.Telemetry, "SIMULATION TIME", "seconds",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "PLANE LATITUDE", "degrees",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "PLANE LONGITUDE", "degrees",
@@ -1621,10 +1658,15 @@ public sealed class SimConnectClient : ISimBridge
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "VERTICAL SPEED", "feet per minute",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "PLANE TOUCHDOWN NORMAL VELOCITY", "feet per second",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "G FORCE", "GForce",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "SIM ON GROUND", "bool",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        for (var gearIndex = 0; gearIndex <= 15; gearIndex++)
+            _sim.AddToDataDefinition(Definitions.Telemetry, $"GEAR IS ON GROUND:{gearIndex}", "bool",
+                SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "GEAR HANDLE POSITION", "bool",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "IS GEAR RETRACTABLE", "bool",
@@ -1632,6 +1674,8 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.Telemetry, "IS GEAR WHEELS", "bool",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "IS GEAR FLOATS", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "IS TAIL DRAGGER", "bool",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "FLAPS HANDLE INDEX", "number",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);

@@ -32,6 +32,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private readonly EvaluationKeyLoadResult _freeEvaluationKeyLoad;
     private readonly string? _freeEvaluationKeyPath;
     private readonly ISimBridge _sim;
+    private ScoreEngine? _activeScoreEngine;
+    private LandingSessionSettings? _activeSessionSettings;
     private readonly DispatcherTimer _reconnectTimer;
     private readonly DispatcherTimer _freeInferenceTimer;
     private readonly FreeFlightRunwayInference _freeInference = new();
@@ -234,9 +236,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _freeScoreEngine is not null && _freeSessionSettings is not null;
     public string ConfigurationStatus { get; }
 
-    private ScoreEngine? CurrentScoreEngine => IsFreeMode ? _freeScoreEngine : _scoreEngine;
+    private ScoreEngine? CurrentScoreEngine =>
+        _activeScoreEngine ?? (IsFreeMode ? _freeScoreEngine : _scoreEngine);
     private LandingSessionSettings? CurrentSessionSettings =>
-        IsFreeMode ? _freeSessionSettings : _sessionSettings;
+        _activeSessionSettings ?? (IsFreeMode ? _freeSessionSettings : _sessionSettings);
 
     public HudOperatingMode OperatingMode
     {
@@ -588,10 +591,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             CriterionResults.Clear();
             if (value is not null)
             {
-                // VS / firmness first, then remaining by weight
+                // Composite touchdown impact first, then remaining by weight.
                 var ordered = value.Criteria
-                    .OrderByDescending(c => c.Id is "touchdown_vs" or "touchdownVerticalSpeedFpm" ||
-                                            c.DisplayName.Contains("firmness", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                    .OrderByDescending(c => c.Id == "touchdown_impact" ? 1 : 0)
                     .ThenByDescending(c => c.MaxOverallPoints)
                     .ToList();
                 var first = true;
@@ -816,10 +818,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var airport = target.Runway.Airport.Icao.Trim().ToUpperInvariant();
         var runway = target.Runway.RunwayId.Trim().ToUpperInvariant();
         var challenge = FreeFlightChallengeFactory.Create(target, sample);
+        var effective = EffectiveEvaluationProfileBuilder.Build(_freeEvaluationKeyLoad.Key!, challenge);
+        _activeScoreEngine = new ScoreEngine(effective.Key, effective.ProfileHash);
+        _activeSessionSettings = effective.Key.ToSessionSettings();
 
         SecondaryHud.ResetAttempt();
         _activeChallenge = challenge;
-        _session = new LandingSession(challenge, _freeSessionSettings);
+        _session = new LandingSession(challenge, _activeSessionSettings);
         _session.PhaseChanged += OnSessionPhaseChanged;
         _session.SettledReady += OnSettledReady;
         _session.Arm();
@@ -872,6 +877,22 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        EffectiveEvaluationProfile effective;
+        try
+        {
+            effective = EffectiveEvaluationProfileBuilder.Build(_evaluationKey!, challenge);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                "Challenge scoring override is invalid:\n\n" + ex.Message,
+                "Challenge Lab — scoring unavailable",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            AppendLog($"Challenge scoring override invalid: {ex.Message}");
+            return;
+        }
+
         SecondaryHud.ResetAttempt();
         IsLoading = true;
         ResultVisible = false;
@@ -884,6 +905,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             _activeChallenge = challenge;
             DetachSession();
+            _activeScoreEngine = new ScoreEngine(effective.Key, effective.ProfileHash);
+            _activeSessionSettings = effective.Key.ToSessionSettings();
 
             var stages = new[]
             {
@@ -937,6 +960,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
             if (!spawnResult.Success)
             {
+                _activeScoreEngine = null;
+                _activeSessionSettings = null;
                 LoadStatus = "Spawn failed — not armed";
                 PhaseLabel = "Idle";
                 AppendLog(
@@ -965,7 +990,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 $"parkBrake={(setup.ParkingBrakeOn ? "on" : "off")} · " +
                 $"autoUnpause={setup.Unpause}");
 
-            _session = new LandingSession(challenge, _sessionSettings);
+            _session = new LandingSession(challenge, _activeSessionSettings!);
             _session.PhaseChanged += OnSessionPhaseChanged;
             _session.SettledReady += OnSettledReady;
 
@@ -1010,6 +1035,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
         catch (AircraftMismatchException acEx)
         {
+            _activeScoreEngine = null;
+            _activeSessionSettings = null;
             StopSpawnReadinessWatch(clearUi: true);
             LoadStatus = "Wrong aircraft";
             PhaseLabel = "Idle";
@@ -1019,6 +1046,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
+            _activeScoreEngine = null;
+            _activeSessionSettings = null;
             StopSpawnReadinessWatch(clearUi: true);
             LoadStatus = "Failed";
             PhaseLabel = "Idle";
@@ -1043,6 +1072,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             _session.Reset();
             _session = null;
         }
+        _activeScoreEngine = null;
+        _activeSessionSettings = null;
         ClearPreview();
         (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
@@ -1373,7 +1404,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             ScoreComputed?.Invoke(result);
             RequestShowHud?.Invoke();
             AppendLog(result.IsRanked
-                ? $"Scored {result.ScorePercent}% ({result.Grade}) on {result.ChallengeTitle} — {result.Criteria.Count} metrics stored"
+                ? $"Scored {result.ScorePercent}% ({result.Grade}) on {result.ChallengeTitle} — " +
+                  $"{result.EvaluationKeyId} v{result.EvaluationKeyVersion} · {result.ScoringProfileHash} · " +
+                  $"{result.Criteria.Count} metrics stored"
                 : $"Unranked landing on {result.ChallengeTitle}: {string.Join(" | ", result.IncompleteReasons)}");
             if (tracePath is not null)
                 AppendLog($"Landing trace: {tracePath}");

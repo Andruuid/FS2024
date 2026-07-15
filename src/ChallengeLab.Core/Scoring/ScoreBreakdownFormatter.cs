@@ -165,6 +165,9 @@ public static class ScoreBreakdownFormatter
     public static string ShortName(string id, string displayName) => id.ToLowerInvariant() switch
     {
         "touchdown_vs" => "vSpeed",
+        "touchdown_impact" => "impact",
+        "flare_efficiency" => "flare/float",
+        "contact_stability" => "contact",
         "airspeed" => "airspeed",
         "centerline" => "centerline",
         "ground_track" => "groundTrack",

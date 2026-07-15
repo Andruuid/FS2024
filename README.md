@@ -112,10 +112,10 @@ Spawn verified: horiz=… m · altErr=… ft · ias=… kt
 
 `config/scoring/profiles/free-flight-evaluation-key.json` (Free, generic VS0-based VAPP and no flap-index gate)
 
-Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, VS piecewise curves, gear gate, settle GS, and timing windows all live here. Session log confirms load:
+Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, gear/flap gates, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v9 and the Free key is v2. Session log confirms load:
 
 ```
-Evaluation key loaded: landing-evaluation-key v1 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%
+Evaluation key loaded: landing-evaluation-key v9 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%
   path: ...\config\scoring\profiles\landing-evaluation-key.json
 ```
 
@@ -123,10 +123,56 @@ Evaluation key loaded: landing-evaluation-key v1 · N metrics · Approach 25% + 
 
 ```
 final % = (touchdown × 0.70) + (approach × 0.25) + (rollout × 0.05)
-then gear-up gate (if required): final × multiplierOnFail (default 0.1)
+then gear/flap gates (when required): final × multiplierOnFail
 ```
 
-Within each phase, metrics are weighted by `importancePercent` (renormalized if needed). There is no Easy/Strict split — every metric in the key is always scored.
+Within each phase, metrics use the same literal formula: `metric score × importancePercent / 100`. Validation requires metric and phase weights to total exactly 100. There is no Easy/Strict split — every metric in the key is always scored.
+
+### Touchdown evaluation (v9)
+
+The touchdown phase keeps its 70% overall weight and now separates three physical events:
+
+- `touchdown_impact` (55% of touchdown) combines the first main-gear contact's official touchdown-normal velocity with a filtered 99th-percentile peak G. The raw G peak is diagnostic only.
+- `flare_efficiency` (10%) measures sustained float distance/time and positive-VS duration below flare height. It never reuses IAS or excess-speed inputs.
+- `contact_stability` (10%) detects both-main-airborne bounce intervals and scores count, duration, and the worst secondary impact. A one-main-first touchdown and contact chatter are not bounces.
+
+Composite components use weighted penalty RMS:
+
+```text
+score = 100 × (1 − sqrt(sum(normalizedWeight × (1 − componentScore / 100)²)))
+```
+
+Scoring windows use pause-aware `SIMULATION TIME`. Touchdown detection uses mapped indexed `GEAR IS ON GROUND` contacts, and the first updated `PLANE TOUCHDOWN NORMAL VELOCITY` is frozen as the official touchdown VS. Missing required G/contact/official-VS coverage produces an explainable degraded calculation, but the attempt is unranked.
+
+The conventional wheeled fallback maps nose/center `0`, left main `1`, and right main `2`. Taildraggers and incompatible layouts require an explicit challenge `contactMapping`; indices may be 0–15.
+
+```json
+"contactMapping": { "leftMainGearIndex": 3, "rightMainGearIndex": 4, "noseGearIndex": 1 }
+```
+
+### Challenge-specific scoring profiles
+
+A challenge can deterministically override existing composite parameters and replace individual named curves. Metric IDs, parameter names, and curve names are validated before scoring is armed:
+
+```json
+"scoringOverrides": {
+  "metrics": [
+    {
+      "id": "touchdown_impact",
+      "params": { "verticalSpeedWeight": 0.5, "peakGWeight": 0.5 },
+      "curves": {
+        "peakG": [
+          { "v": 1.0, "s": 80 },
+          { "v": 1.3, "s": 100 },
+          { "v": 2.1, "s": 0 }
+        ]
+      }
+    }
+  ]
+}
+```
+
+Every attempt freezes and hashes its complete effective scoring key (including contact mapping). Ranked buckets include challenge ID, key ID, key version, and profile hash, so legacy, v8, v9, and differently tuned profiles cannot mix silently.
 
 ### Also editable
 
@@ -139,10 +185,12 @@ Within each phase, metrics are weighted by `importancePercent` (renormalized if 
 
 ### Metric fields in the evaluation key
 
-- `metric` — e.g. `touchdownVerticalSpeedFpm`, `centerlineDeviationM`
-- `evaluator` — `piecewise` | `target` | `band` | `range` | `boolean` | `centerline`
+- `metric` — scalar source, e.g. `centerlineDeviationM` (not used by typed composites)
+- `evaluator` — `piecewise` | `target` | `band` | `range` | `boolean` | `centerline` | `landingImpact` | `flareEfficiency` | `contactStability`
 - `importancePercent` — share of that phase (not free points for gear)
 - `points` — piecewise curve: `v` = measured value, `s` = **metric score 0–100%** (e.g. `{ "v": -100, "s": 100 }`). Each metric always reports 0–100%; phase weights (`importancePercent`) only blend them.
+- `params` — validated scalar settings and composite component weights
+- `curves` — named piecewise curves used by a composite evaluator; an override replaces one complete named curve
 
 **Gear** is a safety gate under `gates.gear`, not a phase metric: gear down = no credit; gear up = overall score cut.
 

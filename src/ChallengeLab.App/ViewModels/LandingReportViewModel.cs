@@ -13,7 +13,7 @@ public sealed class LandingReportViewModel : ViewModelBase
     {
         Entry = entry;
         Title = entry.ChallengeTitle;
-        Subtitle = $"{entry.Utc:yyyy-MM-dd HH:mm} UTC  ·  Grade {entry.Grade}" +
+        Subtitle = $"{entry.Utc:yyyy-MM-dd HH:mm} UTC  ·  Grade {entry.Grade}  ·  {entry.ScoringProfileDisplay}" +
                    (entry.IsLegacy ? "  ·  LEGACY RECORD" : "");
         ScorePercent = entry.ScorePercent;
         Grade = entry.Grade;
@@ -22,8 +22,9 @@ public sealed class LandingReportViewModel : ViewModelBase
 
         VerticalSpeedRaw = entry.ResolveVerticalSpeedFpm();
         VerticalSpeedDisplay = FormatVerticalSpeedDisplay(VerticalSpeedRaw);
-        var firmness = entry.Criteria?.FirstOrDefault(IsVs);
-        VerticalSpeedScorePercent = firmness?.ScorePercent;
+        var firmness = entry.Criteria?.FirstOrDefault(c => c.Id == "touchdown_impact")
+                       ?? entry.Criteria?.FirstOrDefault(IsVs);
+        VerticalSpeedScorePercent = entry.Diagnostics?.TouchdownImpactScore ?? firmness?.ScorePercent;
         VerticalSpeedExplanation = EnrichNote(firmness)
             ?? (VerticalSpeedRaw is null
                 ? "Vertical speed at main-gear touchdown was not recorded for this attempt."
@@ -74,10 +75,12 @@ public sealed class LandingReportViewModel : ViewModelBase
     public string VerticalSpeedExplanation { get; }
     public string VerticalSpeedHeadline => VerticalSpeedRaw is null
         ? "Vertical speed at touchdown: not recorded"
-        : $"Vertical speed: {VerticalSpeedRaw:0} fpm  ·  absolute sink {Math.Abs(VerticalSpeedRaw.Value):0} fpm";
+        : Entry.Diagnostics is { } d
+            ? $"Impact: {VerticalSpeedRaw:0} fpm  ·  robust peak {d.TouchdownRobustPeakG:0.00} g"
+            : $"Vertical speed: {VerticalSpeedRaw:0} fpm  ·  absolute sink {Math.Abs(VerticalSpeedRaw.Value):0} fpm";
     public string VerticalSpeedScoreLabel => VerticalSpeedScorePercent is null
         ? "Score: N/A"
-        : $"Metric score: {VerticalSpeedScorePercent:0}%";
+        : $"Impact score: {VerticalSpeedScorePercent:0}%";
 
     public double? AirspeedRawKts { get; }
     public double? AirspeedTargetKts { get; }
@@ -170,7 +173,7 @@ public sealed class LandingReportViewModel : ViewModelBase
     }
 
     private static bool IsVs(HighscoreCriterionDetail criterion) =>
-        criterion.Id is "touchdown_vs" or "touchdownVerticalSpeedFpm" ||
+        criterion.Id is "touchdown_impact" or "touchdown_vs" or "touchdownVerticalSpeedFpm" ||
         criterion.DisplayName.Contains("firmness", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsAirspeed(HighscoreCriterionDetail criterion) =>
@@ -190,6 +193,7 @@ public sealed class ReportMetricViewModel
         {
             MetricStatus.Informational => " (informational)",
             MetricStatus.Unavailable => " (score unavailable)",
+            MetricStatus.Degraded => " (degraded · unranked)",
             _ => ""
         });
         ScorePercent = criterion.ScorePercent;
@@ -219,6 +223,7 @@ public sealed class ReportMetricViewModel
             MetricStatus.Unavailable => "N/A",
             MetricStatus.Informational => "INFO",
             MetricStatus.GateFailed => "FAILED GATE",
+            MetricStatus.Degraded => "DEGRADED",
             _ => ScorePercent switch
             {
                 >= 95 => "Excellent",
@@ -242,7 +247,7 @@ public sealed class ReportMetricViewModel
     public string InfluenceDisplay { get; }
     public bool IsPrimary { get; }
     public MetricStatus Status { get; }
-    public bool IsScored => Status == MetricStatus.Scored;
+    public bool IsScored => Status is MetricStatus.Scored or MetricStatus.Degraded;
     public double BarValue => ScorePercent ?? 0;
 
     private static string FormatRawDisplay(HighscoreCriterionDetail criterion)

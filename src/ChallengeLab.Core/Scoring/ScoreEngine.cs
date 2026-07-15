@@ -7,8 +7,9 @@ namespace ChallengeLab.Core.Scoring;
 public sealed class ScoreEngine
 {
     private readonly LandingEvaluationKey _key;
+    private readonly string _profileHash;
 
-    public ScoreEngine(LandingEvaluationKey evaluationKey)
+    public ScoreEngine(LandingEvaluationKey evaluationKey, string? profileHash = null)
     {
         var errors = EvaluationKeyValidator.Validate(evaluationKey);
         if (errors.Count > 0)
@@ -16,6 +17,7 @@ public sealed class ScoreEngine
                 "Evaluation key is invalid: " + string.Join(" | ", errors),
                 nameof(evaluationKey));
         _key = evaluationKey;
+        _profileHash = profileHash ?? EffectiveEvaluationProfileBuilder.Build(evaluationKey).ProfileHash;
     }
 
     public ScoreResult Evaluate(ChallengeConfig challenge, LandingSnapshot snapshot)
@@ -34,6 +36,7 @@ public sealed class ScoreEngine
         var criteria = new List<CriterionScore>();
         var phases = new List<PhaseScore>();
         var incompleteReasons = new List<string>();
+        var diagnostics = new LandingResultDiagnostics();
         double totalBeforeGate = 0;
 
         foreach (var phase in _key.Phases)
@@ -43,6 +46,67 @@ public sealed class ScoreEngine
 
             foreach (var metric in phase.Metrics)
             {
+                if (EvaluatorFactory.IsComposite(metric.Evaluator))
+                {
+                    var composite = CompositeMetricEvaluator.Evaluate(metric, _key, snapshot, diagnostics);
+                    var compositeMaxOverallPoints = metric.ImportancePercent * phase.WeightPercent / 100.0;
+                    if (!composite.IsAvailable)
+                    {
+                        if (preview)
+                        {
+                            phaseScore01 += metric.ImportancePercent / 100.0;
+                            criteria.Add(new CriterionScore
+                            {
+                                Id = metric.Id, DisplayName = metric.DisplayName, Score01 = 1,
+                                Unit = metric.Unit, Status = MetricStatus.Informational,
+                                UnavailableReason = composite.DegradedReason,
+                                Note = $"[PREVIEW · assumed 100%] Not measured yet: {composite.DegradedReason}",
+                                PhaseId = phase.Id, PhaseDisplayName = phase.DisplayName,
+                                PhaseImportancePercent = metric.ImportancePercent,
+                                PhaseWeightPercent = phase.WeightPercent, MaxOverallPoints = compositeMaxOverallPoints
+                            });
+                            continue;
+                        }
+
+                        phaseComplete = false;
+                        var reason = composite.DegradedReason ?? "Required touchdown analysis is unavailable.";
+                        incompleteReasons.Add($"{phase.DisplayName} / {metric.DisplayName}: {reason}");
+                        criteria.Add(new CriterionScore
+                        {
+                            Id = metric.Id, DisplayName = metric.DisplayName, Status = MetricStatus.Unavailable,
+                            UnavailableReason = reason, Note = reason, Unit = metric.Unit,
+                            PhaseId = phase.Id, PhaseDisplayName = phase.DisplayName,
+                            PhaseImportancePercent = metric.ImportancePercent,
+                            PhaseWeightPercent = phase.WeightPercent, MaxOverallPoints = compositeMaxOverallPoints
+                        });
+                        continue;
+                    }
+
+                    var compositeScore01 = Math.Clamp(composite.ScorePercent / 100.0, 0, 1);
+                    phaseScore01 += compositeScore01 * metric.ImportancePercent / 100.0;
+                    if (composite.IsDegraded)
+                    {
+                        phaseComplete = false;
+                        incompleteReasons.Add(
+                            $"{phase.DisplayName} / {metric.DisplayName}: {composite.DegradedReason ?? "Telemetry degraded."}");
+                    }
+                    var compositeExplanation = preview ? "[PREVIEW · measured] " + composite.Explanation : composite.Explanation;
+                    compositeExplanation =
+                        $"[{phase.DisplayName} · {metric.ImportancePercent:0.#}% of phase · {compositeMaxOverallPoints:0.##} max overall points] " +
+                        compositeExplanation;
+                    criteria.Add(new CriterionScore
+                    {
+                        Id = metric.Id, DisplayName = metric.DisplayName, Score01 = compositeScore01,
+                        RawValue = composite.RawValue, Unit = composite.Unit,
+                        Status = composite.IsDegraded ? MetricStatus.Degraded : MetricStatus.Scored,
+                        UnavailableReason = composite.IsDegraded ? composite.DegradedReason : null,
+                        Note = compositeExplanation, PhaseId = phase.Id, PhaseDisplayName = phase.DisplayName,
+                        PhaseImportancePercent = metric.ImportancePercent,
+                        PhaseWeightPercent = phase.WeightPercent, MaxOverallPoints = compositeMaxOverallPoints
+                    });
+                    continue;
+                }
+
                 var observation = MetricResolver.Resolve(metric.Metric, snapshot, challenge);
                 var maxOverallPoints = metric.ImportancePercent * phase.WeightPercent / 100.0;
                 if (!observation.IsAvailable)
@@ -178,7 +242,8 @@ public sealed class ScoreEngine
             grade = ScoreResult.GradeFromPercent(scorePercent.Value);
         }
 
-        var summary = ScoreBreakdownFormatter.Format(
+        var summary = $"Scoring profile: {_key.Id} v{_key.Version} · {_profileHash}{Environment.NewLine}" +
+            ScoreBreakdownFormatter.Format(
             scorePercent,
             grade,
             scoreBeforeGates,
@@ -203,7 +268,12 @@ public sealed class ScoreEngine
             ScoreBeforeGatesPercent = scoreBeforeGates,
             GearUpPenaltyApplied = gearPenaltyApplied,
             FlapsPenaltyApplied = flapsPenaltyApplied,
-            PhaseScores = phases
+            PhaseScores = phases,
+            EvaluationKeyId = _key.Id,
+            EvaluationKeyVersion = _key.Version,
+            ScoringProfileHash = _profileHash,
+            RankedBucketId = $"{challenge.Id}|{_key.Id}|v{_key.Version}|{_profileHash}",
+            Diagnostics = diagnostics
         };
     }
 

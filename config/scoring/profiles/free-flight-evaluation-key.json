@@ -1,7 +1,7 @@
 {
   "id": "free-flight-evaluation-key",
-  "version": 1,
-  "description": "Aircraft-generic free-flight landing score. Metrics retain the normal landing curves and weights; flap index is not gated.",
+  "version": 2,
+  "description": "Aircraft-generic free-flight landing score. Initial impact, flare/float, and post-contact stability are evaluated separately; flap index is not gated.",
   "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply the adaptive gear multiplier last only when required",
   "settle": {
     "groundSpeedKts": 50,
@@ -17,7 +17,19 @@
     "minAirborneAglFeet": 80,
     "minAirborneSamples": 8,
     "approachPathMinDistNm": 0.2,
-    "approachPathMaxDistNm": 4.5
+    "approachPathMaxDistNm": 4.5,
+    "impactPreWindowSeconds": 0.25,
+    "impactWindowSeconds": 0.75,
+    "impactFilterCutoffHz": 10.0,
+    "impactPeakQuantile": 0.99,
+    "minImpactSamples": 8,
+    "bounceMinAirborneSeconds": 0.08,
+    "bounceWindowSeconds": 3.0
+  },
+  "contactMapping": {
+    "leftMainGearIndex": 1,
+    "rightMainGearIndex": 2,
+    "noseGearIndex": 0
   },
   "speedTarget": {
     "defaultVappKts": 70,
@@ -38,29 +50,73 @@
       "note": "Touchdown technique and aircraft state. Ground track covers three seconds before through three seconds after touchdown.",
       "metrics": [
         {
-          "id": "touchdown_vs",
-          "displayName": "Vertical speed (firmness)",
-          "importancePercent": 75,
-          "unit": "fpm",
-          "evaluator": "piecewise",
-          "metric": "touchdownVerticalSpeedFpm",
-          "note": "Vertical speed at main-gear touchdown. A controlled firm plant is preferred over a float or hard impact. Hard impacts below -600 fpm score down to 0% by -2000 fpm.",
-          "points": [
-            { "v": -2000, "s": 0 },
-            { "v": -1200, "s": 10 },
-            { "v": -800, "s": 40 },
-            { "v": -600, "s": 70 },
-            { "v": -500, "s": 75 },
-            { "v": -400, "s": 80 },
-            { "v": -320, "s": 82 },
-            { "v": -250, "s": 90 },
-            { "v": -180, "s": 95 },
-            { "v": -100, "s": 100 },
-            { "v": -60, "s": 95 },
-            { "v": -20, "s": 90 },
-            { "v": 0, "s": 85 },
-            { "v": 50, "s": 50 }
-          ]
+          "id": "touchdown_impact",
+          "displayName": "Touchdown impact",
+          "importancePercent": 55,
+          "unit": "%",
+          "evaluator": "landingImpact",
+          "note": "Initial main-gear impact only. Combines touchdown vertical speed and robust filtered peak G; later impacts are excluded.",
+          "params": { "verticalSpeedWeight": 0.40, "peakGWeight": 0.60 },
+          "curves": {
+            "verticalSpeed": [
+              { "v": -2000, "s": 0 }, { "v": -1200, "s": 10 }, { "v": -800, "s": 40 },
+              { "v": -600, "s": 70 }, { "v": -500, "s": 75 }, { "v": -400, "s": 80 },
+              { "v": -320, "s": 82 }, { "v": -250, "s": 90 }, { "v": -180, "s": 95 },
+              { "v": -100, "s": 100 }, { "v": -60, "s": 95 }, { "v": -20, "s": 90 },
+              { "v": 0, "s": 85 }, { "v": 50, "s": 50 }
+            ],
+            "peakG": [
+              { "v": 0.85, "s": 75 }, { "v": 1.00, "s": 90 }, { "v": 1.10, "s": 97 },
+              { "v": 1.15, "s": 100 }, { "v": 1.30, "s": 100 }, { "v": 1.40, "s": 92 },
+              { "v": 1.55, "s": 70 }, { "v": 1.70, "s": 40 }, { "v": 1.90, "s": 10 },
+              { "v": 2.10, "s": 0 }
+            ]
+          }
+        },
+        {
+          "id": "flare_efficiency",
+          "displayName": "Flare and float efficiency",
+          "importancePercent": 10,
+          "unit": "%",
+          "evaluator": "flareEfficiency",
+          "params": {
+            "entryVerticalSpeedFpm": -80, "minSustainSeconds": 0.15,
+            "distanceWeight": 0.70, "timeWeight": 0.10, "positiveVerticalSpeedWeight": 0.20
+          },
+          "curves": {
+            "distance": [
+              { "v": 0, "s": 100 }, { "v": 60, "s": 100 }, { "v": 120, "s": 95 },
+              { "v": 200, "s": 75 }, { "v": 350, "s": 35 }, { "v": 500, "s": 0 }
+            ],
+            "time": [
+              { "v": 0.0, "s": 100 }, { "v": 1.0, "s": 100 }, { "v": 2.0, "s": 85 },
+              { "v": 3.5, "s": 50 }, { "v": 6.0, "s": 0 }
+            ],
+            "positiveVerticalSpeedSeconds": [
+              { "v": 0.00, "s": 100 }, { "v": 0.15, "s": 90 }, { "v": 0.40, "s": 60 },
+              { "v": 0.80, "s": 20 }, { "v": 1.20, "s": 0 }
+            ]
+          }
+        },
+        {
+          "id": "contact_stability",
+          "displayName": "Contact stability",
+          "importancePercent": 10,
+          "unit": "%",
+          "evaluator": "contactStability",
+          "params": {
+            "countWeight": 0.45, "maxAirborneDurationWeight": 0.20,
+            "worstSecondaryImpactWeight": 0.35
+          },
+          "curves": {
+            "count": [
+              { "v": 0, "s": 100 }, { "v": 1, "s": 65 }, { "v": 2, "s": 25 }, { "v": 3, "s": 0 }
+            ],
+            "maxAirborneDuration": [
+              { "v": 0.00, "s": 100 }, { "v": 0.08, "s": 95 }, { "v": 0.25, "s": 80 },
+              { "v": 0.50, "s": 55 }, { "v": 1.00, "s": 20 }, { "v": 1.50, "s": 0 }
+            ]
+          }
         },
         {
           "id": "airspeed",

@@ -231,6 +231,7 @@
                                     <DataGridTextColumn Header="Score %" Binding="{Binding ScorePercent, StringFormat=0.0}" Width="70"/>
                                     <DataGridTextColumn Header="Grade" Binding="{Binding Grade}" Width="55"/>
                                     <DataGridTextColumn Header="VS (fpm)" Binding="{Binding VerticalSpeedDisplay}" Width="90"/>
+                                    <DataGridTextColumn Header="Profile" Binding="{Binding ScoringProfileDisplay}" Width="145"/>
                                 </DataGrid.Columns>
                             </DataGrid>
                         </DockPanel>
@@ -279,7 +280,7 @@
                                 <Border Background="#FF3A3010" CornerRadius="12" Padding="14" Margin="0,14,0,0"
                                         BorderBrush="#FFFFB020" BorderThickness="2">
                                     <StackPanel>
-                                        <TextBlock Text="PRIMARY · VERTICAL SPEED" FontSize="10" FontWeight="Bold"
+                                        <TextBlock Text="PRIMARY · TOUCHDOWN IMPACT" FontSize="10" FontWeight="Bold"
                                                    Foreground="#FFFFB020"/>
                                         <TextBlock Text="{Binding LandingReport.VerticalSpeedHeadline}" FontSize="16"
                                                    FontWeight="SemiBold" Margin="0,6,0,0" TextWrapping="Wrap"

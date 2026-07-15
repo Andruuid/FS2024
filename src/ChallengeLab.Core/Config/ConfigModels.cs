@@ -68,8 +68,30 @@ public sealed class ChallengeConfig
     /// </summary>
     public bool RequireGearDown { get; set; } = true;
 
+    /// <summary>
+    /// Optional deterministic overrides applied to the authoritative evaluation key for this challenge.
+    /// Metrics are matched by ID; scalar parameters merge and named curves replace atomically.
+    /// </summary>
+    public ChallengeScoringOverrides? ScoringOverrides { get; set; }
+
+    /// <summary>Optional aircraft-specific logical main/nose gear mapping.</summary>
+    public LandingContactMapping? ContactMapping { get; set; }
+
     [JsonIgnore]
     public ChallengeMode ModeEnum => ChallengeModeExtensions.FromConfigKey(Mode);
+}
+
+public sealed class ChallengeScoringOverrides
+{
+    public List<EvaluationMetricOverride> Metrics { get; set; } = new();
+}
+
+public sealed class EvaluationMetricOverride
+{
+    public string Id { get; set; } = "";
+    public Dictionary<string, double> Params { get; set; } = new();
+    public Dictionary<string, List<ScorePoint>> Curves { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class SpawnConfig

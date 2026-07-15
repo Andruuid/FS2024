@@ -30,6 +30,12 @@ public static class MetricExplanations
         "touchdown_vs" =>
             "Vertical speed at main-gear touchdown. A330 ideal is about −150 fpm (−100…−180). " +
             "A firm plant is preferred; ultra-soft “butter” floats and hard landings both score poorly.",
+        "touchdown_impact" =>
+            "Initial touchdown impact combines official touchdown vertical speed and robust filtered peak G. Later bounce impacts are excluded.",
+        "flare_efficiency" =>
+            "Flare efficiency measures sustained float distance, duration, and positive vertical speed before first main-gear contact.",
+        "contact_stability" =>
+            "Contact stability measures valid post-touchdown airborne intervals and secondary impacts. One-main-first contact is not a bounce.",
         "peak_g" =>
             "Peak vertical G around touchdown. Moderate G is normal for a firm plant; " +
             "very high G indicates a hard landing that stresses gear and structure.",

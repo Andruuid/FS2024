@@ -10,6 +10,7 @@ public sealed class CriterionResultViewModel
         {
             MetricStatus.Informational => " (informational)",
             MetricStatus.Unavailable => " (telemetry unavailable)",
+            MetricStatus.Degraded => " (degraded · unranked)",
             _ => ""
         };
         ScorePercent = score.ScorePercent;
@@ -29,6 +30,7 @@ public sealed class CriterionResultViewModel
                 MetricStatus.Informational => "Informational · no score credit",
                 MetricStatus.GateFailed => "Safety gate · applied to complete total",
                 MetricStatus.Unavailable => "Required telemetry unavailable",
+                MetricStatus.Degraded => "Fallback score · run is unranked",
                 _ => ""
             };
         Verdict = score.Status switch
@@ -36,6 +38,7 @@ public sealed class CriterionResultViewModel
             MetricStatus.Unavailable => "N/A",
             MetricStatus.Informational => "INFO",
             MetricStatus.GateFailed => "FAILED GATE",
+            MetricStatus.Degraded => "DEGRADED",
             _ => score.ScorePercent switch
             {
                 >= 95 => "Excellent",
@@ -58,6 +61,6 @@ public sealed class CriterionResultViewModel
     public string Verdict { get; }
     public string InfluenceDisplay { get; }
     public bool IsPrimary { get; }
-    public bool IsScored => Status == MetricStatus.Scored;
+    public bool IsScored => Status is MetricStatus.Scored or MetricStatus.Degraded;
     public double BarValue => ScorePercent ?? 0;
 }

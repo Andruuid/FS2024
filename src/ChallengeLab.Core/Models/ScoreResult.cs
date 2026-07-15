@@ -15,6 +15,11 @@ public sealed class ScoreResult
     public bool GearUpPenaltyApplied { get; init; }
     public bool FlapsPenaltyApplied { get; init; }
     public IReadOnlyList<PhaseScore> PhaseScores { get; init; } = Array.Empty<PhaseScore>();
+    public string EvaluationKeyId { get; init; } = "";
+    public int EvaluationKeyVersion { get; init; }
+    public string ScoringProfileHash { get; init; } = "";
+    public string RankedBucketId { get; init; } = "";
+    public LandingResultDiagnostics Diagnostics { get; init; } = new();
 
     /// <summary>
     /// True when this result is a live projection (missing metrics assumed 100%), not a final ranked score.

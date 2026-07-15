@@ -60,7 +60,12 @@ public sealed class LandingTraceStore
             ScorePercent = result.ScorePercent,
             Grade = result.Grade,
             IsRanked = result.IsRanked,
+            EvaluationKeyId = result.EvaluationKeyId,
+            EvaluationKeyVersion = result.EvaluationKeyVersion,
+            ScoringProfileHash = result.ScoringProfileHash,
+            RankedBucketId = result.RankedBucketId,
             Summary = result.Summary,
+            Diagnostics = result.Diagnostics,
             Metrics = result.Criteria.Select(c => new LandingTraceMetric
             {
                 Id = c.Id,
@@ -145,7 +150,12 @@ public sealed class LandingTraceDocument
     public double? ScorePercent { get; set; }
     public string Grade { get; set; } = "";
     public bool IsRanked { get; set; }
+    public string EvaluationKeyId { get; set; } = "";
+    public int EvaluationKeyVersion { get; set; }
+    public string ScoringProfileHash { get; set; } = "";
+    public string RankedBucketId { get; set; } = "";
     public string? Summary { get; set; }
+    public LandingResultDiagnostics Diagnostics { get; set; } = new();
     public double SampleRateHz { get; set; }
     public LandingTraceSnapshot Snapshot { get; set; } = new();
     public List<LandingTraceMetric> Metrics { get; set; } = new();
@@ -189,6 +199,7 @@ public sealed class LandingTraceMetric
 public sealed class LandingTraceSample
 {
     public DateTimeOffset T { get; set; }
+    public double? SimT { get; set; }
     public double Lat { get; set; }
     public double Lon { get; set; }
     public double AltFt { get; set; }
@@ -200,13 +211,18 @@ public sealed class LandingTraceSample
     public double Ias { get; set; }
     public double Gs { get; set; }
     public double Vs { get; set; }
+    public double G { get; set; }
     public bool OnGnd { get; set; }
+    public bool? LeftMainOnGnd { get; set; }
+    public bool? RightMainOnGnd { get; set; }
+    public Dictionary<int, bool>? GearContacts { get; set; }
     public int Flaps { get; set; }
     public double Gear { get; set; }
 
     public static LandingTraceSample From(TelemetrySample s) => new()
     {
         T = s.Timestamp,
+        SimT = double.IsFinite(s.SimulationTimeSeconds) ? s.SimulationTimeSeconds : null,
         Lat = s.Latitude,
         Lon = s.Longitude,
         AltFt = s.AltitudeFeet,
@@ -218,7 +234,11 @@ public sealed class LandingTraceSample
         Ias = s.AirspeedKts,
         Gs = s.GroundSpeedKts,
         Vs = s.VerticalSpeedFpm,
+        G = s.GForce,
         OnGnd = s.SimOnGround,
+        LeftMainOnGnd = s.GearOnGroundByIndex?.TryGetValue(1, out var left) == true ? left : null,
+        RightMainOnGnd = s.GearOnGroundByIndex?.TryGetValue(2, out var right) == true ? right : null,
+        GearContacts = s.GearOnGroundByIndex?.ToDictionary(pair => pair.Key, pair => pair.Value),
         Flaps = s.FlapsHandleIndex,
         Gear = s.GearHandlePosition
     };

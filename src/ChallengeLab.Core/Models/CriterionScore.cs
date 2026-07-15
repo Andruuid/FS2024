@@ -5,7 +5,8 @@ public enum MetricStatus
     Scored,
     Informational,
     Unavailable,
-    GateFailed
+    GateFailed,
+    Degraded
 }
 
 public sealed class CriterionScore
@@ -25,6 +26,6 @@ public sealed class CriterionScore
     public double PhaseWeightPercent { get; init; }
     public double MaxOverallPoints { get; init; }
 
-    public bool Applied => Status == MetricStatus.Scored;
+    public bool Applied => Status is MetricStatus.Scored or MetricStatus.Degraded;
     public double? ScorePercent => Score01 * 100.0;
 }

@@ -11,12 +11,18 @@ public sealed class LandingSession
     private readonly ChallengeConfig _challenge;
     private readonly LandingSessionSettings _settings;
     private readonly GeoUtil _geo;
-    private DateTimeOffset? _settledSince;
+    private double? _settledSince;
     private DateTimeOffset _armedAt;
-    private bool _wasOnGround;
+    private bool _wasAnyMainOnGround;
     private bool _touchdownCaptured;
     private int _airborneSampleCount;
     private readonly List<double> _rolloutHeadings = new();
+    private double _armedTimeSeconds = double.NaN;
+    private double _lastTimeSeconds = double.NaN;
+    private double _touchdownTimeSeconds = double.NaN;
+    private double? _preTouchdownNormalVelocityFps;
+    private bool _touchdownVerticalSpeedDegraded;
+    private string _touchdownVerticalSpeedSource = "instantaneous vertical speed";
 
     public LandingPhase Phase { get; private set; } = LandingPhase.Idle;
     public LandingSnapshot Snapshot { get; } = new();
@@ -55,10 +61,16 @@ public sealed class LandingSession
         _touchdownCaptured = false;
         _airborneSampleCount = 0;
         _rolloutHeadings.Clear();
+        _armedTimeSeconds = double.NaN;
+        _lastTimeSeconds = double.NaN;
+        _touchdownTimeSeconds = double.NaN;
+        _preTouchdownNormalVelocityFps = null;
+        _touchdownVerticalSpeedDegraded = false;
+        _touchdownVerticalSpeedSource = "instantaneous vertical speed";
         // Re-open post-arm grace and seed ground so a mid-clean on the runway
         // does not instantly re-fire touchdown on the next frame.
         _armedAt = DateTimeOffset.UtcNow;
-        _wasOnGround = true;
+        _wasAnyMainOnGround = true;
         SetPhase(LandingPhase.Armed);
     }
 
@@ -68,10 +80,16 @@ public sealed class LandingSession
         ClearCapturedMetrics();
         _settledSince = null;
         _armedAt = default;
-        _wasOnGround = false;
+        _wasAnyMainOnGround = false;
         _touchdownCaptured = false;
         _airborneSampleCount = 0;
         _rolloutHeadings.Clear();
+        _armedTimeSeconds = double.NaN;
+        _lastTimeSeconds = double.NaN;
+        _touchdownTimeSeconds = double.NaN;
+        _preTouchdownNormalVelocityFps = null;
+        _touchdownVerticalSpeedDegraded = false;
+        _touchdownVerticalSpeedSource = "instantaneous vertical speed";
     }
 
     private void ClearCapturedMetrics()
@@ -118,8 +136,14 @@ public sealed class LandingSession
         Snapshot.TouchdownIasErrorKts = 0;
         Snapshot.ExcessSpeedOverVappKts = 0;
         Snapshot.SpeedTargetSource = "";
+        Snapshot.InitialImpact = null;
+        Snapshot.FloatAnalysis = null;
+        Snapshot.ContactStability = null;
+        Snapshot.TouchdownAnalysisComplete = false;
+        Snapshot.ContactMappingDegraded = false;
         Snapshot.ApproachSamples.Clear();
         Snapshot.RolloutSamples.Clear();
+        Snapshot.LandingEventSamples.Clear();
     }
 
     public void Ingest(TelemetrySample sample)
@@ -127,21 +151,28 @@ public sealed class LandingSession
         if (Phase is LandingPhase.Idle or LandingPhase.Scored)
             return;
 
+        var timeSeconds = ResolveTimeSeconds(sample);
+        var logical = ToLandingSample(sample, timeSeconds);
+        Snapshot.LandingEventSamples.Add(logical);
+        var anyMainOnGround = logical.MainGearContactsAvailable
+            ? logical.LeftMainOnGround || logical.RightMainOnGround
+            : sample.SimOnGround;
+
         var lateral = _geo.LateralOffsetMeters(sample.Latitude, sample.Longitude);
         Snapshot.MaxLateralOffsetM = Math.Max(Snapshot.MaxLateralOffsetM, Math.Abs(lateral));
         Snapshot.PeakGForce = Math.Max(Snapshot.PeakGForce, sample.GForce);
         Snapshot.PeakAbsBankDeg = Math.Max(Snapshot.PeakAbsBankDeg, Math.Abs(sample.BankDeg));
 
         var agl = sample.RadioHeightFeet > 0 ? sample.RadioHeightFeet : sample.AglFeet;
-        var inPostArmGrace = sample.Timestamp - _armedAt < TimeSpan.FromSeconds(_settings.PostArmIgnoreSeconds);
+        var inPostArmGrace = timeSeconds - _armedTimeSeconds < _settings.PostArmIgnoreSeconds;
 
         // Count airborne samples after arm (including during grace) for the touchdown gate.
-        if (!sample.SimOnGround && agl >= _settings.MinAirborneAglFeet)
+        if (!anyMainOnGround && agl >= _settings.MinAirborneAglFeet)
             _airborneSampleCount++;
 
         if (Phase is LandingPhase.Armed or LandingPhase.Approach or LandingPhase.Flare)
         {
-            if (!sample.SimOnGround)
+            if (!anyMainOnGround)
             {
                 if (Phase == LandingPhase.Armed)
                     SetPhase(LandingPhase.Approach);
@@ -157,44 +188,57 @@ public sealed class LandingSession
             }
         }
 
+        if (!_touchdownCaptured && !anyMainOnGround && sample.TouchdownNormalVelocityFps is { } pre
+            && double.IsFinite(pre))
+            _preTouchdownNormalVelocityFps = pre;
+
         // Touchdown: post-arm grace seeds ground state; require airborne history before a rising edge.
-        if (!_touchdownCaptured && !inPostArmGrace && sample.SimOnGround && !_wasOnGround)
+        if (!_touchdownCaptured && !inPostArmGrace && anyMainOnGround && !_wasAnyMainOnGround)
         {
             var airborneOk = !_settings.RequireAirborneBeforeTouchdown
                              || _airborneSampleCount >= _settings.MinAirborneSamples;
             if (airborneOk)
             {
-                CaptureTouchdown(sample, lateral);
+                CaptureTouchdown(sample, logical, lateral);
                 SetPhase(LandingPhase.Touchdown);
                 SetPhase(LandingPhase.Rollout);
             }
         }
 
-        if (_touchdownCaptured && sample.SimOnGround)
+        if (_touchdownCaptured)
         {
             Snapshot.RolloutSamples.Add(sample);
-            _rolloutHeadings.Add(sample.HeadingTrueDeg);
+            TryCaptureOfficialTouchdownVelocity(sample, timeSeconds);
 
-            if (sample.GroundSpeedKts < _settings.SettledGroundSpeedKts)
+            if (sample.SimOnGround)
             {
-                _settledSince ??= sample.Timestamp;
-                var hold = TimeSpan.FromSeconds(_settings.SettledHoldSeconds);
-                if (sample.Timestamp - _settledSince >= hold)
+                _rolloutHeadings.Add(sample.HeadingTrueDeg);
+
+                if (sample.GroundSpeedKts < _settings.SettledGroundSpeedKts)
                 {
-                    FinalizeSnapshot();
-                    SetPhase(LandingPhase.Settled);
-                    SettledReady?.Invoke(this, EventArgs.Empty);
-                    SetPhase(LandingPhase.Scored);
+                    _settledSince ??= timeSeconds;
+                    if (timeSeconds - _settledSince.Value >= _settings.SettledHoldSeconds)
+                    {
+                        FinalizeSnapshot();
+                        SetPhase(LandingPhase.Settled);
+                        SettledReady?.Invoke(this, EventArgs.Empty);
+                        SetPhase(LandingPhase.Scored);
+                    }
+                }
+                else
+                {
+                    _settledSince = null;
                 }
             }
             else
             {
+                // The settle hold is continuous ground time; an airborne bounce reopens it.
                 _settledSince = null;
             }
         }
 
         // Always seed ground state so restart-on-runway does not treat the first frame as TD.
-        _wasOnGround = sample.SimOnGround;
+        _wasAnyMainOnGround = anyMainOnGround;
 
         // Keep derived metrics fresh for live preview scoring (cheap enough at sample rate).
         if (Phase is LandingPhase.Approach or LandingPhase.Flare or LandingPhase.Rollout
@@ -206,7 +250,7 @@ public sealed class LandingSession
     /// Recompute approach / TD-window / rollout derived fields from samples collected so far.
     /// Safe to call mid-flight for HUD preview; final settle uses the same path.
     /// </summary>
-    public void RefreshDerivedMetrics()
+    public void RefreshDerivedMetrics(bool finalizing = false)
     {
         ComputeApproachPathMetrics();
 
@@ -222,17 +266,22 @@ public sealed class LandingSession
 
         if (_touchdownCaptured)
         {
+            ComputeTouchdownEventMetrics(finalizing);
             ComputeGroundTrackWindowMetrics();
             ComputePostTouchdownAlignmentMetrics();
             ComputeRolloutPathIntegralMetrics();
         }
     }
 
-    private void CaptureTouchdown(TelemetrySample sample, double lateral)
+    private void CaptureTouchdown(TelemetrySample sample, LandingTelemetrySample logical, double lateral)
     {
         _touchdownCaptured = true;
+        _touchdownTimeSeconds = logical.TimeSeconds;
+        Snapshot.ContactMappingDegraded = !logical.MainGearContactsAvailable;
         Snapshot.Touchdown = sample;
         Snapshot.VerticalSpeedAtTouchdownFpm = sample.VerticalSpeedFpm;
+        _touchdownVerticalSpeedDegraded = true;
+        TryCaptureOfficialTouchdownVelocity(sample, logical.TimeSeconds);
         Snapshot.AirspeedAtTouchdownKts = sample.AirspeedKts;
         Snapshot.BankAtTouchdownDeg = sample.BankDeg;
         Snapshot.PitchAtTouchdownDeg = sample.PitchDeg;
@@ -250,7 +299,105 @@ public sealed class LandingSession
         Snapshot.SpeedTargetSource = source;
     }
 
-    private void FinalizeSnapshot() => RefreshDerivedMetrics();
+    private void FinalizeSnapshot() => RefreshDerivedMetrics(finalizing: true);
+
+    private void ComputeTouchdownEventMetrics(bool finalizing)
+    {
+        if (!double.IsFinite(_touchdownTimeSeconds)) return;
+        var events = Snapshot.LandingEventSamples;
+        var bounceIntervals = TouchdownAnalysisCalculator.DetectBounceIntervals(
+            events,
+            _touchdownTimeSeconds,
+            _touchdownTimeSeconds + _settings.BounceWindowSeconds,
+            _settings.BounceMinAirborneSeconds);
+        var firstBounceStart = bounceIntervals.Count == 0 ? (double?)null : bounceIntervals[0].Start;
+        var latest = events.Count == 0 ? _touchdownTimeSeconds : events[^1].TimeSeconds;
+        var impactComplete = finalizing
+                             || latest >= _touchdownTimeSeconds + _settings.ImpactWindowSeconds
+                             || firstBounceStart is not null;
+        if (impactComplete)
+        {
+            Snapshot.InitialImpact = TouchdownAnalysisCalculator.AnalyzeImpact(
+                events,
+                _touchdownTimeSeconds,
+                Snapshot.VerticalSpeedAtTouchdownFpm,
+                _touchdownVerticalSpeedSource,
+                _settings,
+                firstBounceStart,
+                _touchdownVerticalSpeedDegraded || Snapshot.ContactMappingDegraded,
+                _touchdownVerticalSpeedDegraded
+                    ? "Official touchdown-normal velocity was unavailable; instantaneous vertical speed was used."
+                    : Snapshot.ContactMappingDegraded
+                        ? "Independent main-gear contact mapping was unavailable."
+                        : null);
+        }
+
+        Snapshot.FloatAnalysis ??= TouchdownAnalysisCalculator.AnalyzeFloat(
+            events,
+            _touchdownTimeSeconds,
+            _settings.FlareAglFeet,
+            _settings.FlareEntryVerticalSpeedFpm,
+            _settings.FlareMinSustainSeconds);
+
+        var bounceComplete = finalizing || latest >= _touchdownTimeSeconds + _settings.BounceWindowSeconds;
+        if (bounceComplete)
+        {
+            Snapshot.ContactStability = TouchdownAnalysisCalculator.AnalyzeContactStability(
+                events, _touchdownTimeSeconds, _settings, windowComplete: true);
+            Snapshot.TouchdownAnalysisComplete = true;
+        }
+    }
+
+    private void TryCaptureOfficialTouchdownVelocity(TelemetrySample sample, double timeSeconds)
+    {
+        if (!_touchdownCaptured && !double.IsFinite(_touchdownTimeSeconds)) return;
+        if (!_touchdownVerticalSpeedDegraded) return;
+        if (timeSeconds > _touchdownTimeSeconds + Math.Min(0.25, _settings.ImpactWindowSeconds)) return;
+        if (sample.TouchdownNormalVelocityFps is not { } value || !double.IsFinite(value)
+            || Math.Abs(value) < 0.001)
+            return;
+        if (_preTouchdownNormalVelocityFps is { } previous && Math.Abs(value - previous) < 0.0001)
+            return;
+
+        Snapshot.VerticalSpeedAtTouchdownFpm = -Math.Abs(value * 60.0);
+        _touchdownVerticalSpeedSource = "PLANE TOUCHDOWN NORMAL VELOCITY";
+        _touchdownVerticalSpeedDegraded = false;
+    }
+
+    private double ResolveTimeSeconds(TelemetrySample sample)
+    {
+        var candidate = double.IsFinite(sample.SimulationTimeSeconds)
+            ? sample.SimulationTimeSeconds
+            : sample.Timestamp.ToUnixTimeMilliseconds() / 1000.0;
+        if (!double.IsFinite(_armedTimeSeconds))
+        {
+            var wallSinceArm = Math.Max(0, (sample.Timestamp - _armedAt).TotalSeconds);
+            _armedTimeSeconds = candidate - wallSinceArm;
+        }
+        if (double.IsFinite(_lastTimeSeconds) && candidate < _lastTimeSeconds)
+            candidate = _lastTimeSeconds;
+        _lastTimeSeconds = candidate;
+        return candidate;
+    }
+
+    private LandingTelemetrySample ToLandingSample(TelemetrySample sample, double timeSeconds)
+    {
+        var mapping = _settings.ContactMapping;
+        var contacts = sample.GearOnGroundByIndex;
+        var conventional = sample.IsGearWheels && !sample.IsTailDragger;
+        var aircraftTypeUnknown = !sample.IsGearWheels && !sample.IsGearFloats && !sample.IsTailDragger;
+        var available = contacts is not null
+                        && contacts.ContainsKey(mapping.LeftMainGearIndex)
+                        && contacts.ContainsKey(mapping.RightMainGearIndex)
+                        && (conventional || aircraftTypeUnknown || mapping.IsAircraftSpecific);
+        var left = available && contacts![mapping.LeftMainGearIndex];
+        var right = available && contacts![mapping.RightMainGearIndex];
+        var nose = available && contacts!.TryGetValue(mapping.NoseGearIndex, out var noseValue) && noseValue;
+        var agl = sample.RadioHeightFeet > 0 ? sample.RadioHeightFeet : sample.AglFeet;
+        return new LandingTelemetrySample(
+            timeSeconds, agl, sample.GroundSpeedKts, sample.VerticalSpeedFpm, sample.GForce,
+            left, right, nose, available);
+    }
 
     /// <summary>
     /// Short-final approach metrics (same distance window as config):
@@ -287,15 +434,15 @@ public sealed class LandingSession
         if (Snapshot.Touchdown is null || Snapshot.RolloutSamples.Count == 0)
             return;
 
-        var td = Snapshot.Touchdown.Timestamp;
-        var delay = TimeSpan.FromSeconds(_settings.PostTouchdownAlignmentDelaySeconds);
+        var td = _touchdownTimeSeconds;
+        var delay = _settings.PostTouchdownAlignmentDelaySeconds;
         var settleKts = _settings.SettledGroundSpeedKts;
         var runway = _challenge.Runway.HeadingTrueDeg;
 
         // Samples from TD+2s while still above settle speed (or all after TD+2s on ground)
         var samples = Snapshot.RolloutSamples
-            .Where(s => s.SimOnGround && s.Timestamp >= td + delay)
-            .OrderBy(s => s.Timestamp)
+            .Where(s => s.SimOnGround && SampleTimeSeconds(s) >= td + delay)
+            .OrderBy(SampleTimeSeconds)
             .ToList();
 
         // Prefer samples until GS first reaches settle threshold (if it does)
@@ -329,10 +476,10 @@ public sealed class LandingSession
         if (Snapshot.Touchdown is null || Snapshot.RolloutSamples.Count < 2)
             return;
 
-        var td = Snapshot.Touchdown.Timestamp;
+        var td = _touchdownTimeSeconds;
         var onGround = Snapshot.RolloutSamples
-            .Where(s => s.SimOnGround && s.Timestamp >= td)
-            .OrderBy(s => s.Timestamp)
+            .Where(s => s.SimOnGround && SampleTimeSeconds(s) >= td)
+            .OrderBy(SampleTimeSeconds)
             .ToList();
 
         if (onGround.Count < 2)
@@ -390,17 +537,14 @@ public sealed class LandingSession
         if (Snapshot.Touchdown is null)
             return;
 
-        var td = Snapshot.Touchdown.Timestamp;
-        var before = TimeSpan.FromSeconds(_settings.GroundTrackWindowBeforeSeconds);
-        var after = TimeSpan.FromSeconds(_settings.GroundTrackWindowAfterSeconds);
-
-        var windowStart = td - before;
-        var windowEnd = td + after;
+        var td = _touchdownTimeSeconds;
+        var windowStart = td - _settings.GroundTrackWindowBeforeSeconds;
+        var windowEnd = td + _settings.GroundTrackWindowAfterSeconds;
 
         var window = Snapshot.ApproachSamples
             .Concat(Snapshot.RolloutSamples)
-            .Where(s => s.Timestamp >= windowStart && s.Timestamp <= windowEnd)
-            .OrderBy(s => s.Timestamp)
+            .Where(s => SampleTimeSeconds(s) >= windowStart && SampleTimeSeconds(s) <= windowEnd)
+            .OrderBy(SampleTimeSeconds)
             .ToList();
 
         if (window.Count < 2)
@@ -425,8 +569,7 @@ public sealed class LandingSession
                 err = 180 - err; // treat reciprocal as same path axis for runway alignment quality
             errors.Add(err);
 
-            var delta = cur.Timestamp - prev.Timestamp;
-            var midpoint = prev.Timestamp + TimeSpan.FromTicks(delta.Ticks / 2);
+            var midpoint = 0.5 * (SampleTimeSeconds(prev) + SampleTimeSeconds(cur));
             if (midpoint < td) beforeSegments++;
             else afterSegments++;
         }
@@ -481,6 +624,11 @@ public sealed class LandingSession
         while (deg < -180) deg += 360;
         return deg;
     }
+
+    private static double SampleTimeSeconds(TelemetrySample sample) =>
+        double.IsFinite(sample.SimulationTimeSeconds)
+            ? sample.SimulationTimeSeconds
+            : sample.Timestamp.ToUnixTimeMilliseconds() / 1000.0;
 }
 
 public sealed class GeoUtil

@@ -190,7 +190,8 @@ public static class LiveApproachIssueBuilder
     {
         foreach (var c in preview.Criteria)
         {
-            if (c.Status != MetricStatus.Scored || c.Score01 is null || c.Score01 >= LowMetricScore01)
+            if (c.Status is not (MetricStatus.Scored or MetricStatus.Degraded)
+                || c.Score01 is null || c.Score01 >= LowMetricScore01)
                 continue;
 
             // Skip pure path MAE if we already have live high/low — still map other metrics.
@@ -223,7 +224,9 @@ public static class LiveApproachIssueBuilder
                     : null),
             "approach_vertical_steady" => new Issue("unsteady vertical", 0),
             "approach_lateral_steady" => new Issue("weaving", 0),
-            "touchdown_vs" => MapTouchdownVs(snapshot),
+            "touchdown_impact" => MapTouchdownImpact(snapshot),
+            "flare_efficiency" => new Issue("long float / balloon", 0),
+            "contact_stability" => new Issue("bounce", 0),
             "airspeed" => MapIasError(snapshot),
             "excess_speed" => snapshot.ExcessSpeedOverVappKts >= 5
                 ? new Issue("excess energy", 0, $"+{snapshot.ExcessSpeedOverVappKts:0} kt")
@@ -243,14 +246,13 @@ public static class LiveApproachIssueBuilder
         };
     }
 
-    private static Issue MapTouchdownVs(LandingSnapshot snap)
+    private static Issue MapTouchdownImpact(LandingSnapshot snap)
     {
         var vs = snap.VerticalSpeedAtTouchdownFpm;
-        if (vs <= -600)
-            return new Issue("hard landing", 0, $"{vs:0} fpm");
-        if (vs >= -40)
-            return new Issue("floated / soft", 0, $"{vs:0} fpm");
-        return new Issue("firmness off", 0, $"{vs:0} fpm");
+        var g = snap.InitialImpact?.RobustPeakG ?? 0;
+        if (g >= 1.7 || vs <= -600)
+            return new Issue("hard impact", 0, $"{vs:0} fpm · {g:0.00} g");
+        return new Issue("impact off target", 0, $"{vs:0} fpm · {g:0.00} g");
     }
 
     private static Issue? MapIasError(LandingSnapshot snap)
