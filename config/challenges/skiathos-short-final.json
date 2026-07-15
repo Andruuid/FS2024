@@ -1,0 +1,65 @@
+{
+  "id": "skiathos-short-final",
+  "mode": "hardcore_landings",
+  "title": "Skiathos Short Final",
+  "subtitle": "LGSK 01 · 3.5 NM on 3° path · A330 · 20 kt right crosswind",
+  "description": "Iconic short-runway approach into Alexandros Papadiamantis (Skiathos / JSI). Spawn on extended centerline ~3.5 NM from RWY 01 threshold at elev+dist×318 ft (nominal 3°), sea approach toward the 1,628 m strip. Nice VMC with a steady 20 kt wind from the right of the aircraft (~104° true — pure right cross). Short length and upslope demand a precise, low, firm touchdown. Start/Restart leaves the sim paused after settle — unpause when ready.",
+  "available": true,
+  "requireGearDown": true,
+  "aircraftTitles": [
+    "A330-200 (RR)",
+    "Airbus A330-200",
+    "A330"
+  ],
+  "aircraftLivery": "200 AIRBUS RR",
+  "flightFile": "",
+  "spawn": {
+    "latitude": 39.113434,
+    "longitude": 23.483240,
+    "altitudeFeet": 1122.0,
+    "headingDeg": 14.0,
+    "airspeedKts": 155,
+    "pitchDeg": -3.0,
+    "bankDeg": 0.0
+  },
+  "weather": {
+    "useLiveWeather": false,
+    "windDirectionDeg": 104,
+    "windVelocityKts": 20,
+    "gustKts": 20,
+    "visibilitySm": 10,
+    "weatherPresetFile": ".\\WeatherPresets\\clearsky.WPR",
+    "metar": "LGSK 151200Z 10020KT CAVOK 24/14 Q1015"
+  },
+  "timeOfDay": {
+    "hour": 12,
+    "minute": 0,
+    "useZuluTime": false
+  },
+  "aircraftSetup": {
+    "gearDown": false,
+    "flapsHandleIndex": 0,
+    "spoilersRetracted": true,
+    "parkingBrakeOn": false,
+    "unpause": false,
+    "vappKts": 143
+  },
+  "runway": {
+    "airportIcao": "LGSK",
+    "runwayId": "01",
+    "thresholdLatitude": 39.169998,
+    "thresholdLongitude": 23.501416,
+    "headingTrueDeg": 14.0,
+    "elevationFeet": 9,
+    "lengthM": 1628,
+    "widthM": 30
+  },
+  "hudTips": [
+    "Start free flight in A330-200 (RR) first — Challenge Lab will not hot-swap aircraft.",
+    "After Start/Restart you stay PAUSED at spawn — press GO on the HUD when ready to fly.",
+    "Start config: gear up, flaps 0, spoilers in, parking brake off. Set landing flaps on approach.",
+    "LGSK 01 is only 1,628 m with an upslope — plan a firm touchdown early and manage energy.",
+    "Wind 100/20: pure right cross from ~104° true. Crab on final; kick straight before touchdown.",
+    "Edit spawn / timeOfDay / weather in this JSON, then restart the challenge."
+  ]
+}

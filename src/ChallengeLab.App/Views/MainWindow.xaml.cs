@@ -17,6 +17,7 @@ public partial class MainWindow : Window
     private const int WmUserSimConnect = 0x0402;
     private readonly MainViewModel _vm;
     private CompanionHudWindow? _hud;
+    private SecondaryHudWindow? _secondaryHud;
 
     public MainWindow()
     {
@@ -27,6 +28,7 @@ public partial class MainWindow : Window
 
         _vm.RequestConnect += ConnectToSim;
         _vm.RequestShowHud += ShowHud;
+        _vm.RequestToggleSecondaryHud += ToggleSecondaryHud;
         _vm.RequestToggleMain += ToggleMainWindow;
 
         // Always paint report in code — no reliance on fragile ItemsControl bindings
@@ -225,6 +227,7 @@ public partial class MainWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        _secondaryHud?.Close();
         _hud?.Close();
         _vm.Dispose();
     }
@@ -253,6 +256,30 @@ public partial class MainWindow : Window
         if (!_hud.IsVisible)
             _hud.Show();
         _hud.Activate();
+    }
+
+    private void ToggleSecondaryHud()
+    {
+        if (_secondaryHud is { IsVisible: true })
+        {
+            _secondaryHud.HideFromUser();
+            return;
+        }
+
+        if (_secondaryHud is null)
+        {
+            // Deliberately unowned so it remains visible when the Menu window is hidden.
+            _secondaryHud = new SecondaryHudWindow(_vm);
+            _secondaryHud.HiddenByUser += (_, _) => _vm.SetSecondaryHudVisible(false);
+            _secondaryHud.Closed += (_, _) =>
+            {
+                _vm.SetSecondaryHudVisible(false);
+                _secondaryHud = null;
+            };
+        }
+
+        _secondaryHud.EnsureVisible();
+        _vm.SetSecondaryHudVisible(true);
     }
 
     /// <summary>

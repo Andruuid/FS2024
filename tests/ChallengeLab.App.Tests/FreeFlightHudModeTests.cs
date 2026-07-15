@@ -2,6 +2,8 @@ using System.Windows;
 using System.IO;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Diagnostics;
+using System.Text;
 using ChallengeLab.App.ViewModels;
 using ChallengeLab.App.Views;
 using ChallengeLab.Core.Config;
@@ -12,6 +14,7 @@ using ChallengeLab.SimConnect;
 
 namespace ChallengeLab.App.Tests;
 
+[Collection("Wpf")]
 public sealed class FreeFlightHudModeTests
 {
     [Fact]
@@ -21,6 +24,8 @@ public sealed class FreeFlightHudModeTests
         {
             var app = new ChallengeLab.App.App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             app.InitializeComponent();
+            var bindingErrors = new BindingErrorListener();
+            PresentationTraceSources.DataBindingSource.Listeners.Add(bindingErrors);
             var scorePath = Path.Combine(Path.GetTempPath(), $"challenge-lab-{Guid.NewGuid():N}.json");
             var sim = new FakeSimBridge { BlockAirportCatalog = true };
             var vm = new MainViewModel(
@@ -28,6 +33,9 @@ public sealed class FreeFlightHudModeTests
                 new ConfigLoader(FindConfig()),
                 new HighscoreStore(scorePath));
             CompanionHudWindow? hud = null;
+            SecondaryHudWindow? secondary = null;
+            SecondaryHudWindow? restoredSecondary = null;
+            var positionPath = Path.Combine(Path.GetTempPath(), $"challenge-lab-hud-{Guid.NewGuid():N}.json");
             try
             {
                 Assert.True(vm.IsNormalMode);
@@ -58,6 +66,41 @@ public sealed class FreeFlightHudModeTests
                     ? freeBrush.Color
                     : default);
 
+                var monitorToggleRequests = 0;
+                vm.RequestToggleSecondaryHud += () => monitorToggleRequests++;
+                var monitorButton = Assert.IsType<Button>(hud.FindName("FlightMonitorButton"));
+                monitorButton.Command.Execute(null);
+                Assert.Equal(1, monitorToggleRequests);
+
+                var positionStore = new SecondaryHudPositionStore(positionPath);
+                secondary = new SecondaryHudWindow(vm, positionStore);
+                secondary.Show();
+                secondary.UpdateLayout();
+                var progress = Assert.IsType<ProgressBar>(secondary.FindName("ApproachProgressBar"));
+                var binding = System.Windows.Data.BindingOperations.GetBinding(progress, ProgressBar.ValueProperty);
+                Assert.NotNull(binding);
+                Assert.Equal(System.Windows.Data.BindingMode.OneWay, binding!.Mode);
+                Assert.NotNull(secondary.FindName("ScoreGraph"));
+
+                secondary.Left = SystemParameters.WorkArea.Left + 123;
+                secondary.Top = SystemParameters.WorkArea.Top + 77;
+                secondary.HideFromUser();
+                Assert.False(secondary.IsVisible);
+                secondary.Close();
+                secondary = null;
+
+                restoredSecondary = new SecondaryHudWindow(vm, positionStore);
+                restoredSecondary.Show();
+                restoredSecondary.UpdateLayout();
+                Assert.InRange(
+                    restoredSecondary.Left,
+                    SystemParameters.WorkArea.Left + 122,
+                    SystemParameters.WorkArea.Left + 124);
+                Assert.InRange(
+                    restoredSecondary.Top,
+                    SystemParameters.WorkArea.Top + 76,
+                    SystemParameters.WorkArea.Top + 78);
+
                 sim.SetState(SimConnectionState.Disconnected);
 
                 Assert.True(sim.FacilityRequestCancelled);
@@ -74,14 +117,19 @@ public sealed class FreeFlightHudModeTests
                 Assert.Equal(Color.FromRgb(0x2D, 0xE2, 0xE6), FindButton(hud, "Normal").Background is SolidColorBrush normalBrush
                     ? normalBrush.Color
                     : default);
+                Assert.True(string.IsNullOrWhiteSpace(bindingErrors.Errors), bindingErrors.Errors);
                 AssertNoSimulatorMutation(sim);
             }
             finally
             {
+                PresentationTraceSources.DataBindingSource.Listeners.Remove(bindingErrors);
+                restoredSecondary?.Close();
+                secondary?.Close();
                 hud?.Close();
                 vm.Dispose();
                 app.Shutdown();
                 if (File.Exists(scorePath)) File.Delete(scorePath);
+                if (File.Exists(positionPath)) File.Delete(positionPath);
             }
         });
     }
@@ -214,5 +262,13 @@ public sealed class FreeFlightHudModeTests
         public void Teleport(SpawnConfig spawn) => TeleportCalls++;
         public void ResumeFlight() => ResumeCalls++;
         public void Dispose() { }
+    }
+
+    private sealed class BindingErrorListener : TraceListener
+    {
+        private readonly StringBuilder _errors = new();
+        public string Errors => _errors.ToString();
+        public override void Write(string? message) => _errors.Append(message);
+        public override void WriteLine(string? message) => _errors.AppendLine(message);
     }
 }

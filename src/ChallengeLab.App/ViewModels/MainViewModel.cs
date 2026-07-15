@@ -71,6 +71,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private CancellationTokenSource? _freeFlightCts;
     private bool _freeInferenceBusy;
     private string _lastFreeInferenceError = "";
+    private bool _isSecondaryHudVisible;
 
     // Post-spawn GO gate: wait until IAS + surfaces match challenge before enabling GO.
     private bool _isSpawnPreparing;
@@ -127,6 +128,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         Challenges = new ObservableCollection<ChallengeCardViewModel>();
         Highscores = new ObservableCollection<HighscoreEntry>();
         CriterionResults = new ObservableCollection<CriterionResultViewModel>();
+        SecondaryHud = new SecondaryHudViewModel();
 
         StartChallengeCommand = new RelayCommand(async () => await StartChallengeAsync(), () =>
             IsNormalMode && SelectedChallenge is { Available: true } && HasValidScoringConfiguration && !IsLoading);
@@ -140,6 +142,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         ConnectCommand = new RelayCommand(TriggerConnect);
         DismissResultCommand = new RelayCommand(() => ResultVisible = false);
         ClearHighscoreSelectionCommand = new RelayCommand(() => SelectedHighscore = null);
+        ToggleSecondaryHudCommand = new RelayCommand(() => RequestToggleSecondaryHud?.Invoke());
         OpenMenuCommand = new RelayCommand(() =>
         {
             ResultVisible = false;
@@ -211,9 +214,20 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public event Action? RequestConnect;
     public event Action? RequestShowHud;
+    public event Action? RequestToggleSecondaryHud;
     /// <summary>Show or hide the main app window (HUD stays). Menu button toggle.</summary>
     public event Action? RequestToggleMain;
     public event Action<ScoreResult>? ScoreComputed;
+
+    public SecondaryHudViewModel SecondaryHud { get; }
+
+    public bool IsSecondaryHudVisible
+    {
+        get => _isSecondaryHudVisible;
+        private set => SetProperty(ref _isSecondaryHudVisible, value);
+    }
+
+    public void SetSecondaryHudVisible(bool visible) => IsSecondaryHudVisible = visible;
 
     public bool HasValidScoringConfiguration => _scoreEngine is not null && _sessionSettings is not null;
     public bool HasValidFreeScoringConfiguration =>
@@ -273,6 +287,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand ConnectCommand { get; }
     public ICommand DismissResultCommand { get; }
     public ICommand ClearHighscoreSelectionCommand { get; }
+    public ICommand ToggleSecondaryHudCommand { get; }
     public ICommand OpenMenuCommand { get; }
 
     public HighscoreEntry? SelectedHighscore
@@ -638,6 +653,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             return Task.CompletedTask;
 
         _tipTimer?.Stop();
+        SecondaryHud.ResetAttempt();
         DetachSession();
         StopFreeInference(resetTarget: true);
         _activeChallenge = null;
@@ -801,6 +817,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var runway = target.Runway.RunwayId.Trim().ToUpperInvariant();
         var challenge = FreeFlightChallengeFactory.Create(target, sample);
 
+        SecondaryHud.ResetAttempt();
         _activeChallenge = challenge;
         _session = new LandingSession(challenge, _freeSessionSettings);
         _session.PhaseChanged += OnSessionPhaseChanged;
@@ -855,6 +872,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        SecondaryHud.ResetAttempt();
         IsLoading = true;
         ResultVisible = false;
         LastScore = null;
@@ -1193,6 +1211,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void CleanMetrics()
     {
         if (!CanCleanMetrics()) return;
+        SecondaryHud.ResetAttempt();
 
         if (IsFreeMode)
         {
@@ -1226,7 +1245,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void OnSessionPhaseChanged(object? sender, LandingPhase phase)
     {
-        Application.Current.Dispatcher.Invoke(() => PhaseLabel = phase.ToString());
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            PhaseLabel = phase.ToString();
+            SecondaryHud.UpdatePhase(phase);
+        });
     }
 
     private DispatcherTimer? _tipTimer;
@@ -1261,6 +1284,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             LastScore = result;
             ResultVisible = true;
             ApplyFinalPreview(result);
+            SecondaryHud.CompleteAttempt(
+                result.ScorePercent,
+                _lastTelemetry?.Timestamp ?? DateTimeOffset.UtcNow);
 
             string? tracePath = null;
             try
@@ -1308,11 +1334,26 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 $"Wind {sample.WindDirectionDeg:000}/{sample.WindVelocityKts:0}kt  ·  " +
                 $"{(sample.SimOnGround ? "GND" : "AIR")}";
 
-            if (_activeChallenge is not null && CurrentSessionSettings is not null)
+            double? targetTouchdownIas = null;
+            var sessionSettings = CurrentSessionSettings;
+            if (_activeChallenge is not null && sessionSettings is not null)
+            {
                 UpdateSpeedTargetInfo(_activeChallenge, sample, sample.AirspeedKts);
+                targetTouchdownIas = SpeedTargetCalculator
+                    .Resolve(_activeChallenge, sessionSettings, sample)
+                    .TargetTouchdownIasKts;
+            }
 
             _session?.Ingest(sample);
             UpdateLivePreview(force: false);
+            SecondaryHud.Update(
+                sample,
+                _activeChallenge,
+                sessionSettings,
+                targetTouchdownIas,
+                PreviewScorePercent,
+                _session?.Phase ?? LandingPhase.Idle,
+                _sim.IsConnected);
         });
     }
 
@@ -1590,8 +1631,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     _ = RunFreeInferenceAsync();
                 }
             }
-            else if (IsFreeMode)
+            else
             {
+                SecondaryHud.SetDisconnected();
+                if (!IsFreeMode) return;
                 StopFreeInference(resetTarget: true);
                 DetachSession();
                 _activeChallenge = null;
