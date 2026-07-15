@@ -168,6 +168,37 @@ public sealed class LandingSession
 
         // Always seed ground state so restart-on-runway does not treat the first frame as TD.
         _wasOnGround = sample.SimOnGround;
+
+        // Keep derived metrics fresh for live preview scoring (cheap enough at sample rate).
+        if (Phase is LandingPhase.Approach or LandingPhase.Flare or LandingPhase.Rollout
+            or LandingPhase.Touchdown)
+            RefreshDerivedMetrics();
+    }
+
+    /// <summary>
+    /// Recompute approach / TD-window / rollout derived fields from samples collected so far.
+    /// Safe to call mid-flight for HUD preview; final settle uses the same path.
+    /// </summary>
+    public void RefreshDerivedMetrics()
+    {
+        ComputeApproachPathMetrics();
+
+        if (_rolloutHeadings.Count > 1)
+        {
+            var mean = _rolloutHeadings.Average();
+            Snapshot.RolloutHeadingVariance = _rolloutHeadings.Average(h =>
+            {
+                var d = NormalizeHeading(h - mean);
+                return d * d;
+            });
+        }
+
+        if (_touchdownCaptured)
+        {
+            ComputeGroundTrackWindowMetrics();
+            ComputePostTouchdownAlignmentMetrics();
+            ComputeRolloutPathIntegralMetrics();
+        }
     }
 
     private void CaptureTouchdown(TelemetrySample sample, double lateral)
@@ -192,24 +223,7 @@ public sealed class LandingSession
         Snapshot.SpeedTargetSource = source;
     }
 
-    private void FinalizeSnapshot()
-    {
-        ComputeApproachPathMetrics();
-
-        if (_rolloutHeadings.Count > 1)
-        {
-            var mean = _rolloutHeadings.Average();
-            Snapshot.RolloutHeadingVariance = _rolloutHeadings.Average(h =>
-            {
-                var d = NormalizeHeading(h - mean);
-                return d * d;
-            });
-        }
-
-        ComputeGroundTrackWindowMetrics();
-        ComputePostTouchdownAlignmentMetrics();
-        ComputeRolloutPathIntegralMetrics();
-    }
+    private void FinalizeSnapshot() => RefreshDerivedMetrics();
 
     /// <summary>
     /// Short-final approach metrics (same distance window as config):
@@ -223,6 +237,15 @@ public sealed class LandingSession
         var elev = _challenge.Runway.ElevationFeet;
         var minNm = _settings.ApproachPathMinDistNm;
         var maxNm = _settings.ApproachPathMaxDistNm;
+
+        // Reset so live preview does not keep stale values when the window is empty.
+        Snapshot.ApproachPathSampleCount = 0;
+        Snapshot.ApproachPathRms = 0;
+        Snapshot.ApproachGlideslopeMeanAbsFt = 0;
+        Snapshot.ApproachVerticalVariationFtPerSec = 0;
+        Snapshot.ApproachLateralWeaveIndex = 0;
+        Snapshot.ApproachLateralDistanceM = 0;
+        Snapshot.ApproachMetricDurationSec = 0;
 
         var points = Snapshot.ApproachSamples
             .Where(s => !s.SimOnGround)

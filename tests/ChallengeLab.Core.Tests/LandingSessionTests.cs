@@ -223,6 +223,53 @@ public sealed class LandingSessionTests
     }
 
     [Fact]
+    public void RefreshDerivedMetrics_PopulatesApproachBeforeSettle()
+    {
+        var (challenge, settings) = Load();
+        var session = new LandingSession(challenge, settings);
+        var t0 = DateTimeOffset.UtcNow;
+        session.Arm();
+
+        var elev = challenge.Runway.ElevationFeet;
+        var h = challenge.Runway.HeadingTrueDeg * Math.PI / 180.0;
+        var nm = 1.0;
+        var m = nm * 1852.0;
+        var dLat = (m * Math.Cos(h)) / 111320.0;
+        var dLon = (m * Math.Sin(h)) / (111320.0 * Math.Cos(challenge.Runway.ThresholdLatitude * Math.PI / 180.0));
+        var lat = challenge.Runway.ThresholdLatitude - dLat;
+        var lon = challenge.Runway.ThresholdLongitude - dLon;
+        var perfectAlt = elev + nm * 318.0;
+
+        for (var i = 0; i < 12; i++)
+        {
+            session.Ingest(new TelemetrySample
+            {
+                Timestamp = t0.AddSeconds(5 + i * 0.25),
+                SimOnGround = false,
+                Latitude = lat,
+                Longitude = lon,
+                AltitudeFeet = perfectAlt + 20, // slight high bias
+                AglFeet = perfectAlt + 20 - elev,
+                RadioHeightFeet = perfectAlt + 20 - elev,
+                HeadingTrueDeg = challenge.Runway.HeadingTrueDeg,
+                GroundTrackTrueDeg = challenge.Runway.HeadingTrueDeg,
+                GroundSpeedKts = 140,
+                AirspeedKts = 140,
+                VerticalSpeedFpm = -700,
+                GearHandlePosition = 1,
+                FlapsHandleIndex = 3,
+                GForce = 1
+            });
+        }
+
+        // Mid-approach, before touchdown/settle — live path must already expose approach metrics.
+        Assert.True(session.Phase is LandingPhase.Approach or LandingPhase.Flare);
+        Assert.True(session.Snapshot.ApproachPathSampleCount >= 2);
+        Assert.True(session.Snapshot.ApproachMetricDurationSec >= 0.5);
+        Assert.InRange(session.Snapshot.ApproachGlideslopeMeanAbsFt, 5, 50);
+    }
+
+    [Fact]
     public void ApproachMetrics_SeparateBiasFromVerticalPumping()
     {
         var (challenge, settings) = Load();

@@ -15,6 +15,11 @@ public sealed class ScoreResult
     public bool GearUpPenaltyApplied { get; init; }
     public IReadOnlyList<PhaseScore> PhaseScores { get; init; } = Array.Empty<PhaseScore>();
 
+    /// <summary>
+    /// True when this result is a live projection (missing metrics assumed 100%), not a final ranked score.
+    /// </summary>
+    public bool IsPreview { get; init; }
+
     public string ScoreDisplay => ScorePercent is null ? "UNRANKED" : $"{ScorePercent:0.0}%";
 
     public static string GradeFromPercent(double percent) => percent switch

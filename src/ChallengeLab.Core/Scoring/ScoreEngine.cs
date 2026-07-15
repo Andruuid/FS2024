@@ -19,6 +19,17 @@ public sealed class ScoreEngine
     }
 
     public ScoreResult Evaluate(ChallengeConfig challenge, LandingSnapshot snapshot)
+        => EvaluateCore(challenge, snapshot, preview: false);
+
+    /// <summary>
+    /// Live projection: every metric that is not yet measurable scores 100%.
+    /// Available metrics use real evaluators. Gear penalty only applies after touchdown.
+    /// Never save this as a highscore — use <see cref="Evaluate"/> at settle.
+    /// </summary>
+    public ScoreResult EvaluatePreview(ChallengeConfig challenge, LandingSnapshot snapshot)
+        => EvaluateCore(challenge, snapshot, preview: true);
+
+    private ScoreResult EvaluateCore(ChallengeConfig challenge, LandingSnapshot snapshot, bool preview)
     {
         var criteria = new List<CriterionScore>();
         var phases = new List<PhaseScore>();
@@ -36,6 +47,31 @@ public sealed class ScoreEngine
                 var maxOverallPoints = metric.ImportancePercent * phase.WeightPercent / 100.0;
                 if (!observation.IsAvailable)
                 {
+                    if (preview)
+                    {
+                        // Assume remaining flight will be perfect for this metric.
+                        phaseScore01 += 1.0 * (metric.ImportancePercent / 100.0);
+                        criteria.Add(new CriterionScore
+                        {
+                            Id = metric.Id,
+                            DisplayName = metric.DisplayName,
+                            Score01 = 1.0,
+                            RawValue = null,
+                            Unit = metric.Unit,
+                            Status = MetricStatus.Informational,
+                            UnavailableReason = observation.UnavailableReason,
+                            Note =
+                                $"[PREVIEW · assumed 100%] {MetricExplanations.DefaultCatalog(metric.Id, metric.DisplayName)} " +
+                                $"Not measured yet: {observation.UnavailableReason ?? "pending"}",
+                            PhaseId = phase.Id,
+                            PhaseDisplayName = phase.DisplayName,
+                            PhaseImportancePercent = metric.ImportancePercent,
+                            PhaseWeightPercent = phase.WeightPercent,
+                            MaxOverallPoints = maxOverallPoints
+                        });
+                        continue;
+                    }
+
                     phaseComplete = false;
                     var reason = observation.UnavailableReason ?? "Required telemetry is unavailable.";
                     incompleteReasons.Add($"{phase.DisplayName} / {metric.DisplayName}: {reason}");
@@ -68,6 +104,8 @@ public sealed class ScoreEngine
                     displayRaw = snapshot.AirspeedAtTouchdownKts;
 
                 var explanation = MetricExplanations.For(metric, snapshot, score01, raw);
+                if (preview)
+                    explanation = "[PREVIEW · measured] " + explanation;
                 explanation =
                     $"[{phase.DisplayName} · {metric.ImportancePercent:0.#}% of phase · " +
                     $"{maxOverallPoints:0.##} max overall points] {explanation}";
@@ -90,7 +128,7 @@ public sealed class ScoreEngine
             }
 
             double? phasePercent = null;
-            if (phaseComplete)
+            if (phaseComplete || preview)
             {
                 phasePercent = Math.Round(Math.Clamp(phaseScore01 * 100.0, 0, 100), 1);
                 totalBeforeGate += phaseScore01 * phase.WeightPercent;
@@ -102,13 +140,15 @@ public sealed class ScoreEngine
                 DisplayName = phase.DisplayName,
                 WeightPercent = phase.WeightPercent,
                 ScorePercent = phasePercent,
-                IsComplete = phaseComplete,
+                IsComplete = phaseComplete || preview,
                 Note = phase.Note
             });
         }
 
-        var gearFailed = AppendGearGate(challenge, snapshot, criteria, incompleteReasons);
-        var ranked = incompleteReasons.Count == 0;
+        var gearFailed = preview
+            ? AppendGearGatePreview(challenge, snapshot, criteria)
+            : AppendGearGate(challenge, snapshot, criteria, incompleteReasons);
+        var ranked = preview || incompleteReasons.Count == 0;
         double? scoreBeforeGates = null;
         double? scorePercent = null;
         var grade = "UNRANKED";
@@ -143,7 +183,8 @@ public sealed class ScoreEngine
             ChallengeTitle = challenge.Title,
             ScorePercent = scorePercent,
             Grade = grade,
-            IsRanked = ranked,
+            IsRanked = ranked && !preview,
+            IsPreview = preview,
             IncompleteReasons = incompleteReasons,
             Criteria = criteria,
             ScoredAtUtc = DateTimeOffset.UtcNow,
@@ -152,6 +193,29 @@ public sealed class ScoreEngine
             GearUpPenaltyApplied = gearPenaltyApplied,
             PhaseScores = phases
         };
+    }
+
+    /// <summary>Preview gear: no TD yet → no penalty; after TD use real gear state.</summary>
+    private bool AppendGearGatePreview(
+        ChallengeConfig challenge,
+        LandingSnapshot snapshot,
+        List<CriterionScore> criteria)
+    {
+        if (snapshot.Touchdown is null)
+        {
+            criteria.Add(new CriterionScore
+            {
+                Id = "gear",
+                DisplayName = "Gear (safety gate)",
+                Status = MetricStatus.Informational,
+                Note = "[PREVIEW · assumed OK] Gear not yet assessed (no touchdown)."
+            });
+            return false;
+        }
+
+        // After TD, same gate semantics as final (informational / fail).
+        var incomplete = new List<string>();
+        return AppendGearGate(challenge, snapshot, criteria, incomplete);
     }
 
     private bool AppendGearGate(

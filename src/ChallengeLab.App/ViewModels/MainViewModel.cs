@@ -39,6 +39,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _phaseLabel = "Idle";
     private string _liveStats = "—";
     private string _speedTargetInfo = "Optimal landing speed: —";
+    private double? _previewScorePercent;
+    private string _previewScoreDisplay = "—";
+    private string _previewGrade = "";
+    private string _previewCaption = "";
+    private bool _previewActive;
+    private DateTimeOffset _lastPreviewUtc = DateTimeOffset.MinValue;
     private ScoreResult? _lastScore;
     private LandingSession? _session;
     private ChallengeConfig? _activeChallenge;
@@ -340,6 +346,38 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _speedTargetInfo, value);
     }
 
+    /// <summary>Live projected overall % (missing metrics assumed 100%). Null when idle.</summary>
+    public double? PreviewScorePercent
+    {
+        get => _previewScorePercent;
+        private set => SetProperty(ref _previewScorePercent, value);
+    }
+
+    public string PreviewScoreDisplay
+    {
+        get => _previewScoreDisplay;
+        private set => SetProperty(ref _previewScoreDisplay, value);
+    }
+
+    public string PreviewGrade
+    {
+        get => _previewGrade;
+        private set => SetProperty(ref _previewGrade, value);
+    }
+
+    public string PreviewCaption
+    {
+        get => _previewCaption;
+        private set => SetProperty(ref _previewCaption, value);
+    }
+
+    /// <summary>True while a challenge session is armed and preview should show on the HUD.</summary>
+    public bool PreviewActive
+    {
+        get => _previewActive;
+        private set => SetProperty(ref _previewActive, value);
+    }
+
     public ScoreResult? LastScore
     {
         get => _lastScore;
@@ -532,8 +570,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             LoadStatus = "Armed — fly the landing!";
             _session.Arm();
             PhaseLabel = "Armed";
+            ResultVisible = false;
+            LastScore = null;
             // Seed optimal landing speed before first telemetry tick.
             UpdateSpeedTargetInfo(challenge, sample: null, liveIas: null);
+            SetPreviewPerfect();
             HudTip = challenge.HudTips.FirstOrDefault() ?? "Good luck.";
             RotateTips(challenge);
             RequestShowHud?.Invoke();
@@ -568,6 +609,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _session.SettledReady -= OnSettledReady;
         _session.Reset();
         _session = null;
+        ClearPreview();
     }
 
     private void OnSessionPhaseChanged(object? sender, LandingPhase phase)
@@ -602,6 +644,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             var result = _scoreEngine.Evaluate(_activeChallenge, _session.Snapshot);
             LastScore = result;
             ResultVisible = true;
+            ApplyFinalPreview(result);
 
             string? tracePath = null;
             try
@@ -652,7 +695,74 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 UpdateSpeedTargetInfo(_activeChallenge, sample, sample.AirspeedKts);
 
             _session?.Ingest(sample);
+            UpdateLivePreview(force: false);
         });
+    }
+
+    private void SetPreviewPerfect()
+    {
+        PreviewActive = true;
+        PreviewScorePercent = 100;
+        PreviewScoreDisplay = "100.0%";
+        PreviewGrade = "S";
+        PreviewCaption = "remaining metrics assumed 100%";
+        _lastPreviewUtc = DateTimeOffset.UtcNow;
+    }
+
+    private void ClearPreview()
+    {
+        PreviewActive = false;
+        PreviewScorePercent = null;
+        PreviewScoreDisplay = "—";
+        PreviewGrade = "";
+        PreviewCaption = "";
+        _lastPreviewUtc = DateTimeOffset.MinValue;
+    }
+
+    private void ApplyFinalPreview(ScoreResult result)
+    {
+        PreviewActive = true;
+        PreviewScorePercent = result.ScorePercent;
+        PreviewScoreDisplay = result.ScoreDisplay;
+        PreviewGrade = result.Grade;
+        PreviewCaption = result.IsRanked ? "final score" : "final (unranked)";
+        _lastPreviewUtc = DateTimeOffset.UtcNow;
+    }
+
+    private void UpdateLivePreview(bool force)
+    {
+        if (_session is null || _activeChallenge is null || _scoreEngine is null)
+            return;
+        if (_session.Phase is LandingPhase.Idle or LandingPhase.Scored)
+            return;
+
+        var now = DateTimeOffset.UtcNow;
+        // Throttle ~8 Hz — visual-frame telemetry is faster than needed for the HUD.
+        if (!force && (now - _lastPreviewUtc).TotalMilliseconds < 125)
+            return;
+        _lastPreviewUtc = now;
+
+        try
+        {
+            // Derived metrics already refreshed inside Ingest; re-run is cheap if needed.
+            if (_session.Phase is LandingPhase.Armed)
+            {
+                // Before airborne samples: pure 100% projection.
+                SetPreviewPerfect();
+                return;
+            }
+
+            var preview = _scoreEngine.EvaluatePreview(_activeChallenge, _session.Snapshot);
+            PreviewActive = true;
+            PreviewScorePercent = preview.ScorePercent;
+            PreviewScoreDisplay = preview.ScoreDisplay;
+            PreviewGrade = preview.Grade;
+            PreviewCaption = "remaining metrics assumed 100%";
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Preview score failed: {ex.Message}");
+        }
     }
 
     private void UpdateSpeedTargetInfo(ChallengeConfig challenge, TelemetrySample? sample, double? liveIas)

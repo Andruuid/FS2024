@@ -41,6 +41,24 @@
                        Foreground="#FFFFB020" FontSize="13"/>
 
             <StackPanel Grid.Row="2">
+                <!-- Live projected overall % (missing metrics = 100%) -->
+                <Border Margin="0,0,0,10" Background="#330A2A20" CornerRadius="10" Padding="12,10"
+                        BorderBrush="#66FFB020" BorderThickness="1"
+                        Visibility="{Binding PreviewActive, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <TextBlock Text="PREVIEW SCORE" FontSize="10" FontWeight="Bold"
+                                   Foreground="#FFFFB020"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                            <TextBlock Text="{Binding PreviewScoreDisplay}" FontSize="40" FontWeight="Bold"
+                                       Foreground="#FF2DE2E6"/>
+                            <TextBlock Text="{Binding PreviewGrade}" FontSize="40" FontWeight="Bold"
+                                       Margin="12,0,0,0" Foreground="#FFFFB020"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding PreviewCaption}" FontSize="11" Foreground="#FF8B9BB8"
+                                   Margin="0,2,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
                 <TextBlock Text="{Binding LiveStats}" FontFamily="Cascadia Mono, Consolas" FontSize="11"
                            Foreground="#FF8B9BB8" TextWrapping="Wrap"/>
 
@@ -66,7 +84,7 @@
                             <TextBlock Text="{Binding LastScore.Grade}" FontSize="36" FontWeight="Bold"
                                        Margin="12,0,0,0" Foreground="#FFFFB020"/>
                         </StackPanel>
-                        <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
+                        <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
                             <TextBlock Text="{Binding LastScore.Summary}" TextWrapping="Wrap" FontSize="12"
                                        FontFamily="Cascadia Mono, Consolas"
                                        Foreground="#FFE8EEF8" xml:space="preserve"/>

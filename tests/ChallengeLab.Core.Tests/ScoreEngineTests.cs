@@ -111,6 +111,51 @@ public sealed class ScoreEngineTests
     }
 
     [Fact]
+    public void Preview_EmptySnapshot_Is100Percent()
+    {
+        var (key, challenge) = Load();
+        var preview = new ScoreEngine(key).EvaluatePreview(challenge, new LandingSnapshot());
+        Assert.True(preview.IsPreview);
+        Assert.False(preview.IsRanked); // never treat as final ranked highscore
+        Assert.Equal(100.0, preview.ScorePercent);
+        Assert.Equal("S", preview.Grade);
+        Assert.False(preview.GearUpPenaltyApplied);
+    }
+
+    [Fact]
+    public void Preview_BadApproachOnly_PullsDownFrom100()
+    {
+        var (key, challenge) = Load();
+        // Only approach metrics measurable; TD + rollout still "assumed 100%".
+        var snap = new LandingSnapshot
+        {
+            ApproachPathSampleCount = 10,
+            ApproachMetricDurationSec = 30,
+            ApproachLateralDistanceM = 2000,
+            ApproachGlideslopeMeanAbsFt = 350, // zero on soft curve
+            ApproachVerticalVariationFtPerSec = 25, // zero
+            ApproachLateralWeaveIndex = 0.20 // zero
+        };
+        var preview = new ScoreEngine(key).EvaluatePreview(challenge, snap);
+        Assert.True(preview.IsPreview);
+        // Approach phase ~0% × 25% weight → overall ≈ 75% (TD 70 + roll 5 assumed perfect).
+        Assert.InRange(preview.ScorePercent!.Value, 74.0, 76.0);
+        Assert.True(preview.ScorePercent < 100);
+    }
+
+    [Fact]
+    public void Preview_DoesNotWriteAsRankedForHighscorePath()
+    {
+        var (key, challenge) = Load();
+        var preview = new ScoreEngine(key).EvaluatePreview(challenge, CompleteSnapshot());
+        Assert.True(preview.IsPreview);
+        Assert.False(preview.IsRanked);
+        // Same numbers as final would produce, but flagged preview so UI/store can refuse.
+        var final = new ScoreEngine(key).Evaluate(challenge, CompleteSnapshot());
+        Assert.Equal(final.ScorePercent, preview.ScorePercent);
+    }
+
+    [Fact]
     public void GearGate_AppliesMultiplierOnlyWhenRequired()
     {
         var (key, challenge) = Load();
