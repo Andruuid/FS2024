@@ -27,11 +27,7 @@ public partial class MainWindow : Window
 
         _vm.RequestConnect += ConnectToSim;
         _vm.RequestShowHud += ShowHud;
-        _vm.RequestActivateMain += () =>
-        {
-            Activate();
-            WindowState = WindowState.Normal;
-        };
+        _vm.RequestToggleMain += ToggleMainWindow;
 
         // Always paint report in code — no reliance on fragile ItemsControl bindings
         _vm.PropertyChanged += (_, e) =>
@@ -248,12 +244,35 @@ public partial class MainWindow : Window
     {
         if (_hud is null)
         {
-            _hud = new CompanionHudWindow(_vm) { Owner = this };
+            // No Owner — so hiding the main Menu window does not hide the HUD.
+            _hud = new CompanionHudWindow(_vm);
             _hud.Closed += (_, _) => _hud = null;
         }
 
+        _hud.EnsureExpanded();
         if (!_hud.IsVisible)
             _hud.Show();
         _hud.Activate();
+    }
+
+    /// <summary>
+    /// Menu toggle: show main window if hidden/minimized, otherwise hide it.
+    /// HUD stays visible either way (HUD is not owned by main).
+    /// </summary>
+    private void ToggleMainWindow()
+    {
+        if (!IsVisible || WindowState == WindowState.Minimized)
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+            return;
+        }
+
+        // Visible and normal → hide main (HUD remains).
+        Hide();
+        // Keep HUD on top after main goes away.
+        if (_hud is { IsVisible: true })
+            _hud.Activate();
     }
 }

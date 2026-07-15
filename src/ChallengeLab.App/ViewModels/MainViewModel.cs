@@ -43,9 +43,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _previewScoreDisplay = "—";
     private string _previewGrade = "";
     private string _previewCaption = "";
+    private string _previewIssues = "";
     private string _previewHeading = "PREVIEW SCORE";
     private bool _previewActive;
     private DateTimeOffset _lastPreviewUtc = DateTimeOffset.MinValue;
+    private TelemetrySample? _lastTelemetry;
     private ScoreResult? _lastScore;
     private LandingSession? _session;
     private ChallengeConfig? _activeChallenge;
@@ -98,7 +100,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             ResultVisible = false;
             SelectedTab = 0;
-            RequestActivateMain?.Invoke();
+            // Toggle main window; HUD stays up (wired in MainWindow).
+            RequestToggleMain?.Invoke();
         });
 
         _sim.StateChanged += OnSimStateChanged;
@@ -145,7 +148,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public event Action? RequestConnect;
     public event Action? RequestShowHud;
-    public event Action? RequestActivateMain;
+    /// <summary>Show or hide the main app window (HUD stays). Menu button toggle.</summary>
+    public event Action? RequestToggleMain;
     public event Action<ScoreResult>? ScoreComputed;
 
     public bool HasValidScoringConfiguration => _scoreEngine is not null && _sessionSettings is not null;
@@ -379,6 +383,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         get => _previewCaption;
         private set => SetProperty(ref _previewCaption, value);
     }
+
+    /// <summary>
+    /// Live "why" tags for a weak preview (too high, too fast, weaving, …). Empty when clean.
+    /// </summary>
+    public string PreviewIssues
+    {
+        get => _previewIssues;
+        private set => SetProperty(ref _previewIssues, value);
+    }
+
+    /// <summary>True when <see cref="PreviewIssues"/> has content (HUD visibility).</summary>
+    public bool HasPreviewIssues => !string.IsNullOrWhiteSpace(PreviewIssues);
 
     /// <summary>HUD card title: PREVIEW SCORE while live, FINAL SCORE after settle.</summary>
     public string PreviewHeading
@@ -773,6 +789,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         Application.Current.Dispatcher.Invoke(() =>
         {
+            _lastTelemetry = sample;
             LiveStats =
                 $"IAS {sample.AirspeedKts:0} kt  ·  GS {sample.GroundSpeedKts:0} kt  ·  " +
                 $"VS {sample.VerticalSpeedFpm:0} fpm  ·  Bank {sample.BankDeg:0.0}°  ·  " +
@@ -794,7 +811,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         PreviewScorePercent = 100;
         PreviewScoreDisplay = "100.0%";
         PreviewGrade = "S";
-        PreviewCaption = caption ?? BuildPreviewCaption(_session, measuredPreview: false);
+        PreviewCaption = caption ?? BuildPreviewCaption(_session);
+        SetPreviewIssues("");
         _lastPreviewUtc = DateTimeOffset.UtcNow;
     }
 
@@ -806,6 +824,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         PreviewScoreDisplay = "—";
         PreviewGrade = "";
         PreviewCaption = "";
+        SetPreviewIssues("");
         _lastPreviewUtc = DateTimeOffset.MinValue;
     }
 
@@ -816,8 +835,21 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         PreviewScorePercent = result.ScorePercent;
         PreviewScoreDisplay = result.ScoreDisplay;
         PreviewGrade = result.Grade;
-        PreviewCaption = result.IsRanked ? "final score" : "final (unranked)";
+        // Same phase breakdown as live preview (approach / TD / rollout %), not a bare "final score".
+        PreviewCaption = BuildFinalCaption(result, _session);
+        // Rebuild issue line from final result so the pilot still sees what hurt.
+        if (_activeChallenge is not null)
+            UpdatePreviewIssues(result);
+        else
+            SetPreviewIssues("");
+
         _lastPreviewUtc = DateTimeOffset.UtcNow;
+    }
+
+    private void SetPreviewIssues(string line)
+    {
+        PreviewIssues = line ?? "";
+        RaisePropertyChanged(nameof(HasPreviewIssues));
     }
 
     private void UpdateLivePreview(bool force)
@@ -836,12 +868,17 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         try
         {
             // Derived metrics already refreshed inside Ingest; re-run is cheap if needed.
-            if (_session.Phase is LandingPhase.Armed)
+            if (_session.Phase is LandingPhase.Armed
+                && _session.Snapshot.ApproachSamples.Count == 0
+                && _session.Snapshot.Touchdown is null)
             {
                 // Before airborne samples: pure 100% projection.
                 SetPreviewPerfect("armed · not airborne yet · all metrics assumed 100%");
                 return;
             }
+
+            // Ensure approach/rollout derived fields are current before scoring.
+            _session.RefreshDerivedMetrics();
 
             var preview = _scoreEngine.EvaluatePreview(_activeChallenge, _session.Snapshot);
             PreviewActive = true;
@@ -849,7 +886,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             PreviewScorePercent = preview.ScorePercent;
             PreviewScoreDisplay = preview.ScoreDisplay;
             PreviewGrade = preview.Grade;
-            PreviewCaption = BuildPreviewCaption(_session, measuredPreview: true);
+            PreviewCaption = BuildPreviewCaption(_session, preview);
+            UpdatePreviewIssues(preview);
         }
         catch (Exception ex)
         {
@@ -857,41 +895,138 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private void UpdatePreviewIssues(ScoreResult preview)
+    {
+        if (_activeChallenge is null || _session is null)
+        {
+            SetPreviewIssues("");
+            return;
+        }
+
+        double? vapp = null;
+        double? targetTd = null;
+        if (_sessionSettings is not null)
+        {
+            var resolved = SpeedTargetCalculator.Resolve(_activeChallenge, _sessionSettings, _lastTelemetry);
+            vapp = resolved.VappKts;
+            targetTd = resolved.TargetTouchdownIasKts;
+        }
+
+        // Prefer snapshot targets once touchdown metrics exist.
+        if (_session.Snapshot.VappKts > 50)
+            vapp = _session.Snapshot.VappKts;
+        if (_session.Snapshot.TargetTouchdownIasKts > 50)
+            targetTd = _session.Snapshot.TargetTouchdownIasKts;
+
+        var issues = LiveApproachIssueBuilder.Build(
+            _activeChallenge,
+            _session.Snapshot,
+            preview,
+            _lastTelemetry,
+            vapp,
+            targetTd,
+            _sessionSettings?.ApproachPathMaxDistNm ?? 4.5);
+        SetPreviewIssues(LiveApproachIssueBuilder.FormatLine(issues));
+    }
+
     /// <summary>
-    /// Honest HUD status: 100% often means "not measuring yet", not "perfect flying".
+    /// Honest HUD status: 100% often means "TD/rollout still assumed", not "perfect flying".
     /// </summary>
-    private string BuildPreviewCaption(LandingSession? session, bool measuredPreview)
+    private string BuildPreviewCaption(LandingSession? session, ScoreResult? preview = null)
     {
         if (session is null)
             return "unmeasured metrics assumed 100%";
 
-        if (session.Phase is LandingPhase.Armed)
+        if (session.Phase is LandingPhase.Armed
+            && session.Snapshot.ApproachSamples.Count == 0
+            && session.Snapshot.Touchdown is null)
             return "armed · not airborne yet · all metrics assumed 100%";
 
         var snap = session.Snapshot;
-        var maxNm = _sessionSettings?.ApproachPathMaxDistNm ?? 3.8;
-        var measuringApproach = snap.ApproachPathSampleCount >= 2;
+        var maxNm = _sessionSettings?.ApproachPathMaxDistNm ?? 4.5;
+        var measuringApproach = snap.ApproachPathSampleCount >= 2
+                                && snap.ApproachMetricDurationSec >= 0.5;
         var hasTouchdown = snap.Touchdown is not null;
+        var rolloutLive = snap.RolloutPathSegmentCount >= 2 || snap.PostTouchdownAlignmentSampleCount >= 2;
+
+        var (approachPct, tdPct, rollPct) = ReadPhasePercents(preview);
+
+        static string PhaseBit(string name, double? pct, bool measured) =>
+            measured && pct is not null
+                ? $"{name} {pct:0.#}%"
+                : $"{name} assumed 100%";
 
         if (!measuringApproach && !hasTouchdown)
         {
-            return $"outside approach window (>{maxNm:0.#} NM) · not measuring yet · assumed 100%";
+            return $"outside approach window (>{maxNm:0.#} NM) · not measuring yet · overall assumed 100%";
         }
 
         if (measuringApproach && !hasTouchdown)
-            return "measuring approach · touchdown & rollout assumed 100%";
+        {
+            return $"{PhaseBit("approach", approachPct, true)} · TD & rollout assumed 100%";
+        }
 
-        // After TD: approach + TD are real; rollout fills in as samples arrive.
-        var rolloutLive = snap.RolloutPathSegmentCount >= 2 || snap.PostTouchdownAlignmentSampleCount >= 2;
         if (hasTouchdown && !rolloutLive)
-            return "measuring approach + touchdown · rollout assumed 100%";
+        {
+            return $"{PhaseBit("approach", approachPct, measuringApproach)} · " +
+                   $"{PhaseBit("TD", tdPct, true)} · rollout assumed 100%";
+        }
 
         if (hasTouchdown)
-            return "measuring approach + touchdown + rollout · live projection";
+        {
+            return $"{PhaseBit("approach", approachPct, measuringApproach)} · " +
+                   $"{PhaseBit("TD", tdPct, true)} · " +
+                   $"{PhaseBit("rollout", rollPct, true)}";
+        }
 
-        return measuredPreview
-            ? "live projection · unmeasured metrics assumed 100%"
-            : "unmeasured metrics assumed 100%";
+        return "live projection · unmeasured metrics assumed 100%";
+    }
+
+    /// <summary>
+    /// Final HUD caption mirrors preview layout: approach X% · TD Y% · rollout Z%.
+    /// </summary>
+    private string BuildFinalCaption(ScoreResult result, LandingSession? session)
+    {
+        var (approachPct, tdPct, rollPct) = ReadPhasePercents(result);
+
+        var snap = session?.Snapshot;
+        var measuringApproach = snap is not null
+                                && snap.ApproachPathSampleCount >= 2
+                                && snap.ApproachMetricDurationSec >= 0.5;
+        var hasTouchdown = snap?.Touchdown is not null;
+        var rolloutLive = snap is not null
+                          && (snap.RolloutPathSegmentCount >= 2
+                              || snap.PostTouchdownAlignmentSampleCount >= 2);
+
+        // Prefer phase scores from the result; fall back only if a phase was never measured.
+        static string FinalBit(string name, double? pct, bool measured) =>
+            pct is not null
+                ? $"{name} {pct:0.#}%"
+                : measured
+                    ? $"{name} —"
+                    : $"{name} n/a";
+
+        var approachBit = FinalBit("approach", approachPct, measuringApproach || approachPct is not null);
+        var tdBit = FinalBit("TD", tdPct, hasTouchdown || tdPct is not null);
+        var rollBit = FinalBit("rollout", rollPct, rolloutLive || rollPct is not null);
+
+        var core = $"{approachBit} · {tdBit} · {rollBit}";
+        if (!result.IsRanked)
+            return $"{core} · unranked";
+        return core;
+    }
+
+    private static (double? Approach, double? Touchdown, double? Rollout) ReadPhasePercents(ScoreResult? score)
+    {
+        if (score?.PhaseScores is null)
+            return (null, null, null);
+
+        double? Pick(string id) =>
+            score.PhaseScores
+                .FirstOrDefault(p => p.PhaseId.Equals(id, StringComparison.OrdinalIgnoreCase))
+                ?.ScorePercent;
+
+        return (Pick("approach"), Pick("touchdown"), Pick("rollout"));
     }
 
     private void UpdateSpeedTargetInfo(ChallengeConfig challenge, TelemetrySample? sample, double? liveIas)

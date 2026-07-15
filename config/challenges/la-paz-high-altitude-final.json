@@ -1,0 +1,67 @@
+{
+  "id": "la-paz-high-altitude-final",
+  "mode": "hardcore_landings",
+  "title": "La Paz High-Altitude Final",
+  "subtitle": "SLLP 28 · ~10 NM final · A330 · 50 kt right-rear wind · 13,300 ft",
+  "description": "High-altitude approach into El Alto (La Paz). Spawn, attitude, IAS, and time of day come from a real MSFS autosave on SLLP 28. Surface wind is 50 kt from the right-rear (~45° quartering tailwind): ~35 kt tail + ~35 kt right cross — harder energy and crab management. Aircraft config matches Barcelona: gear up, flaps clean, spoilers in. Start/Restart leaves the sim paused after settle — unpause when ready.",
+  "available": true,
+  "requireGearDown": true,
+  "aircraftTitles": [
+    "A330-200 (RR)",
+    "Airbus A330-200",
+    "A330"
+  ],
+  "aircraftLivery": "200 AIRBUS RR",
+  "flightFile": "",
+  "spawn": {
+    "latitude": -16.519284,
+    "longitude": -68.004090,
+    "altitudeFeet": 16459.82,
+    "headingDeg": 271.721,
+    "airspeedKts": 270,
+    "pitchDeg": -4.801,
+    "bankDeg": 0.615
+  },
+  "weather": {
+    "useLiveWeather": false,
+    "windDirectionDeg": 47,
+    "windVelocityKts": 50,
+    "gustKts": 0,
+    "visibilitySm": 10,
+    "weatherPresetFile": ".\\WeatherPresets\\clearsky.WPR",
+    "metar": "SLLP 150847Z 05050KT CAVOK 08/M02 Q1025"
+  },
+  "timeOfDay": {
+    "hour": 8,
+    "minute": 47,
+    "useZuluTime": false,
+    "year": 2026,
+    "dayOfYear": 196
+  },
+  "aircraftSetup": {
+    "gearDown": false,
+    "flapsHandleIndex": 0,
+    "spoilersRetracted": true,
+    "parkingBrakeOn": false,
+    "unpause": false,
+    "vappKts": 155
+  },
+  "runway": {
+    "airportIcao": "SLLP",
+    "runwayId": "28",
+    "thresholdLatitude": -16.513847,
+    "thresholdLongitude": -68.176663,
+    "headingTrueDeg": 271.86,
+    "elevationFeet": 13300,
+    "lengthM": 4000,
+    "widthM": 46
+  },
+  "hudTips": [
+    "Start free flight in A330-200 (RR) first — Challenge Lab will not hot-swap aircraft.",
+    "After Start/Restart you stay PAUSED at spawn — press GO on the HUD when ready to fly.",
+    "Start config: gear up, flaps 0, spoilers in, parking brake off. Set landing flaps on approach.",
+    "SLLP is ~13,300 ft elev — expect high TAS, long float, and reduced engine performance.",
+    "Wind 050/50: right-rear 45° quartering (~35 kt tail + ~35 kt right cross). Watch float and crab.",
+    "Edit spawn / timeOfDay / weather in this JSON, then restart the challenge."
+  ]
+}

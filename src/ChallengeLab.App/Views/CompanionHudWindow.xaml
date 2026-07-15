@@ -8,13 +8,16 @@
         Background="Transparent"
         Topmost="True"
         ShowInTaskbar="False"
-        ResizeMode="CanResizeWithGrip">
-    <Border CornerRadius="16" BorderBrush="#552DE2E6" BorderThickness="1" Margin="8">
+        ResizeMode="CanResizeWithGrip"
+        MouseLeftButtonDown="Window_MouseLeftButtonDown">
+    <!-- Outer border is the visible chrome; drag works on empty space (not buttons). -->
+    <Border x:Name="ChromeBorder" CornerRadius="16" BorderBrush="#552DE2E6" BorderThickness="1" Margin="8"
+            MouseLeftButtonDown="Chrome_MouseLeftButtonDown">
         <Border.Background>
-            <SolidColorBrush Color="#E0121A2E"/>
+            <SolidColorBrush x:Name="ChromeBackground" Color="#E0121A2E"/>
         </Border.Background>
         <Border.Effect>
-            <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.55" Color="#000000"/>
+            <DropShadowEffect x:Name="ChromeShadow" BlurRadius="24" ShadowDepth="0" Opacity="0.55" Color="#000000"/>
         </Border.Effect>
         <Grid Margin="16">
             <Grid.RowDefinitions>
@@ -24,7 +27,9 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <Grid MouseLeftButtonDown="Header_MouseLeftButtonDown">
+            <!-- Drag handle area (title strip) -->
+            <Grid x:Name="HeaderBar" MouseLeftButtonDown="Chrome_MouseLeftButtonDown"
+                  Background="#01000000" Cursor="SizeAll">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
@@ -34,14 +39,15 @@
                     <TextBlock Text="{Binding PhaseLabel}" FontSize="16" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
                 </StackPanel>
                 <Button Grid.Column="1" Content="✕" Style="{StaticResource GhostButton}" Padding="10,4"
-                        Click="Close_Click" VerticalAlignment="Top"/>
+                        Click="CompactToggle_Click" VerticalAlignment="Top"
+                        ToolTip="Collapse HUD to a small Show button"/>
             </Grid>
 
-            <TextBlock Grid.Row="1" Text="{Binding HudTip}" TextWrapping="Wrap" Margin="0,12,0,8"
-                       Foreground="#FFFFB020" FontSize="13"/>
+            <StackPanel x:Name="ContentBody" Grid.Row="1" Grid.RowSpan="2">
+                <TextBlock Text="{Binding HudTip}" TextWrapping="Wrap" Margin="0,12,0,8"
+                           Foreground="#FFFFB020" FontSize="13"/>
 
-            <StackPanel Grid.Row="2">
-                <!-- Live projected overall % (caption explains measuring vs assumed 100%) -->
+                <!-- Live projected overall % -->
                 <Border Margin="0,0,0,10" Background="#330A2A20" CornerRadius="10" Padding="12,10"
                         BorderBrush="#66FFB020" BorderThickness="1"
                         Visibility="{Binding PreviewActive, Converter={StaticResource BoolToVis}}">
@@ -57,13 +63,17 @@
                         </StackPanel>
                         <TextBlock Text="{Binding PreviewCaption}" FontSize="11" Foreground="#FF8B9BB8"
                                    Margin="0,2,0,0" TextWrapping="Wrap"/>
+                        <!-- Live "why score is low": too high / too fast / weaving / … -->
+                        <TextBlock Text="{Binding PreviewIssues}" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="#FFFF6B6B" Margin="0,6,0,0" TextWrapping="Wrap"
+                                   Visibility="{Binding HasPreviewIssues, Converter={StaticResource BoolToVis}}"
+                                   ToolTip="Live issues hurting the preview score (path, speed, config, measured metrics)."/>
                     </StackPanel>
                 </Border>
 
                 <TextBlock Text="{Binding LiveStats}" FontFamily="Cascadia Mono, Consolas" FontSize="11"
                            Foreground="#FF8B9BB8" TextWrapping="Wrap"/>
 
-                <!-- Informational target only — not a live score -->
                 <Border Margin="0,10,0,0" Background="#221A3A4A" CornerRadius="8" Padding="10,8"
                         BorderBrush="#442DE2E6" BorderThickness="1">
                     <StackPanel>
@@ -94,27 +104,32 @@
                 </Border>
             </StackPanel>
 
-            <Grid Grid.Row="3" Margin="0,12,0,0">
+            <Grid x:Name="FooterBar" Grid.Row="3" Margin="0,12,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <!-- Bottom-left: resume after Start/Restart SET PAUSE hold -->
-                <Button Grid.Column="0" Content="GO" Style="{StaticResource AmberButton}"
+                <Button x:Name="GoButton" Grid.Column="0" Content="GO" Style="{StaticResource AmberButton}"
                         Command="{Binding GoCommand}"
                         ToolTip="Resume flight (SET PAUSE OFF). Use after Start/Restart instead of ESC → Resume."
                         FontWeight="Bold" FontSize="14" Padding="22,10" MinWidth="72"
                         HorizontalAlignment="Left"/>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="Clean" Style="{StaticResource GhostButton}" Command="{Binding CleanMetricsCommand}"
+                    <Button x:Name="CleanButton" Content="Clean" Style="{StaticResource GhostButton}"
+                            Command="{Binding CleanMetricsCommand}"
                             ToolTip="Wipe landing metrics only (preview → 100%). No re-spawn."
                             Padding="12,8" Margin="0,0,8,0"/>
-                    <Button Content="Restart" Style="{StaticResource GhostButton}" Command="{Binding RestartCommand}"
+                    <Button x:Name="RestartButton" Content="Restart" Style="{StaticResource GhostButton}"
+                            Command="{Binding RestartCommand}"
                             Padding="12,8" Margin="0,0,8,0"/>
-                    <Button Content="Menu" Style="{StaticResource GhostButton}" Command="{Binding OpenMenuCommand}"
+                    <Button x:Name="MenuButton" Content="Menu" Style="{StaticResource GhostButton}"
+                            Command="{Binding OpenMenuCommand}"
+                            ToolTip="Show or hide the main Challenge Lab window (HUD stays)."
                             Padding="12,8" Margin="0,0,8,0"/>
-                    <Button Content="Hide" Style="{StaticResource GhostButton}" Click="Close_Click" Padding="12,8"/>
+                    <Button x:Name="HideShowButton" Content="Hide" Style="{StaticResource GhostButton}"
+                            Click="CompactToggle_Click" Padding="12,8"
+                            ToolTip="Collapse HUD to a small Show chip (drag to move)."/>
                 </StackPanel>
             </Grid>
         </Grid>

@@ -15,13 +15,10 @@ internal readonly record struct ApproachMetricResult(
 /// <summary>
 /// Deterministic short-final metric calculation. Raw visual-frame telemetry is converted to
 /// runway-local coordinates, split at discontinuities, resampled to 5 Hz, and lightly smoothed
-/// before the path-accuracy and reversal-only steadiness metrics are integrated.
+/// before path-accuracy (mean |alt error|) and total-variation steadiness metrics are integrated.
 /// </summary>
 internal static class ApproachMetricCalculator
 {
-    private const double EarthRadiusMeters = 6_371_000.0;
-    private const double MetersPerNauticalMile = 1_852.0;
-    private const double NominalPathFeetPerNauticalMile = 318.0;
     private const double MaximumRawGapSeconds = 2.0;
     private static readonly TimeSpan ResampleInterval = TimeSpan.FromSeconds(0.2); // 5 Hz
 
@@ -39,8 +36,8 @@ internal static class ApproachMetricCalculator
             return default;
         }
 
-        var minimumDistanceMeters = minimumDistanceNm * MetersPerNauticalMile;
-        var maximumDistanceMeters = maximumDistanceNm * MetersPerNauticalMile;
+        var minimumDistanceMeters = minimumDistanceNm * RunwayPathGeometry.MetersPerNauticalMile;
+        var maximumDistanceMeters = maximumDistanceNm * RunwayPathGeometry.MetersPerNauticalMile;
         var segments = BuildSegments(samples, runway, minimumDistanceMeters, maximumDistanceMeters,
             out var rawSampleCount);
 
@@ -48,17 +45,17 @@ internal static class ApproachMetricCalculator
         double groundDistanceMeters = 0;
         double absoluteErrorIntegral = 0;
         double squaredErrorIntegral = 0;
-        double verticalExcessVariationFeet = 0;
-        double lateralExcessVariationMeters = 0;
+        // Total path variation (not reversal-only): live preview and finals must react to
+        // corrections / pumping / S-turns. One-way intercepts also cost, which matches
+        // pilot expectation that "wild flying" pulls the score down during approach.
+        double verticalTotalVariationFeet = 0;
+        double lateralTotalVariationMeters = 0;
 
         foreach (var rawSegment in segments)
         {
             var points = Smooth(Resample(rawSegment));
             if (points.Count < 2)
                 continue;
-
-            double segmentVerticalVariation = 0;
-            double segmentLateralVariation = 0;
 
             for (var i = 1; i < points.Count; i++)
             {
@@ -75,9 +72,9 @@ internal static class ApproachMetricCalculator
                     0.5 * (previous.AltitudeErrorFeet * previous.AltitudeErrorFeet
                            + current.AltitudeErrorFeet * current.AltitudeErrorFeet) * dt;
 
-                segmentVerticalVariation +=
+                verticalTotalVariationFeet +=
                     Math.Abs(current.AltitudeErrorFeet - previous.AltitudeErrorFeet);
-                segmentLateralVariation +=
+                lateralTotalVariationMeters +=
                     Math.Abs(current.LateralMeters - previous.LateralMeters);
 
                 var alongDelta =
@@ -86,15 +83,6 @@ internal static class ApproachMetricCalculator
                 groundDistanceMeters += Math.Sqrt(
                     alongDelta * alongDelta + lateralDelta * lateralDelta);
             }
-
-            var verticalNetChange =
-                Math.Abs(points[^1].AltitudeErrorFeet - points[0].AltitudeErrorFeet);
-            verticalExcessVariationFeet +=
-                Math.Max(0, segmentVerticalVariation - verticalNetChange);
-
-            var lateralNetChange = Math.Abs(points[^1].LateralMeters - points[0].LateralMeters);
-            lateralExcessVariationMeters +=
-                Math.Max(0, segmentLateralVariation - lateralNetChange);
         }
 
         var meanAbsoluteErrorFeet = durationSeconds > 0
@@ -103,11 +91,11 @@ internal static class ApproachMetricCalculator
         var rootMeanSquareErrorFeet = durationSeconds > 0
             ? Math.Sqrt(squaredErrorIntegral / durationSeconds)
             : 0;
-        var verticalExcessVariationFeetPerSecond = durationSeconds > 0
-            ? verticalExcessVariationFeet / durationSeconds
+        var verticalVariationFeetPerSecond = durationSeconds > 0
+            ? verticalTotalVariationFeet / durationSeconds
             : 0;
-        var lateralExcessVariationIndex = groundDistanceMeters > 0
-            ? lateralExcessVariationMeters / groundDistanceMeters
+        var lateralWeaveIndex = groundDistanceMeters > 0
+            ? lateralTotalVariationMeters / groundDistanceMeters
             : 0;
 
         return new ApproachMetricResult(
@@ -115,8 +103,8 @@ internal static class ApproachMetricCalculator
             durationSeconds,
             groundDistanceMeters,
             meanAbsoluteErrorFeet,
-            verticalExcessVariationFeetPerSecond,
-            lateralExcessVariationIndex,
+            verticalVariationFeetPerSecond,
+            lateralWeaveIndex,
             rootMeanSquareErrorFeet);
     }
 
@@ -179,39 +167,14 @@ internal static class ApproachMetricCalculator
         out ApproachPoint point)
     {
         point = default;
-        if (!double.IsFinite(sample.Latitude)
-            || !double.IsFinite(sample.Longitude)
-            || !double.IsFinite(sample.AltitudeFeet)
-            || !double.IsFinite(runway.ThresholdLatitude)
-            || !double.IsFinite(runway.ThresholdLongitude)
-            || !double.IsFinite(runway.HeadingTrueDeg)
-            || !double.IsFinite(runway.ElevationFeet))
-        {
+        if (!RunwayPathGeometry.TryGetState(sample, runway, out var path))
             return false;
-        }
-
-        var referenceLatitudeRadians = runway.ThresholdLatitude * Math.PI / 180.0;
-        var northMeters =
-            (sample.Latitude - runway.ThresholdLatitude) * Math.PI / 180.0 * EarthRadiusMeters;
-        var eastMeters =
-            (sample.Longitude - runway.ThresholdLongitude) * Math.PI / 180.0
-            * EarthRadiusMeters * Math.Cos(referenceLatitudeRadians);
-        var headingRadians = runway.HeadingTrueDeg * Math.PI / 180.0;
-
-        var runwayAlongMeters =
-            northMeters * Math.Cos(headingRadians) + eastMeters * Math.Sin(headingRadians);
-        var approachDistanceMeters = -runwayAlongMeters;
-        var lateralMeters =
-            eastMeters * Math.Cos(headingRadians) - northMeters * Math.Sin(headingRadians);
-        var expectedAltitudeFeet = runway.ElevationFeet
-                                   + approachDistanceMeters / MetersPerNauticalMile
-                                   * NominalPathFeetPerNauticalMile;
 
         point = new ApproachPoint(
             sample.Timestamp,
-            approachDistanceMeters,
-            lateralMeters,
-            sample.AltitudeFeet - expectedAltitudeFeet);
+            path.ApproachDistanceMeters,
+            path.LateralMeters,
+            path.AltitudeErrorFeet);
         return true;
     }
 

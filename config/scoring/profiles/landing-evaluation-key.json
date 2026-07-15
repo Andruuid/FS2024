@@ -1,6 +1,6 @@
 {
   "id": "landing-evaluation-key",
-  "version": 7,
+  "version": 8,
   "description": "Single authoritative landing score. Every metric scores 0-100%; phases and metrics use literal percentage weights; gear and flaps are safety gates and never award points.",
   "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply gear/flaps multipliers last when required",
   "settle": {
@@ -17,7 +17,7 @@
     "minAirborneAglFeet": 80,
     "minAirborneSamples": 8,
     "approachPathMinDistNm": 0.2,
-    "approachPathMaxDistNm": 3.8
+    "approachPathMaxDistNm": 4.5
   },
   "speedTarget": {
     "defaultVappKts": 143,
@@ -156,7 +156,7 @@
       "id": "approach",
       "displayName": "Approach",
       "weightPercent": 25,
-      "note": "Short final (≈0.2–3.8 NM): average 3° path match, vertical steadiness, and lateral steadiness share the phase equally.",
+      "note": "Short final (≈0.2–4.5 NM, includes typical 4 NM spawn): average 3° path match, vertical steadiness, and lateral steadiness share the phase equally.",
       "metrics": [
         {
           "id": "approach_glideslope",
@@ -175,7 +175,7 @@
           "unit": "ft/s",
           "evaluator": "target",
           "metric": "approachVerticalVariationFtPerSec",
-          "note": "Reversal-only vertical pumping: (Σ|Δe| − |e_last − e_first|) / T, summed per continuous segment. A smooth one-way capture is not penalized.",
+          "note": "Total vertical path pumping: Σ|Δe| / T. Steady path scores high; large corrections and oscillations score low.",
           "params": { "ideal": 0, "tolerance": 3, "maxError": 25 }
         },
         {
@@ -185,7 +185,7 @@
           "unit": "m/m",
           "evaluator": "target",
           "metric": "approachLateralWeaveIndex",
-          "note": "Reversal-only lateral weave: (Σ|Δd| − |d_last − d_first|) / ground distance, summed per continuous segment. A smooth intercept is not penalized; S-turns are.",
+          "note": "Total lateral path change: Σ|Δd| / ground distance. Straight track scores high; big corrections and S-turns score low.",
           "params": { "ideal": 0, "tolerance": 0.02, "maxError": 0.20 }
         }
       ]

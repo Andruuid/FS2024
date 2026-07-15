@@ -210,7 +210,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(7, loaded.Key.Version);
+        Assert.Equal(8, loaded.Key.Version);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
 

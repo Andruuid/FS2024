@@ -52,11 +52,12 @@ public sealed class ApproachMetricMathTests
             lateralOffset: _ => 0);
 
         Assert.InRange(snapshot.ApproachGlideslopeMeanAbsFt, 190, 205);
-        Assert.InRange(snapshot.ApproachVerticalVariationFtPerSec, 0, 0.01);
+        // One step change: total vertical variation is non-zero.
+        Assert.True(snapshot.ApproachVerticalVariationFtPerSec > 5);
     }
 
     [Fact]
-    public void VerticalExcessVariation_RemovesOneWayCaptureButCountsReversals()
+    public void VerticalTotalVariation_CountsOneWayCaptureAndPumping()
     {
         var monotonic = CalculateApproach(
             60,
@@ -67,13 +68,15 @@ public sealed class ApproachMetricMathTests
             altitudeError: progress => 100 * Math.Sin(progress * 4 * Math.PI),
             lateralOffset: _ => 0);
 
-        Assert.InRange(monotonic.ApproachVerticalVariationFtPerSec, 0, 0.01);
+        // 200 ft over ~20 s → ~10 ft/s total variation for a smooth capture.
+        Assert.InRange(monotonic.ApproachVerticalVariationFtPerSec, 8, 12);
         Assert.True(pumping.ApproachVerticalVariationFtPerSec > 30,
-            $"Expected reversal variation above 30 ft/s, got {pumping.ApproachVerticalVariationFtPerSec}");
+            $"Expected pumping variation above 30 ft/s, got {pumping.ApproachVerticalVariationFtPerSec}");
+        Assert.True(pumping.ApproachVerticalVariationFtPerSec > monotonic.ApproachVerticalVariationFtPerSec);
     }
 
     [Fact]
-    public void LateralExcessVariation_RemovesOffsetAndInterceptButCountsSTurns()
+    public void LateralTotalVariation_CountsInterceptAndSTurns()
     {
         var parallel = CalculateApproach(
             60,
@@ -89,9 +92,12 @@ public sealed class ApproachMetricMathTests
             lateralOffset: progress => 100 * Math.Sin(progress * 4 * Math.PI));
 
         Assert.InRange(parallel.ApproachLateralWeaveIndex, 0, 0.000001);
-        Assert.InRange(intercept.ApproachLateralWeaveIndex, 0, 0.000001);
+        // Closing 100 m offset over short final is real path change.
+        Assert.True(intercept.ApproachLateralWeaveIndex > 0.01,
+            $"Expected intercept weave above 0.01 m/m, got {intercept.ApproachLateralWeaveIndex}");
         Assert.True(weaving.ApproachLateralWeaveIndex > 0.10,
             $"Expected S-turn weave above 0.10 m/m, got {weaving.ApproachLateralWeaveIndex}");
+        Assert.True(weaving.ApproachLateralWeaveIndex > intercept.ApproachLateralWeaveIndex);
     }
 
     [Fact]

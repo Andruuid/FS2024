@@ -255,8 +255,8 @@ public sealed class LandingSession
     /// <summary>
     /// Short-final approach metrics (same distance window as config):
     /// 1) time-weighted mean absolute altitude error vs the nominal 3° path,
-    /// 2) reversal-only vertical excess variation per second,
-    /// 3) reversal-only lateral excess variation per metre flown.
+    /// 2) total vertical path variation per second,
+    /// 3) total lateral path variation per metre flown.
     /// Raw visual-frame telemetry is stabilized by <see cref="ApproachMetricCalculator"/>.
     /// </summary>
     private void ComputeApproachPathMetrics()
