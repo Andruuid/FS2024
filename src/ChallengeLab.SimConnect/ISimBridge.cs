@@ -35,4 +35,10 @@ public interface ISimBridge : IDisposable
     void ApplyWeather(WeatherConfig weather);
     void ApplyTimeOfDay(TimeOfDayConfig? timeOfDay);
     void Teleport(SpawnConfig spawn);
+
+    /// <summary>
+    /// Resume after challenge hold: SET PAUSE OFF (+ clear active pause if stuck).
+    /// HUD "Go" — pilot does not need ESC → Resume.
+    /// </summary>
+    void ResumeFlight();
 }

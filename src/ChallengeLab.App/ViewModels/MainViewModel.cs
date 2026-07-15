@@ -43,6 +43,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _previewScoreDisplay = "—";
     private string _previewGrade = "";
     private string _previewCaption = "";
+    private string _previewHeading = "PREVIEW SCORE";
     private bool _previewActive;
     private DateTimeOffset _lastPreviewUtc = DateTimeOffset.MinValue;
     private ScoreResult? _lastScore;
@@ -89,6 +90,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             (_activeChallenge is not null || SelectedChallenge is { Available: true })
             && HasValidScoringConfiguration && !IsLoading);
         CleanMetricsCommand = new RelayCommand(CleanMetrics, CanCleanMetrics);
+        GoCommand = new RelayCommand(GoFlight, CanGoFlight);
         ConnectCommand = new RelayCommand(TriggerConnect);
         DismissResultCommand = new RelayCommand(() => ResultVisible = false);
         ClearHighscoreSelectionCommand = new RelayCommand(() => SelectedHighscore = null);
@@ -159,6 +161,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand RestartCommand { get; }
     /// <summary>Wipe landing metrics only (no re-spawn); preview returns to 100%.</summary>
     public ICommand CleanMetricsCommand { get; }
+    /// <summary>HUD Go: SET PAUSE OFF (resume flight after Start/Restart hold).</summary>
+    public ICommand GoCommand { get; }
     public ICommand ConnectCommand { get; }
     public ICommand DismissResultCommand { get; }
     public ICommand ClearHighscoreSelectionCommand { get; }
@@ -306,6 +310,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             SetProperty(ref _isLoading, value);
             (StartChallengeCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (RestartCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
@@ -372,6 +378,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         get => _previewCaption;
         private set => SetProperty(ref _previewCaption, value);
+    }
+
+    /// <summary>HUD card title: PREVIEW SCORE while live, FINAL SCORE after settle.</summary>
+    public string PreviewHeading
+    {
+        get => _previewHeading;
+        private set => SetProperty(ref _previewHeading, value);
     }
 
     /// <summary>True while a challenge session is armed and preview should show on the HUD.</summary>
@@ -589,14 +602,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             }
             else
             {
-                // SET PAUSE ON end state (same after Restart from flying or from ESC menu pause).
-                // Not "active pause". Resume with Pause Off / your resume control, or ESC → Resume.
-                LoadStatus = "Ready — sim PAUSED · resume when ready to fly";
-                HudTip = "Sim is PAUSED (not active pause) — resume when ready to fly.";
+                // Stable end: airborne at spawn, SET PAUSE ON (not active pause, not yellow RTF —
+                // yellow Ready-to-Fly only appears after World Map / FlightLoad, which CTDs mid free-flight).
+                LoadStatus = "Ready — PAUSED in air · resume when ready";
+                HudTip = "PAUSED at spawn — press GO on the HUD when ready to fly.";
                 AppendLog(
-                    "Sim left on SET PAUSE after config settle (same if you Restarted while flying or while ESC-paused). " +
-                    "Resume when ready — this is not active pause.");
-                SetPreviewPerfect("armed · sim PAUSED · resume when ready · metrics assumed 100%");
+                    "Stable hold: SET PAUSE at spawn. Press HUD GO to resume (or ESC → Resume).");
+                SetPreviewPerfect("armed · PAUSED · press GO when ready · metrics assumed 100%");
             }
 
             _session.Arm();
@@ -609,6 +621,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             RequestShowHud?.Invoke();
             (RestartCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
         catch (AircraftMismatchException acEx)
         {
@@ -641,6 +654,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _session = null;
         ClearPreview();
         (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     private bool CanCleanMetrics() =>
@@ -648,6 +662,26 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         && _session.Phase is not LandingPhase.Idle
         && HasValidScoringConfiguration
         && !IsLoading;
+
+    private bool CanGoFlight() =>
+        _sim.IsConnected
+        && !IsLoading
+        && _session is not null
+        && _session.Phase is not LandingPhase.Idle;
+
+    /// <summary>
+    /// HUD "Go": resume the sim after Start/Restart SET PAUSE hold (no ESC menu needed).
+    /// </summary>
+    private void GoFlight()
+    {
+        if (!CanGoFlight()) return;
+
+        _sim.ResumeFlight();
+        LoadStatus = "Go — flying";
+        HudTip = "Go! Fly the approach.";
+        AppendLog("Go: SET PAUSE OFF (resume flight).");
+        (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
 
     /// <summary>
     /// HUD "Clean": zero all metrics from this landing at this moment only.
@@ -756,6 +790,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void SetPreviewPerfect(string? caption = null)
     {
         PreviewActive = true;
+        PreviewHeading = "PREVIEW SCORE";
         PreviewScorePercent = 100;
         PreviewScoreDisplay = "100.0%";
         PreviewGrade = "S";
@@ -766,6 +801,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void ClearPreview()
     {
         PreviewActive = false;
+        PreviewHeading = "PREVIEW SCORE";
         PreviewScorePercent = null;
         PreviewScoreDisplay = "—";
         PreviewGrade = "";
@@ -776,6 +812,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void ApplyFinalPreview(ScoreResult result)
     {
         PreviewActive = true;
+        PreviewHeading = "FINAL SCORE";
         PreviewScorePercent = result.ScorePercent;
         PreviewScoreDisplay = result.ScoreDisplay;
         PreviewGrade = result.Grade;
@@ -808,6 +845,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
             var preview = _scoreEngine.EvaluatePreview(_activeChallenge, _session.Snapshot);
             PreviewActive = true;
+            PreviewHeading = "PREVIEW SCORE";
             PreviewScorePercent = preview.ScorePercent;
             PreviewScoreDisplay = preview.ScoreDisplay;
             PreviewGrade = preview.Grade;

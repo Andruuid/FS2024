@@ -269,14 +269,16 @@ public sealed class SimConnectClient : ISimBridge
         // --- Safe apply: time + weather + teleport + config (no FlightLoad) ---
         //
         // MSFS pause modes (must not be mixed up):
-        // 1) Flying — sim running, pilot in control.
-        // 2) ESC / menu pause — Escape opens menu; Resume to fly again. (what pilots mean by "paused")
-        // 3) Active pause — separate "freeze plane, world keeps going" mode (PAUSE key). NOT (2).
-        // 4) SET PAUSE ON/OFF (SimConnect PAUSE_ON/OFF) — full sim pause we control programmatically;
-        //    end state when Unpause=false so pilot must resume before flying (same intent as (2)).
+        // 1) Flying — sim running.
+        // 2) ESC / menu pause — Escape → Resume (what pilots mean by "paused").
+        // 3) Active pause — separate mode; clear if stuck, never use as our end state.
+        // 4) SET PAUSE ON/OFF — SimConnect full pause; our controlled "wait then resume".
         //
-        // Restart must behave identically for (1) and (2). We cannot close the ESC menu via
-        // SimConnect; we pin the aircraft with FREEZE + SET PAUSE and always finish the same way.
+        // CRITICAL stability rule (ground→air Restart):
+        // Never release SET PAUSE or FREEZE mid-load. Releasing pause for "config settle"
+        // while freeze is imperfect causes the classic: flash airborne → fall back to runway.
+        // Yellow "Ready to Fly" is World-Map/FlightLoad UI only; mid free-flight FlightLoad
+        // of CustomFlight/aircraft swap CTDs MSFS 2024 — we approximate with SET PAUSE hold.
         SpawnApplyResult spawnResult = SpawnApplyResult.Fail("Spawn did not complete.");
         progress?.Report("Setting time of day…");
         try
@@ -295,7 +297,14 @@ public sealed class SimConnectClient : ISimBridge
 
             if (spawnResult.Success)
             {
-                await ConfigureAndSettleAsync(challenge.AircraftSetup, progress, ct);
+                await ConfigureAndSettleAsync(challenge.AircraftSetup, challenge.Spawn, progress, ct);
+
+                // Re-pin spawn after config so a ground restart cannot leave residual sink.
+                progress?.Report("Stabilizing spawn…");
+                await RePinSpawnAsync(challenge.Spawn, ct);
+                spawnResult = await VerifySpawnAsync(challenge.Spawn, ct);
+                if (!spawnResult.Success)
+                    Log($"Post-config re-verify: {spawnResult.Message}");
             }
             else
             {
@@ -305,21 +314,45 @@ public sealed class SimConnectClient : ISimBridge
         }
         finally
         {
-            // SET PAUSE before unfreeze so we never get a free-flight frame mid-Restart.
+            // Hold SET PAUSE first, re-assert pose once more, only then release FREEZE.
+            // Order matters: unfreeze-before-pause = freefall / snap-to-ground.
             if (challenge.AircraftSetup.Unpause)
             {
-                EnsureActivePauseOff(); // third state only — do not leave active-pause on
+                EnsureActivePauseOff();
+                // Keep freeze until after a final pose write, then unpause.
+                try
+                {
+                    if (challenge.Spawn is not null)
+                    {
+                        Teleport(challenge.Spawn);
+                        SetPoseDirect(challenge.Spawn);
+                        SetVelocityForSpawn(challenge.Spawn);
+                    }
+                }
+                catch { /* best effort */ }
+
+                FreezePose(false);
                 PauseSim(false);
             }
             else
             {
-                // Same end state for Restart-from-flying and Restart-from-ESC-pause:
-                // SET PAUSE ON (not active pause). Pilot resumes when ready.
+                ForceSetPauseOn();
+                try
+                {
+                    if (challenge.Spawn is not null)
+                    {
+                        Teleport(challenge.Spawn);
+                        SetPoseDirect(challenge.Spawn);
+                        SetVelocityForSpawn(challenge.Spawn);
+                    }
+                }
+                catch { /* best effort */ }
+
+                ForceSetPauseOn();
+                // Release FREEZE only while SET PAUSE is on — aircraft stays put until resume.
+                FreezePose(false);
                 ForceSetPauseOn();
             }
-
-            // Never leave FREEZE stuck (plane unresponsive after pilot resumes).
-            FreezePose(false);
         }
 
         if (spawnResult.Success)
@@ -327,14 +360,14 @@ public sealed class SimConnectClient : ISimBridge
             progress?.Report(
                 challenge.AircraftSetup.Unpause
                     ? "Challenge armed."
-                    : "Ready — sim PAUSED (resume to fly). Not active pause.");
+                    : "Ready — PAUSED in air. Resume when ready to fly.");
             var tod = challenge.TimeOfDay ?? new TimeOfDayConfig();
             Log(
                 $"Scenario load complete (safe path). Spawn IAS {challenge.Spawn.AirspeedKts:0} kt · " +
                 $"alt {challenge.Spawn.AltitudeFeet:0} ft · hdg {challenge.Spawn.HeadingDeg:0}° · " +
                 $"time {tod.Hour:00}:{tod.Minute:00} {(tod.UseZuluTime ? "Z" : "local")} · ac '{actualTitle ?? "?"}' · " +
                 $"verify horiz={spawnResult.HorizontalErrorM:0} m altErr={spawnResult.AltErrorFeet:0} ft ias={spawnResult.AirspeedKts:0} · " +
-                $"setPause={!challenge.AircraftSetup.Unpause}.");
+                $"setPause={!challenge.AircraftSetup.Unpause} onGround={spawnResult.ReportedOnGround}.");
         }
 
         return spawnResult;
@@ -715,6 +748,31 @@ public sealed class SimConnectClient : ISimBridge
         }
     }
 
+    /// <inheritdoc />
+    public void ResumeFlight()
+    {
+        if (_sim is null)
+        {
+            Log("ResumeFlight: not connected.");
+            return;
+        }
+
+        try
+        {
+            EnsureEvents();
+            // Ensure FREEZE is off so resume is real flight, not a frozen hover.
+            FreezePose(false);
+            EnsureActivePauseOff();
+            PauseSim(false);
+            PauseSim(false); // second pulse — some hosts drop the first PAUSE_OFF
+            Log("ResumeFlight: FREEZE off · SET PAUSE OFF (Go).");
+        }
+        catch (Exception ex)
+        {
+            Log($"ResumeFlight: {ex.Message}");
+        }
+    }
+
     public void ConfigureAircraft(AircraftSetupConfig setup)
     {
         if (_sim is null) return;
@@ -755,30 +813,33 @@ public sealed class SimConnectClient : ISimBridge
     }
 
     /// <summary>
-    /// Apply gear/flaps/spoilers/parking brake with systems allowed to run under FREEZE.
-    /// SET PAUSE ON freezes surface travel, so we temporarily PAUSE_OFF while holding FREEZE.
-    /// Always ends on SET PAUSE ON so Restart-from-flying and Restart-from-ESC-pause match.
+    /// Apply gear/flaps/spoilers/parking brake while remaining SET-paused + FREEZE pinned.
+    /// Do NOT release pause here — that caused airborne→runway snaps after ground Restart.
+    /// Surface motion may complete after the pilot resumes; we still command handles now.
     /// </summary>
     private async Task ConfigureAndSettleAsync(
         AircraftSetupConfig setup,
+        SpawnConfig spawn,
         IProgress<string>? progress,
         CancellationToken ct)
     {
         progress?.Report("Configuring gear, flaps, spoilers…");
         var started = DateTimeOffset.UtcNow;
 
-        // Pin pose; release SET PAUSE so hydraulics/surfaces can move.
-        // (Active pause is unrelated — only cleared so it cannot block surface motion.)
-        FreezePose(true);
         EnsureActivePauseOff();
-        PauseSim(false);
+        ForceSetPauseOn();
+        FreezePose(true);
         await Task.Delay(120, ct);
-        Log("Config settle: systems running under FREEZE (SET PAUSE off; not active pause).");
+        Log("Config settle: SET PAUSE ON + FREEZE held (no mid-config unpause).");
 
         for (var i = 1; i <= ConfigPulseCount; i++)
         {
+            // Re-pin between pulses so residual ground physics cannot drag us down.
+            Teleport(spawn);
+            SetPoseDirect(spawn);
+            SetVelocityForSpawn(spawn);
             ConfigureAircraft(setup);
-            // Keep pin in case resume/ESC interactions cleared freeze on some builds.
+            ForceSetPauseOn();
             FreezePose(true);
             Log($"Config pulse {i}/{ConfigPulseCount} " +
                 $"(gear={(setup.GearDown ? "down" : "up")} flaps={setup.FlapsHandleIndex} " +
@@ -790,14 +851,36 @@ public sealed class SimConnectClient : ISimBridge
 
         var matched = false;
         string? lastDetail = null;
+        var poll = 0;
         while ((DateTimeOffset.UtcNow - started).TotalMilliseconds < MaxConfigSettleMs)
         {
+            poll++;
+            ForceSetPauseOn();
             FreezePose(true);
+            // Keep pose/velocity alive while handles settle (prevents runway snap).
+            if (poll % 2 == 0)
+            {
+                SetPoseDirect(spawn);
+                SetVelocityForSpawn(spawn);
+            }
+
             var elapsed = (DateTimeOffset.UtcNow - started).TotalMilliseconds;
             var sample = await RequestSpawnSnapshotAsync(ct);
             if (sample is not null)
             {
                 matched = ConfigMatches(setup, sample.Value, out lastDetail);
+                var altErr = Math.Abs(sample.Value.Altitude - spawn.AltitudeFeet);
+                if (sample.Value.SimOnGround > 0.5 || altErr > MaxAltitudeErrorFeet)
+                {
+                    Log(
+                        $"Config settle drift: onGround={sample.Value.SimOnGround > 0.5} " +
+                        $"altErr={altErr:0} — re-pinning");
+                    Teleport(spawn);
+                    SetPoseDirect(spawn);
+                    SetVelocityForSpawn(spawn);
+                    FreezePose(true);
+                }
+
                 if (matched && elapsed >= MinConfigSettleMs)
                 {
                     Log($"Config settled OK after {elapsed:0} ms — {lastDetail}");
@@ -821,25 +904,34 @@ public sealed class SimConnectClient : ISimBridge
                 matched = ConfigMatches(setup, sample.Value, out lastDetail);
         }
 
-        // Final config pulse + SET PAUSE ON — same end state for every Restart entry path.
         ConfigureAircraft(setup);
         ForceSetPauseOn();
-        await Task.Delay(100, ct);
-        ForceSetPauseOn();
+        FreezePose(true);
 
         if (matched)
         {
-            progress?.Report("Config ready — sim PAUSED (resume to fly). Not active pause.");
+            progress?.Report("Config ready — holding PAUSED in air…");
             Log($"Config verify OK: {lastDetail}");
         }
         else
         {
             // Soft-fail: do not block restart forever (aircraft-specific surface quirks).
-            progress?.Report("Config timeout — sim PAUSED. Check gear/flaps/spoilers, then resume.");
+            progress?.Report("Config timeout — holding PAUSED in air. Check surfaces after resume.");
             Log($"Config verify soft-fail after settle: {lastDetail ?? "no telemetry"} " +
                 $"(gear want={(setup.GearDown ? "down" : "up")} flaps={setup.FlapsHandleIndex} " +
                 $"spoilersIn={setup.SpoilersRetracted} parkBrake={setup.ParkingBrakeOn})");
         }
+    }
+
+    /// <summary>Final airborne re-pin under freeze+pause before we release freeze.</summary>
+    private async Task RePinSpawnAsync(SpawnConfig spawn, CancellationToken ct)
+    {
+        ForceSetPauseOn();
+        FreezePose(true);
+        await PulseSpawnAsync(spawn, pulses: 3, ct);
+        await Task.Delay(200, ct);
+        ForceSetPauseOn();
+        FreezePose(true);
     }
 
     private static bool ConfigMatches(

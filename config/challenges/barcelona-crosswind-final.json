@@ -55,7 +55,7 @@
   },
   "hudTips": [
     "Start free flight in A330-200 (RR) first — Challenge Lab will not hot-swap aircraft.",
-    "After Start/Restart the sim stays PAUSED (resume to fly) — same if you Restart while flying or from ESC pause. Not active pause.",
+    "After Start/Restart you stay PAUSED at spawn — press GO on the HUD when ready to fly.",
     "Start config: gear up, flaps 0, spoilers in, parking brake off. Set landing flaps on approach.",
     "Edit spawn / timeOfDay / weather in this JSON, then restart the challenge."
   ]

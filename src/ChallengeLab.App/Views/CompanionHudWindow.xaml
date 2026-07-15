@@ -46,9 +46,9 @@
                         BorderBrush="#66FFB020" BorderThickness="1"
                         Visibility="{Binding PreviewActive, Converter={StaticResource BoolToVis}}">
                     <StackPanel>
-                        <TextBlock Text="PREVIEW SCORE" FontSize="10" FontWeight="Bold"
+                        <TextBlock Text="{Binding PreviewHeading}" FontSize="10" FontWeight="Bold"
                                    Foreground="#FFFFB020"
-                                   ToolTip="Live projection only — not a highscore. Unmeasured metrics count as 100% until their flight phase is sampled."/>
+                                   ToolTip="Live projection while airborne (unmeasured metrics = 100%). Switches to FINAL SCORE after settle."/>
                         <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                             <TextBlock Text="{Binding PreviewScoreDisplay}" FontSize="40" FontWeight="Bold"
                                        Foreground="#FF2DE2E6"/>
@@ -94,16 +94,29 @@
                 </Border>
             </StackPanel>
 
-            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-                <Button Content="Clean" Style="{StaticResource GhostButton}" Command="{Binding CleanMetricsCommand}"
-                        ToolTip="Wipe landing metrics only (preview → 100%). No re-spawn."
-                        Padding="12,8" Margin="0,0,8,0"/>
-                <Button Content="Restart" Style="{StaticResource AmberButton}" Command="{Binding RestartCommand}"
-                        Padding="12,8" Margin="0,0,8,0"/>
-                <Button Content="Menu" Style="{StaticResource GhostButton}" Command="{Binding OpenMenuCommand}"
-                        Padding="12,8" Margin="0,0,8,0"/>
-                <Button Content="Hide" Style="{StaticResource GhostButton}" Click="Close_Click" Padding="12,8"/>
-            </StackPanel>
+            <Grid Grid.Row="3" Margin="0,12,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <!-- Bottom-left: resume after Start/Restart SET PAUSE hold -->
+                <Button Grid.Column="0" Content="GO" Style="{StaticResource AmberButton}"
+                        Command="{Binding GoCommand}"
+                        ToolTip="Resume flight (SET PAUSE OFF). Use after Start/Restart instead of ESC → Resume."
+                        FontWeight="Bold" FontSize="14" Padding="22,10" MinWidth="72"
+                        HorizontalAlignment="Left"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Clean" Style="{StaticResource GhostButton}" Command="{Binding CleanMetricsCommand}"
+                            ToolTip="Wipe landing metrics only (preview → 100%). No re-spawn."
+                            Padding="12,8" Margin="0,0,8,0"/>
+                    <Button Content="Restart" Style="{StaticResource GhostButton}" Command="{Binding RestartCommand}"
+                            Padding="12,8" Margin="0,0,8,0"/>
+                    <Button Content="Menu" Style="{StaticResource GhostButton}" Command="{Binding OpenMenuCommand}"
+                            Padding="12,8" Margin="0,0,8,0"/>
+                    <Button Content="Hide" Style="{StaticResource GhostButton}" Click="Close_Click" Padding="12,8"/>
+                </StackPanel>
+            </Grid>
         </Grid>
     </Border>
 </Window>
