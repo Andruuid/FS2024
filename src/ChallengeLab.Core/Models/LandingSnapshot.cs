@@ -9,25 +9,25 @@ public sealed class LandingSnapshot
     public double MaxLateralOffsetM { get; set; }
     public double TouchdownLateralOffsetM { get; set; }
     public double TouchdownHeadingErrorDeg { get; set; }
-    /// <summary>Legacy / diagnostic: RMS altitude error vs 3° path on short final (ft).</summary>
+    /// <summary>Diagnostic: time-weighted RMS altitude error vs the stabilized 3° path (ft).</summary>
     public double ApproachPathRms { get; set; }
     public int ApproachPathSampleCount { get; set; }
 
     /// <summary>
-    /// Time-integrated average glideslope match: |∫ e(t) dt / T| where e is altitude error vs 3° path (ft).
-    /// Pure bias — oscillating equally above/below scores well here and is penalized in vertical steadiness.
+    /// Time-weighted mean absolute altitude error vs the nominal 3° path: ∫|e(t)|dt / T (ft).
+    /// High and low deviations cannot cancel one another.
     /// </summary>
     public double ApproachGlideslopeMeanAbsFt { get; set; }
 
     /// <summary>
-    /// Vertical steadiness: total variation of altitude error per second = Σ|Δe| / T (ft/s).
-    /// High when the pilot pumps the path (above then below); near 0 for a steady capture.
+    /// Vertical steadiness: excess total variation of altitude error per second (ft/s).
+    /// The net start-to-end correction is removed so a monotonic capture scores near 0.
     /// </summary>
     public double ApproachVerticalVariationFtPerSec { get; set; }
 
     /// <summary>
-    /// Lateral steadiness on approach: Σ|Δd| / ground distance (m/m), same idea as rollout weave.
-    /// High when S-turning left/right of centerline; low for a straight-in track.
+    /// Lateral weave: excess total variation of lateral offset per metre flown (m/m).
+    /// The net intercept is removed so only reversals / S-turns add weave.
     /// </summary>
     public double ApproachLateralWeaveIndex { get; set; }
 

@@ -1,6 +1,6 @@
 {
   "id": "landing-evaluation-key",
-  "version": 5,
+  "version": 6,
   "description": "Single authoritative landing score. Every metric scores 0-100%; phases and metrics use literal percentage weights; gear and flaps are safety gates and never award points.",
   "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply gear/flaps multipliers last when required",
   "settle": {
@@ -165,7 +165,7 @@
           "unit": "ft",
           "evaluator": "target",
           "metric": "approachGlideslopeMeanAbsFt",
-          "note": "Time-integrated average altitude bias vs the nominal 3° path: |∫e(t) dt / T|. Oscillating equally high/low can still score well here; that is scored under vertical steadiness.",
+          "note": "Time-weighted mean absolute altitude error vs the nominal 3° path: ∫|e(t)| dt / T. High and low deviations cannot cancel.",
           "params": { "ideal": 0, "tolerance": 40, "maxError": 350 }
         },
         {
@@ -175,7 +175,7 @@
           "unit": "ft/s",
           "evaluator": "target",
           "metric": "approachVerticalVariationFtPerSec",
-          "note": "How much you pump the path: total variation of altitude error per second (Σ|Δe| / T). Steady capture scores high; constant above/below corrections score low.",
+          "note": "Reversal-only vertical pumping: (Σ|Δe| − |e_last − e_first|) / T, summed per continuous segment. A smooth one-way capture is not penalized.",
           "params": { "ideal": 0, "tolerance": 3, "maxError": 25 }
         },
         {
@@ -185,7 +185,7 @@
           "unit": "m/m",
           "evaluator": "target",
           "metric": "approachLateralWeaveIndex",
-          "note": "Left/right corrections on short final: Σ|Δ lateral offset| / ground distance. A straight track scores high; S-turns left and right of centerline score low.",
+          "note": "Reversal-only lateral weave: (Σ|Δd| − |d_last − d_first|) / ground distance, summed per continuous segment. A smooth intercept is not penalized; S-turns are.",
           "params": { "ideal": 0, "tolerance": 0.02, "maxError": 0.20 }
         }
       ]

@@ -217,7 +217,7 @@ public sealed class LandingSessionTests
         Assert.True(session.Snapshot.ApproachPathRms < 80,
             $"Expected short-final RMS near 0, got {session.Snapshot.ApproachPathRms}");
         Assert.True(session.Snapshot.ApproachGlideslopeMeanAbsFt < 50,
-            $"Expected near-zero mean GS bias, got {session.Snapshot.ApproachGlideslopeMeanAbsFt}");
+            $"Expected near-zero mean absolute GS error, got {session.Snapshot.ApproachGlideslopeMeanAbsFt}");
         Assert.True(session.Snapshot.ApproachVerticalVariationFtPerSec < 5,
             $"Expected calm vertical variation, got {session.Snapshot.ApproachVerticalVariationFtPerSec}");
     }
@@ -270,7 +270,7 @@ public sealed class LandingSessionTests
     }
 
     [Fact]
-    public void ApproachMetrics_SeparateBiasFromVerticalPumping()
+    public void ApproachMetrics_AlternatingErrorsDoNotCancelAndCountAsPumping()
     {
         var (challenge, settings) = Load();
         var session = new LandingSession(challenge, settings);
@@ -353,11 +353,11 @@ public sealed class LandingSessionTests
         }
 
         Assert.True(session.Snapshot.ApproachMetricDurationSec >= 0.5);
-        // Mean of +200/−200 ≈ 0 → excellent average match.
-        Assert.True(session.Snapshot.ApproachGlideslopeMeanAbsFt < 30,
-            $"Mean bias should be near 0, got {session.Snapshot.ApproachGlideslopeMeanAbsFt}");
-        // But pumping 400 ft every 0.5 s is ~800 ft/s of |Δe| average — very unsteady.
-        Assert.True(session.Snapshot.ApproachVerticalVariationFtPerSec > 100,
+        // Mean absolute error cannot cancel even though the signed mean is approximately zero.
+        Assert.True(session.Snapshot.ApproachGlideslopeMeanAbsFt > 50,
+            $"Alternating errors should retain material MAE, got {session.Snapshot.ApproachGlideslopeMeanAbsFt}");
+        // Repeated reversals remain very unsteady after the one-way net correction is removed.
+        Assert.True(session.Snapshot.ApproachVerticalVariationFtPerSec > 50,
             $"Expected large vertical variation, got {session.Snapshot.ApproachVerticalVariationFtPerSec}");
     }
 

@@ -210,6 +210,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
+        Assert.Equal(6, loaded.Key.Version);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
 
@@ -238,7 +239,7 @@ public sealed class ScoreEngineTests
     }
 
     [Fact]
-    public void ApproachGlideslope_SoftCurve_GivesPartialCreditForBias()
+    public void ApproachGlideslope_SoftCurve_GivesPartialCreditForMeanAbsoluteError()
     {
         var (key, _) = Load();
         var metric = key.Phases.SelectMany(p => p.Metrics).Single(m => m.Id == "approach_glideslope");
