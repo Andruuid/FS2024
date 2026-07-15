@@ -88,6 +88,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         RestartCommand = new RelayCommand(async () => await RestartAsync(), () =>
             (_activeChallenge is not null || SelectedChallenge is { Available: true })
             && HasValidScoringConfiguration && !IsLoading);
+        CleanMetricsCommand = new RelayCommand(CleanMetrics, CanCleanMetrics);
         ConnectCommand = new RelayCommand(TriggerConnect);
         DismissResultCommand = new RelayCommand(() => ResultVisible = false);
         ClearHighscoreSelectionCommand = new RelayCommand(() => SelectedHighscore = null);
@@ -156,6 +157,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public ICommand StartChallengeCommand { get; }
     public ICommand RestartCommand { get; }
+    /// <summary>Wipe landing metrics only (no re-spawn); preview returns to 100%.</summary>
+    public ICommand CleanMetricsCommand { get; }
     public ICommand ConnectCommand { get; }
     public ICommand DismissResultCommand { get; }
     public ICommand ClearHighscoreSelectionCommand { get; }
@@ -579,6 +582,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             RotateTips(challenge);
             RequestShowHud?.Invoke();
             (RestartCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
         catch (AircraftMismatchException acEx)
         {
@@ -610,6 +614,31 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _session.Reset();
         _session = null;
         ClearPreview();
+        (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    private bool CanCleanMetrics() =>
+        _session is not null
+        && _session.Phase is not LandingPhase.Idle
+        && HasValidScoringConfiguration
+        && !IsLoading;
+
+    /// <summary>
+    /// HUD "Clean": zero all metrics from this landing at this moment only.
+    /// No spawn, weather, or aircraft change — scoring re-arms and preview → 100%.
+    /// </summary>
+    private void CleanMetrics()
+    {
+        if (_session is null || !CanCleanMetrics()) return;
+
+        _session.CleanMetrics();
+        LastScore = null;
+        ResultVisible = false;
+        PhaseLabel = "Armed";
+        SetPreviewPerfect();
+        PreviewCaption = "cleaned · remaining metrics assumed 100%";
+        AppendLog("Clean: landing metrics wiped — re-armed from this moment (preview 100%).");
+        (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     private void OnSessionPhaseChanged(object? sender, LandingPhase phase)

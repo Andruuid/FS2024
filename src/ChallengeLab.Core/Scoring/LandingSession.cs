@@ -40,9 +40,42 @@ public sealed class LandingSession
         SetPhase(LandingPhase.Armed);
     }
 
+    /// <summary>
+    /// Wipe all samples and derived metrics for the current landing and re-arm from
+    /// this moment. Does not change aircraft position, weather, or challenge setup.
+    /// Preview returns to 100% (nothing measured yet). Safe mid-flight or after score.
+    /// </summary>
+    public void CleanMetrics()
+    {
+        if (Phase is LandingPhase.Idle)
+            return;
+
+        ClearCapturedMetrics();
+        _settledSince = null;
+        _touchdownCaptured = false;
+        _airborneSampleCount = 0;
+        _rolloutHeadings.Clear();
+        // Re-open post-arm grace and seed ground so a mid-clean on the runway
+        // does not instantly re-fire touchdown on the next frame.
+        _armedAt = DateTimeOffset.UtcNow;
+        _wasOnGround = true;
+        SetPhase(LandingPhase.Armed);
+    }
+
     public void Reset()
     {
         Phase = LandingPhase.Idle;
+        ClearCapturedMetrics();
+        _settledSince = null;
+        _armedAt = default;
+        _wasOnGround = false;
+        _touchdownCaptured = false;
+        _airborneSampleCount = 0;
+        _rolloutHeadings.Clear();
+    }
+
+    private void ClearCapturedMetrics()
+    {
         Snapshot.Touchdown = null;
         Snapshot.PeakGForce = 1.0;
         Snapshot.PeakAbsBankDeg = 0;
@@ -87,12 +120,6 @@ public sealed class LandingSession
         Snapshot.SpeedTargetSource = "";
         Snapshot.ApproachSamples.Clear();
         Snapshot.RolloutSamples.Clear();
-        _settledSince = null;
-        _armedAt = default;
-        _wasOnGround = false;
-        _touchdownCaptured = false;
-        _airborneSampleCount = 0;
-        _rolloutHeadings.Clear();
     }
 
     public void Ingest(TelemetrySample sample)

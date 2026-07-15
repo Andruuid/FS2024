@@ -223,6 +223,52 @@ public sealed class LandingSessionTests
     }
 
     [Fact]
+    public void CleanMetrics_WipesSamplesAndRearmsWithoutIdling()
+    {
+        var (challenge, settings) = Load();
+        var session = new LandingSession(challenge, settings);
+        var t0 = DateTimeOffset.UtcNow;
+        session.Arm();
+
+        var elev = challenge.Runway.ElevationFeet;
+        for (var i = 0; i < 12; i++)
+        {
+            session.Ingest(new TelemetrySample
+            {
+                Timestamp = t0.AddSeconds(5 + i * 0.2),
+                SimOnGround = false,
+                Latitude = challenge.Runway.ThresholdLatitude - 0.02,
+                Longitude = challenge.Runway.ThresholdLongitude + 0.02,
+                AltitudeFeet = elev + 800,
+                AglFeet = 800,
+                RadioHeightFeet = 800,
+                HeadingTrueDeg = challenge.Runway.HeadingTrueDeg,
+                GroundTrackTrueDeg = challenge.Runway.HeadingTrueDeg,
+                GroundSpeedKts = 140,
+                AirspeedKts = 140,
+                VerticalSpeedFpm = -700,
+                GearHandlePosition = 1,
+                FlapsHandleIndex = 3,
+                GForce = 1
+            });
+        }
+
+        Assert.True(session.Snapshot.ApproachSamples.Count > 0);
+        Assert.NotEqual(LandingPhase.Armed, session.Phase);
+
+        session.CleanMetrics();
+
+        Assert.Equal(LandingPhase.Armed, session.Phase);
+        Assert.Empty(session.Snapshot.ApproachSamples);
+        Assert.Empty(session.Snapshot.RolloutSamples);
+        Assert.Null(session.Snapshot.Touchdown);
+        Assert.Equal(0, session.Snapshot.ApproachPathSampleCount);
+        Assert.Equal(0, session.Snapshot.ApproachGlideslopeMeanAbsFt);
+        Assert.True(session.IsArmed);
+        Assert.False(session.IsComplete);
+    }
+
+    [Fact]
     public void RefreshDerivedMetrics_PopulatesApproachBeforeSettle()
     {
         var (challenge, settings) = Load();
