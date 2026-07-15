@@ -2,8 +2,8 @@
   "id": "la-paz-high-altitude-final",
   "mode": "hardcore_landings",
   "title": "La Paz High-Altitude Final",
-  "subtitle": "SLLP 28 · ~10 NM final · A330 · 50 kt right-rear wind · 13,300 ft",
-  "description": "High-altitude approach into El Alto (La Paz). Spawn, attitude, IAS, and time of day come from a real MSFS autosave on SLLP 28. Surface wind is 50 kt from the right-rear (~45° quartering tailwind): ~35 kt tail + ~35 kt right cross — harder energy and crab management. Aircraft config matches Barcelona: gear up, flaps clean, spoilers in. Start/Restart leaves the sim paused after settle — unpause when ready.",
+  "subtitle": "SLLP 28 · ~10 NM final · A330 · 60G72 right-rear wind · 13,300 ft",
+  "description": "High-altitude approach into El Alto (La Paz). Spawn, attitude, IAS, and time of day come from a real MSFS autosave on SLLP 28. Surface wind is 60 kt gusting 72 from the right-rear (~33° quartering tailwind): ~50 kt tail + ~33 kt right cross, with nasty gust spikes — harder energy and crab management. Aircraft config matches Barcelona: gear up, flaps clean, spoilers in. Start/Restart leaves the sim paused after settle — unpause when ready.",
   "available": true,
   "requireGearDown": true,
   "aircraftTitles": [
@@ -24,12 +24,12 @@
   },
   "weather": {
     "useLiveWeather": false,
-    "windDirectionDeg": 47,
-    "windVelocityKts": 50,
-    "gustKts": 0,
+    "windDirectionDeg": 59,
+    "windVelocityKts": 60,
+    "gustKts": 72,
     "visibilitySm": 10,
     "weatherPresetFile": ".\\WeatherPresets\\clearsky.WPR",
-    "metar": "SLLP 150847Z 05050KT CAVOK 08/M02 Q1025"
+    "metar": "SLLP 150847Z 06060G72KT CAVOK 08/M02 Q1025"
   },
   "timeOfDay": {
     "hour": 8,
@@ -61,7 +61,7 @@
     "After Start/Restart you stay PAUSED at spawn — press GO on the HUD when ready to fly.",
     "Start config: gear up, flaps 0, spoilers in, parking brake off. Set landing flaps on approach.",
     "SLLP is ~13,300 ft elev — expect high TAS, long float, and reduced engine performance.",
-    "Wind 050/50: right-rear 45° quartering (~35 kt tail + ~35 kt right cross). Watch float and crab.",
+    "Wind 060/60G72: right-rear ~33° quartering (~50 kt tail + ~33 kt right cross). Gusts spike energy — watch float and crab.",
     "Edit spawn / timeOfDay / weather in this JSON, then restart the challenge."
   ]
 }

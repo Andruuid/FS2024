@@ -29,12 +29,14 @@ public class SpawnReadinessTests
         double ias,
         double gear = 0,
         int flaps = 0,
-        double spoilers = 0) => new()
+        double spoilersHandle = 0,
+        double? spoilersSurface = null) => new()
     {
         AirspeedKts = ias,
         GearHandlePosition = gear,
         FlapsHandleIndex = flaps,
-        SpoilersHandlePosition = spoilers
+        SpoilersHandlePosition = spoilersHandle,
+        SpoilersSurfacePosition = spoilersSurface
     };
 
     [Fact]
@@ -43,9 +45,11 @@ public class SpawnReadinessTests
         var result = SpawnReadiness.Evaluate(
             Spawn(270),
             Setup(gearDown: false, flaps: 0, spoilersRetracted: true),
-            Sample(ias: 270, gear: 0, flaps: 0, spoilers: 0));
+            Sample(ias: 270, gear: 0, flaps: 0, spoilersHandle: 0, spoilersSurface: 0));
 
         Assert.True(result.Ready);
+        Assert.True(result.CriticalReady);
+        Assert.False(result.SoftReady);
         Assert.Contains("ok", result.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -58,17 +62,16 @@ public class SpawnReadinessTests
     }
 
     [Theory]
-    [InlineData(256.5, true)]   // exactly 95% of 270
-    [InlineData(256.4, false)]  // just under 95%
+    [InlineData(256.5, true)]
+    [InlineData(256.4, false)]
     [InlineData(270, true)]
     [InlineData(0, false)]
     public void Evaluate_IasThreshold_AtHighTarget(double liveIas, bool expectedReady)
     {
-        // Surfaces perfect so only IAS decides.
         var result = SpawnReadiness.Evaluate(
             Spawn(270),
             Setup(),
-            Sample(ias: liveIas, gear: 0, flaps: 0, spoilers: 0));
+            Sample(ias: liveIas, gear: 0, flaps: 0, spoilersSurface: 0));
 
         Assert.Equal(expectedReady, result.Ready);
     }
@@ -76,7 +79,6 @@ public class SpawnReadinessTests
     [Fact]
     public void IsAirspeedReady_LowTarget_UsesAbsoluteFloor()
     {
-        // Target 40 → 95% = 38; absolute floor target−5 = 35 → threshold = min(38,35) = 35.
         Assert.True(SpawnReadiness.IsAirspeedReady(35, 40));
         Assert.False(SpawnReadiness.IsAirspeedReady(34.9, 40));
     }
@@ -87,7 +89,7 @@ public class SpawnReadinessTests
         var result = SpawnReadiness.Evaluate(
             Spawn(155),
             Setup(gearDown: false),
-            Sample(ias: 155, gear: 1, flaps: 0, spoilers: 0));
+            Sample(ias: 155, gear: 1, flaps: 0, spoilersSurface: 0));
 
         Assert.False(result.Ready);
         Assert.Contains("want up", result.Detail, StringComparison.OrdinalIgnoreCase);
@@ -99,45 +101,86 @@ public class SpawnReadinessTests
         var result = SpawnReadiness.Evaluate(
             Spawn(155),
             Setup(flaps: 2),
-            Sample(ias: 155, gear: 0, flaps: 0, spoilers: 0));
+            Sample(ias: 155, gear: 0, flaps: 0, spoilersSurface: 0));
 
         Assert.False(result.Ready);
         Assert.Contains("want 2", result.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void Evaluate_SpoilersOut_WhenRetractedRequired_NotReady()
+    public void Evaluate_SurfaceDeployed_NotReadyBeforeSoftTimeout()
     {
         var result = SpawnReadiness.Evaluate(
             Spawn(155),
             Setup(spoilersRetracted: true),
-            Sample(ias: 155, gear: 0, flaps: 0, spoilers: 0.5));
+            Sample(ias: 155, gear: 0, flaps: 0, spoilersHandle: 0, spoilersSurface: 0.5),
+            elapsedSeconds: 2);
 
         Assert.False(result.Ready);
+        Assert.True(result.CriticalReady);
         Assert.Contains("want in", result.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void Evaluate_SpoilersOut_WhenNotRequired_Ready()
+    public void Evaluate_HandleArmedButSurfaceStowed_IsReady()
     {
+        // Airbus: lever may read non-zero / "armed" while panels are fully stowed.
         var result = SpawnReadiness.Evaluate(
-            Spawn(155),
-            Setup(spoilersRetracted: false),
-            Sample(ias: 155, gear: 0, flaps: 0, spoilers: 0.8));
+            Spawn(270),
+            Setup(spoilersRetracted: true),
+            Sample(ias: 270, gear: 0, flaps: 0, spoilersHandle: 0.4, spoilersSurface: 0.0));
 
         Assert.True(result.Ready);
+        Assert.False(result.SoftReady);
+        Assert.Contains("in", result.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void Evaluate_SpoilersPercentScale_TreatedAsOut()
+    public void Evaluate_SurfaceStowed_SoftTimeoutNotNeeded()
     {
-        // Handle reported as 0–100 percent.
+        var result = SpawnReadiness.Evaluate(
+            Spawn(270),
+            Setup(spoilersRetracted: true),
+            Sample(ias: 270, gear: 0, flaps: 0, spoilersHandle: 0, spoilersSurface: 0.05));
+
+        Assert.True(result.Ready);
+        Assert.False(result.SoftReady);
+    }
+
+    [Fact]
+    public void Evaluate_SurfaceOut_SoftTimeout_UnlocksGo()
+    {
+        var result = SpawnReadiness.Evaluate(
+            Spawn(270),
+            Setup(spoilersRetracted: true),
+            Sample(ias: 270, gear: 0, flaps: 0, spoilersSurface: 0.6),
+            elapsedSeconds: SpawnReadiness.SoftTimeoutSeconds);
+
+        Assert.True(result.Ready);
+        Assert.True(result.SoftReady);
+    }
+
+    [Fact]
+    public void Evaluate_HandleOnly_PercentScaleOut()
+    {
+        // No surface telemetry — fall back to handle (0–100%).
         var result = SpawnReadiness.Evaluate(
             Spawn(155),
             Setup(spoilersRetracted: true),
-            Sample(ias: 155, gear: 0, flaps: 0, spoilers: 50));
+            Sample(ias: 155, gear: 0, flaps: 0, spoilersHandle: 50, spoilersSurface: null),
+            elapsedSeconds: 0);
 
         Assert.False(result.Ready);
+    }
+
+    [Fact]
+    public void NormalizeSpoiler01_16kPositionUnits()
+    {
+        // Full deflection on position scale.
+        Assert.InRange(SpawnReadiness.NormalizeSpoiler01(16383), 0.99, 1.01);
+        Assert.InRange(SpawnReadiness.NormalizeSpoiler01(0), 0, 0.01);
+        // Half on percent-over-100.
+        Assert.InRange(SpawnReadiness.NormalizeSpoiler01(0.5), 0.49, 0.51);
     }
 
     [Fact]
@@ -146,7 +189,18 @@ public class SpawnReadinessTests
         var result = SpawnReadiness.Evaluate(
             Spawn(140),
             Setup(gearDown: true, flaps: 3),
-            Sample(ias: 140, gear: 1, flaps: 3, spoilers: 0));
+            Sample(ias: 140, gear: 1, flaps: 3, spoilersSurface: 0));
+
+        Assert.True(result.Ready);
+    }
+
+    [Fact]
+    public void Evaluate_SpoilersNotRequired_IgnoresSurface()
+    {
+        var result = SpawnReadiness.Evaluate(
+            Spawn(155),
+            Setup(spoilersRetracted: false),
+            Sample(ias: 155, gear: 0, flaps: 0, spoilersSurface: 0.9));
 
         Assert.True(result.Ready);
     }

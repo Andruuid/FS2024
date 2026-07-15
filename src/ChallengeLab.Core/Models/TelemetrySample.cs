@@ -37,10 +37,17 @@ public sealed class TelemetrySample
     public int FlapsHandleIndex { get; init; }
 
     /// <summary>
-    /// Spoilers handle position from the sim (0–1 or 0–100 depending on aircraft/data source).
-    /// Used for spawn readiness; scoring does not depend on this field.
+    /// Spoilers lever / handle (prefer 0–1 percent-over-100). May be non-zero when
+    /// surfaces are still stowed (e.g. Airbus ground-spoiler arm). Prefer
+    /// <see cref="SpoilersSurfacePosition"/> for “are they actually out?”.
     /// </summary>
     public double SpoilersHandlePosition { get; init; }
+
+    /// <summary>
+    /// Max of left/right spoiler surface deflection (0–1). Null if not sampled.
+    /// This is the ground truth for retracted vs deployed.
+    /// </summary>
+    public double? SpoilersSurfacePosition { get; init; }
 
     public double WindDirectionDeg { get; init; }
     public double WindVelocityKts { get; init; }

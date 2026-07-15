@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Models;
+using ChallengeLab.Core.Scoring;
 using Microsoft.FlightSimulator.SimConnect;
 using MsfsSc = Microsoft.FlightSimulator.SimConnect.SimConnect;
 
@@ -71,7 +72,9 @@ public sealed class SimConnectClient : ISimBridge
         ActivePauseOn = 17,
         ActivePauseOff = 18,
         ZuluDaySet = 19,
-        ZuluYearSet = 20
+        ZuluYearSet = 20,
+        SpoilersArmSet = 21,
+        SpoilersOn = 22
     }
 
     private enum Groups
@@ -103,6 +106,8 @@ public sealed class SimConnectClient : ISimBridge
         public double DesignSpeedVs0;
         public double TotalWeight;
         public double SpoilersHandle;
+        public double SpoilersLeft;
+        public double SpoilersRight;
         public double ParkingBrake;
     }
 
@@ -824,12 +829,7 @@ public sealed class SimConnectClient : ISimBridge
                 Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
 
             if (setup.SpoilersRetracted)
-            {
-                _sim.TransmitClientEvent(MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.SpoilersOff, 0,
-                    Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
-                _sim.TransmitClientEvent(MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.SpoilersSet, 0,
-                    Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
-            }
+                CommandSpoilersFullyRetracted();
 
             // PARKING_BRAKE_SET: 1 = on, 0 = off (preferred over toggle).
             _sim.TransmitClientEvent(
@@ -843,6 +843,69 @@ public sealed class SimConnectClient : ISimBridge
         {
             Log($"ConfigureAircraft: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Force speedbrake lever + panels to full extend (16K). Used only for desync resync.
+    /// </summary>
+    private void CommandSpoilersFullyExtended()
+    {
+        if (_sim is null) return;
+        EnsureEvents();
+        // SPOILERS_SET is 0–16383 (full = 16383), same family as flaps handle.
+        _sim.TransmitClientEvent(
+            MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.SpoilersSet, 16383u,
+            Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+        _sim.TransmitClientEvent(
+            MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.SpoilersOn, 0,
+            Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+    }
+
+    /// <summary>
+    /// Force retract / disarm (keyboard "Speedbrakes Retract" equivalent + set 0).
+    /// </summary>
+    private void CommandSpoilersFullyRetracted()
+    {
+        if (_sim is null) return;
+        EnsureEvents();
+        _sim.TransmitClientEvent(
+            MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.SpoilersArmSet, 0,
+            Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+        _sim.TransmitClientEvent(
+            MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.SpoilersOff, 0,
+            Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+        _sim.TransmitClientEvent(
+            MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.SpoilersSet, 0,
+            Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+        // Second pulse — some airframes only honor lever after OFF.
+        _sim.TransmitClientEvent(
+            MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.SpoilersOff, 0,
+            Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+        _sim.TransmitClientEvent(
+            MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.SpoilersSet, 0,
+            Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+    }
+
+    /// <summary>
+    /// Cycle full extend → full retract to clear lever/surface desync (common after
+    /// prior full spoilers then retract; pilot manual fix: nudge out then full in).
+    /// Only when challenge wants spoilers retracted at start.
+    /// </summary>
+    private async Task ResyncSpoilersCycleAsync(CancellationToken ct)
+    {
+        if (_sim is null) return;
+
+        Log("Spoiler resync: FULL EXTEND → FULL RETRACT (clear lever/surface desync)");
+        CommandSpoilersFullyExtended();
+        await Task.Delay(400, ct);
+
+        CommandSpoilersFullyRetracted();
+        await Task.Delay(300, ct);
+
+        // One more retract burst — matches "press Speedbrakes Retract a few times".
+        CommandSpoilersFullyRetracted();
+        await Task.Delay(200, ct);
+        Log("Spoiler resync: retract cycle done");
     }
 
     /// <summary>
@@ -864,6 +927,21 @@ public sealed class SimConnectClient : ISimBridge
         FreezePose(true);
         await Task.Delay(120, ct);
         Log("Config settle: SET PAUSE ON + FREEZE held (no mid-config unpause).");
+
+        // Clear spoiler lever↔surface desync before normal config (A330: stowed look but
+        // sim thinks handle is out until you cycle full extend → retract).
+        if (setup.SpoilersRetracted)
+        {
+            progress?.Report("Resyncing speedbrakes (extend → retract)…");
+            Teleport(spawn);
+            SetPoseDirect(spawn);
+            SetVelocityForSpawn(spawn);
+            ForceSetPauseOn();
+            FreezePose(true);
+            await ResyncSpoilersCycleAsync(ct);
+            ForceSetPauseOn();
+            FreezePose(true);
+        }
 
         for (var i = 1; i <= ConfigPulseCount; i++)
         {
@@ -974,9 +1052,11 @@ public sealed class SimConnectClient : ISimBridge
     {
         var gearDown = t.GearHandle > 0.5;
         var flaps = (int)Math.Round(t.FlapsIndex);
-        // Normalize spoiler handle to 0–1 (sim may report position or percent).
-        var spoiler01 = t.SpoilersHandle > 1.5 ? t.SpoilersHandle / 100.0 : t.SpoilersHandle;
-        var spoilersOut = spoiler01 > 0.05;
+        // Wing surface deflection is ground truth (handle alone misreads Airbus "armed").
+        var surface01 = Math.Max(
+            SpawnReadiness.NormalizeSpoiler01(t.SpoilersLeft),
+            SpawnReadiness.NormalizeSpoiler01(t.SpoilersRight));
+        var spoilersOut = surface01 > 0.15;
         var parkOn = t.ParkingBrake > 0.5;
 
         var gearOk = gearDown == setup.GearDown;
@@ -987,7 +1067,7 @@ public sealed class SimConnectClient : ISimBridge
         detail =
             $"gear={(gearDown ? "down" : "up")}({(gearOk ? "ok" : "want " + (setup.GearDown ? "down" : "up"))}) " +
             $"flaps={flaps}({(flapsOk ? "ok" : "want " + setup.FlapsHandleIndex)}) " +
-            $"spoilers={t.SpoilersHandle:0.##}({(spoilersOk ? "ok" : "want in")}) " +
+            $"spoilers=surf{surface01:0%}({(spoilersOk ? "ok" : "want in")}) " +
             $"park={(parkOn ? "on" : "off")}({(brakeOk ? "ok" : "want " + (setup.ParkingBrakeOn ? "on" : "off"))})";
 
         return gearOk && flapsOk && spoilersOk && brakeOk;
@@ -1229,6 +1309,8 @@ public sealed class SimConnectClient : ISimBridge
                 GearHandlePosition = t.GearHandle,
                 FlapsHandleIndex = (int)Math.Round(t.FlapsIndex),
                 SpoilersHandlePosition = t.SpoilersHandle,
+                // Max panel deflection is ground truth; handle alone mis-reports "armed" as out.
+                SpoilersSurfacePosition = Math.Max(t.SpoilersLeft, t.SpoilersRight),
                 WindDirectionDeg = t.WindDir,
                 WindVelocityKts = t.WindVel,
                 RadioHeightFeet = t.RadioHeight,
@@ -1288,9 +1370,15 @@ public sealed class SimConnectClient : ISimBridge
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "TOTAL WEIGHT", "pounds",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
-        _sim.AddToDataDefinition(Definitions.Telemetry, "SPOILERS HANDLE POSITION", "position",
+        // percent over 100 → stable 0–1. Unit "position" is 0–16383 on some airframes and
+        // made stowed A330 levers look "out" when they were visually retracted.
+        _sim.AddToDataDefinition(Definitions.Telemetry, "SPOILERS HANDLE POSITION", "percent over 100",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
-        _sim.AddToDataDefinition(Definitions.Telemetry, "BRAKE PARKING POSITION", "position",
+        _sim.AddToDataDefinition(Definitions.Telemetry, "SPOILERS LEFT POSITION", "percent over 100",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "SPOILERS RIGHT POSITION", "percent over 100",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "BRAKE PARKING POSITION", "percent over 100",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
 
         _sim.RegisterDataDefineStruct<TelemetryStruct>(Definitions.Telemetry);
@@ -1355,7 +1443,9 @@ public sealed class SimConnectClient : ISimBridge
             _sim.MapClientEventToSimEvent(Events.ZuluDaySet, "ZULU_DAY_SET");
             _sim.MapClientEventToSimEvent(Events.ZuluYearSet, "ZULU_YEAR_SET");
             _sim.MapClientEventToSimEvent(Events.SpoilersOff, "SPOILERS_OFF");
+            _sim.MapClientEventToSimEvent(Events.SpoilersOn, "SPOILERS_ON");
             _sim.MapClientEventToSimEvent(Events.SpoilersSet, "SPOILERS_SET");
+            _sim.MapClientEventToSimEvent(Events.SpoilersArmSet, "SPOILERS_ARM_SET");
             _sim.MapClientEventToSimEvent(Events.ParkingBrakeSet, "PARKING_BRAKE_SET");
             _sim.MapClientEventToSimEvent(Events.ActivePauseOn, "ACTIVE_PAUSE_ON");
             _sim.MapClientEventToSimEvent(Events.ActivePauseOff, "ACTIVE_PAUSE_OFF");
@@ -1365,7 +1455,9 @@ public sealed class SimConnectClient : ISimBridge
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.PauseOff, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.PauseOn, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.SpoilersOff, false);
+            _sim.AddClientEventToNotificationGroup(Groups.Input, Events.SpoilersOn, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.SpoilersSet, false);
+            _sim.AddClientEventToNotificationGroup(Groups.Input, Events.SpoilersArmSet, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.ParkingBrakeSet, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.ActivePauseOff, false);
             _sim.SetNotificationGroupPriority(Groups.Input, MsfsSc.SIMCONNECT_GROUP_PRIORITY_HIGHEST);

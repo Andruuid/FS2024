@@ -69,6 +69,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private ChallengeConfig? _spawnReadinessChallenge;
     private DateTimeOffset _spawnReadinessStartedUtc;
     private DateTimeOffset _lastSpawnReadinessLogUtc;
+    private DateTimeOffset _lastSpawnConfigPulseUtc = DateTimeOffset.MinValue;
 
     public MainViewModel(ISimBridge sim, ConfigLoader? configLoader = null, HighscoreStore? highscores = null)
     {
@@ -789,6 +790,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _spawnReadinessChallenge = challenge;
         _spawnReadinessStartedUtc = DateTimeOffset.UtcNow;
         _lastSpawnReadinessLogUtc = DateTimeOffset.MinValue;
+        _lastSpawnConfigPulseUtc = DateTimeOffset.MinValue;
 
         IsSpawnPreparing = true;
         IsSpawnReady = false;
@@ -831,10 +833,30 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var challenge = _spawnReadinessChallenge;
         if (challenge is null || !IsSpawnPreparing) return;
 
+        var now = DateTimeOffset.UtcNow;
+        var elapsed = (now - _spawnReadinessStartedUtc).TotalSeconds;
+
+        // Re-pulse gear/flaps/spoilers while waiting — surfaces often ignore the first
+        // command under FREEZE/SET PAUSE (classic A330 spoilers stuck "out").
+        if (elapsed is > 0.4 and < SpawnReadiness.SoftTimeoutSeconds + 2
+            && (now - _lastSpawnConfigPulseUtc).TotalSeconds >= 1.5)
+        {
+            _lastSpawnConfigPulseUtc = now;
+            try
+            {
+                _sim.ConfigureAircraft(challenge.AircraftSetup);
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Spawn prep reconfig: {ex.Message}");
+            }
+        }
+
         var result = SpawnReadiness.Evaluate(
             challenge.Spawn,
             challenge.AircraftSetup,
-            _lastTelemetry);
+            _lastTelemetry,
+            elapsed);
 
         SpawnReadinessDetail = result.Detail;
 
@@ -842,14 +864,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             SpawnReadinessText = "PREPARING…";
             // Throttle log: once per second while waiting.
-            var now = DateTimeOffset.UtcNow;
             if ((now - _lastSpawnReadinessLogUtc).TotalSeconds >= 1.0)
             {
                 _lastSpawnReadinessLogUtc = now;
-                var elapsed = (now - _spawnReadinessStartedUtc).TotalSeconds;
                 AppendLog($"Spawn prep ({elapsed:0}s): {result.Detail}");
-                if (elapsed >= 30)
-                    LoadStatus = "Still preparing — check IAS / gear / flaps / spoilers";
+                if (elapsed >= 8 && !result.CriticalReady)
+                    LoadStatus = "Still preparing — check IAS / gear / flaps";
+                else if (elapsed >= 8 && result.CriticalReady)
+                    LoadStatus = "Waiting on spoilers… GO unlocks shortly if they stick";
             }
 
             return;
@@ -866,10 +888,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _spawnReadinessChallenge = null;
         IsSpawnPreparing = false;
         IsSpawnReady = true;
-        SpawnReadinessText = "READY";
-        LoadStatus = "Ready — PAUSED in air · press GO when ready";
-        HudTip = "READY — press GO on the HUD when ready to fly.";
-        AppendLog($"Spawn ready: {result.Detail}");
+        SpawnReadinessText = result.SoftReady ? "READY (soft)" : "READY";
+        LoadStatus = result.SoftReady
+            ? "Ready — spoilers soft-ok · PAUSED · press GO"
+            : "Ready — PAUSED in air · press GO when ready";
+        HudTip = result.SoftReady
+            ? "READY — spoilers may still be out (check after GO). Press GO to fly."
+            : "READY — press GO on the HUD when ready to fly.";
+        AppendLog($"Spawn ready{(result.SoftReady ? " (soft)" : "")}: {result.Detail}");
         (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
