@@ -69,7 +69,9 @@ public sealed class SimConnectClient : ISimBridge
         SpoilersSet = 15,
         ParkingBrakeSet = 16,
         ActivePauseOn = 17,
-        ActivePauseOff = 18
+        ActivePauseOff = 18,
+        ZuluDaySet = 19,
+        ZuluYearSet = 20
     }
 
     private enum Groups
@@ -280,13 +282,10 @@ public sealed class SimConnectClient : ISimBridge
         // Yellow "Ready to Fly" is World-Map/FlightLoad UI only; mid free-flight FlightLoad
         // of CustomFlight/aircraft swap CTDs MSFS 2024 — we approximate with SET PAUSE hold.
         SpawnApplyResult spawnResult = SpawnApplyResult.Fail("Spawn did not complete.");
-        progress?.Report("Setting time of day…");
         try
         {
             // Identical entry whether currently flying or already ESC-/SET-paused.
             await NormalizeLoadEntryAsync(ct);
-            ApplyTimeOfDay(challenge.TimeOfDay);
-            await Task.Delay(200, ct);
 
             progress?.Report("Applying weather…");
             ApplyWeather(challenge.Weather);
@@ -295,13 +294,25 @@ public sealed class SimConnectClient : ISimBridge
             progress?.Report("Positioning aircraft…");
             spawnResult = await ApplySpawnAsync(challenge.Spawn, ct);
 
+            // CRITICAL: apply clock AFTER teleport. CLOCK_*_SET is local to the aircraft
+            // position's timezone. Setting local time before SLLP spawn (e.g. still at
+            // Barcelona) locks Zulu to Europe, then after jump La Paz local is ~4–6 h earlier
+            // → night on a morning challenge.
             if (spawnResult.Success)
             {
+                progress?.Report("Setting time of day…");
+                ApplyTimeOfDay(challenge.TimeOfDay);
+                await Task.Delay(200, ct);
+
                 await ConfigureAndSettleAsync(challenge.AircraftSetup, challenge.Spawn, progress, ct);
 
                 // Re-pin spawn after config so a ground restart cannot leave residual sink.
                 progress?.Report("Stabilizing spawn…");
                 await RePinSpawnAsync(challenge.Spawn, ct);
+
+                // Re-assert clock after config/settle (some aircraft loads reset the clock).
+                ApplyTimeOfDay(challenge.TimeOfDay);
+
                 spawnResult = await VerifySpawnAsync(challenge.Spawn, ct);
                 if (!spawnResult.Success)
                     Log($"Post-config re-verify: {spawnResult.Message}");
@@ -636,6 +647,22 @@ public sealed class SimConnectClient : ISimBridge
         try
         {
             EnsureEvents();
+
+            // Optional calendar (affects sun season). Day/year are Zulu-calendar events in MSFS.
+            if (tod.DayOfYear is >= 1 and <= 366)
+            {
+                _sim.TransmitClientEvent(
+                    MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.ZuluDaySet, (uint)tod.DayOfYear.Value,
+                    Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+            }
+
+            if (tod.Year is > 1900 and < 2200)
+            {
+                _sim.TransmitClientEvent(
+                    MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.ZuluYearSet, (uint)tod.Year.Value,
+                    Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+            }
+
             if (tod.UseZuluTime)
             {
                 _sim.TransmitClientEvent(
@@ -647,6 +674,8 @@ public sealed class SimConnectClient : ISimBridge
             }
             else
             {
+                // Local clock relative to the *current* aircraft position timezone.
+                // Call only after spawn teleport to the challenge airport.
                 _sim.TransmitClientEvent(
                     MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.ClockHoursSet, hour,
                     Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
@@ -655,7 +684,11 @@ public sealed class SimConnectClient : ISimBridge
                     Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
             }
 
-            Log($"Time of day set: {hour:00}:{minute:00} {(tod.UseZuluTime ? "Zulu" : "local")}");
+            var dayPart = tod.DayOfYear is >= 1 and <= 366 ? $" day={tod.DayOfYear}" : "";
+            var yearPart = tod.Year is > 1900 and < 2200 ? $" year={tod.Year}" : "";
+            Log(
+                $"Time of day set: {hour:00}:{minute:00} {(tod.UseZuluTime ? "Zulu" : "local")}" +
+                $"{dayPart}{yearPart}");
         }
         catch (Exception ex)
         {
@@ -1195,6 +1228,7 @@ public sealed class SimConnectClient : ISimBridge
                 SimOnGround = t.SimOnGround > 0.5,
                 GearHandlePosition = t.GearHandle,
                 FlapsHandleIndex = (int)Math.Round(t.FlapsIndex),
+                SpoilersHandlePosition = t.SpoilersHandle,
                 WindDirectionDeg = t.WindDir,
                 WindVelocityKts = t.WindVel,
                 RadioHeightFeet = t.RadioHeight,
@@ -1318,6 +1352,8 @@ public sealed class SimConnectClient : ISimBridge
             _sim.MapClientEventToSimEvent(Events.ClockMinutesSet, "CLOCK_MINUTES_SET");
             _sim.MapClientEventToSimEvent(Events.ZuluHoursSet, "ZULU_HOURS_SET");
             _sim.MapClientEventToSimEvent(Events.ZuluMinutesSet, "ZULU_MINUTES_SET");
+            _sim.MapClientEventToSimEvent(Events.ZuluDaySet, "ZULU_DAY_SET");
+            _sim.MapClientEventToSimEvent(Events.ZuluYearSet, "ZULU_YEAR_SET");
             _sim.MapClientEventToSimEvent(Events.SpoilersOff, "SPOILERS_OFF");
             _sim.MapClientEventToSimEvent(Events.SpoilersSet, "SPOILERS_SET");
             _sim.MapClientEventToSimEvent(Events.ParkingBrakeSet, "PARKING_BRAKE_SET");

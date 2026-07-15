@@ -60,6 +60,16 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private ObservableCollection<ReportMetricViewModel> _reportMetrics = new();
     private string _windowTitle = AppBuild.WindowTitleDefault;
 
+    // Post-spawn GO gate: wait until IAS + surfaces match challenge before enabling GO.
+    private bool _isSpawnPreparing;
+    private bool _isSpawnReady;
+    private string _spawnReadinessText = "";
+    private string _spawnReadinessDetail = "";
+    private DispatcherTimer? _spawnReadinessTimer;
+    private ChallengeConfig? _spawnReadinessChallenge;
+    private DateTimeOffset _spawnReadinessStartedUtc;
+    private DateTimeOffset _lastSpawnReadinessLogUtc;
+
     public MainViewModel(ISimBridge sim, ConfigLoader? configLoader = null, HighscoreStore? highscores = null)
     {
         _sim = sim;
@@ -343,6 +353,54 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _phaseLabel, value);
     }
 
+    /// <summary>True while waiting for spawn IAS/gear/flaps/spoilers after Start/Restart.</summary>
+    public bool IsSpawnPreparing
+    {
+        get => _isSpawnPreparing;
+        private set
+        {
+            if (_isSpawnPreparing == value) return;
+            SetProperty(ref _isSpawnPreparing, value);
+            RaisePropertyChanged(nameof(ShowSpawnReadiness));
+            (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>True when spawn config matches and GO may be pressed (paused-hold path).</summary>
+    public bool IsSpawnReady
+    {
+        get => _isSpawnReady;
+        private set
+        {
+            if (_isSpawnReady == value) return;
+            SetProperty(ref _isSpawnReady, value);
+            RaisePropertyChanged(nameof(ShowSpawnReadiness));
+            (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>HUD strip visible while preparing or ready (before GO / while held).</summary>
+    public bool ShowSpawnReadiness =>
+        !string.IsNullOrEmpty(SpawnReadinessText) && (IsSpawnPreparing || IsSpawnReady);
+
+    /// <summary>"PREPARING…" or "READY".</summary>
+    public string SpawnReadinessText
+    {
+        get => _spawnReadinessText;
+        private set
+        {
+            SetProperty(ref _spawnReadinessText, value);
+            RaisePropertyChanged(nameof(ShowSpawnReadiness));
+        }
+    }
+
+    /// <summary>Live checklist: IAS / gear / flaps / spoilers.</summary>
+    public string SpawnReadinessDetail
+    {
+        get => _spawnReadinessDetail;
+        private set => SetProperty(ref _spawnReadinessDetail, value);
+    }
+
     public string LiveStats
     {
         get => _liveStats;
@@ -612,19 +670,24 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             LoadProgress = 100;
             if (setup.Unpause)
             {
+                StopSpawnReadinessWatch(clearUi: true);
+                IsSpawnReady = true;
+                IsSpawnPreparing = false;
+                SpawnReadinessText = "";
+                SpawnReadinessDetail = "";
                 LoadStatus = "Armed — fly the landing!";
                 HudTip = challenge.HudTips.FirstOrDefault() ?? "Good luck.";
                 SetPreviewPerfect();
             }
             else
             {
-                // Stable end: airborne at spawn, SET PAUSE ON (not active pause, not yellow RTF —
-                // yellow Ready-to-Fly only appears after World Map / FlightLoad, which CTDs mid free-flight).
-                LoadStatus = "Ready — PAUSED in air · resume when ready";
-                HudTip = "PAUSED at spawn — press GO on the HUD when ready to fly.";
+                // Stable end: airborne at spawn, SET PAUSE ON. GO stays disabled until
+                // live IAS + gear/flaps/spoilers match the challenge (see StartSpawnReadinessWatch).
+                LoadStatus = "Preparing aircraft…";
+                HudTip = "PREPARING — waiting for spawn speed and configuration…";
                 AppendLog(
-                    "Stable hold: SET PAUSE at spawn. Press HUD GO to resume (or ESC → Resume).");
-                SetPreviewPerfect("armed · PAUSED · press GO when ready · metrics assumed 100%");
+                    "Stable hold: SET PAUSE at spawn. GO enabled when IAS + surfaces match challenge.");
+                SetPreviewPerfect("armed · PAUSED · preparing · metrics assumed 100%");
             }
 
             _session.Arm();
@@ -635,12 +698,17 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             UpdateSpeedTargetInfo(challenge, sample: null, liveIas: null);
             RotateTips(challenge);
             RequestShowHud?.Invoke();
+
+            if (!setup.Unpause)
+                StartSpawnReadinessWatch(challenge);
+
             (RestartCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
         catch (AircraftMismatchException acEx)
         {
+            StopSpawnReadinessWatch(clearUi: true);
             LoadStatus = "Wrong aircraft";
             PhaseLabel = "Idle";
             AppendLog($"Wrong aircraft: {acEx.ActualTitle} (need challenge aircraft — no FlightLoad).");
@@ -649,6 +717,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
+            StopSpawnReadinessWatch(clearUi: true);
             LoadStatus = "Failed";
             PhaseLabel = "Idle";
             AppendLog($"Load failed: {ex.Message}");
@@ -658,11 +727,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         finally
         {
             IsLoading = false;
+            (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
     private void DetachSession()
     {
+        StopSpawnReadinessWatch(clearUi: true);
         if (_session is null) return;
         _session.PhaseChanged -= OnSessionPhaseChanged;
         _session.SettledReady -= OnSettledReady;
@@ -682,6 +753,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private bool CanGoFlight() =>
         _sim.IsConnected
         && !IsLoading
+        && !IsSpawnPreparing
+        && IsSpawnReady
         && _session is not null
         && _session.Phase is not LandingPhase.Idle;
 
@@ -695,7 +768,108 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _sim.ResumeFlight();
         LoadStatus = "Go — flying";
         HudTip = "Go! Fly the approach.";
+        // Hide readiness strip after resume; keep IsSpawnReady so mid-flight re-enable is not re-gated.
+        SpawnReadinessText = "";
+        SpawnReadinessDetail = "";
+        IsSpawnPreparing = false;
+        // ShowSpawnReadiness uses IsSpawnReady — clear it after GO so strip hides.
+        IsSpawnReady = false;
         AppendLog("Go: SET PAUSE OFF (resume flight).");
+        (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// Poll live telemetry 2 Hz until spawn IAS + gear/flaps/spoilers match challenge JSON.
+    /// GO stays disabled while preparing.
+    /// </summary>
+    private void StartSpawnReadinessWatch(ChallengeConfig challenge)
+    {
+        StopSpawnReadinessWatch(clearUi: false);
+
+        _spawnReadinessChallenge = challenge;
+        _spawnReadinessStartedUtc = DateTimeOffset.UtcNow;
+        _lastSpawnReadinessLogUtc = DateTimeOffset.MinValue;
+
+        IsSpawnPreparing = true;
+        IsSpawnReady = false;
+        SpawnReadinessText = "PREPARING…";
+        SpawnReadinessDetail = "waiting for telemetry…";
+        LoadStatus = "Preparing aircraft…";
+        HudTip = "PREPARING — GO unlocks when speed and config match the challenge.";
+
+        _spawnReadinessTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _spawnReadinessTimer.Tick += OnSpawnReadinessTick;
+        _spawnReadinessTimer.Start();
+
+        // Immediate first probe (may already be ready).
+        EvaluateSpawnReadiness();
+    }
+
+    private void StopSpawnReadinessWatch(bool clearUi)
+    {
+        if (_spawnReadinessTimer is not null)
+        {
+            _spawnReadinessTimer.Stop();
+            _spawnReadinessTimer.Tick -= OnSpawnReadinessTick;
+            _spawnReadinessTimer = null;
+        }
+
+        _spawnReadinessChallenge = null;
+
+        if (!clearUi) return;
+
+        IsSpawnPreparing = false;
+        IsSpawnReady = false;
+        SpawnReadinessText = "";
+        SpawnReadinessDetail = "";
+    }
+
+    private void OnSpawnReadinessTick(object? sender, EventArgs e) => EvaluateSpawnReadiness();
+
+    private void EvaluateSpawnReadiness()
+    {
+        var challenge = _spawnReadinessChallenge;
+        if (challenge is null || !IsSpawnPreparing) return;
+
+        var result = SpawnReadiness.Evaluate(
+            challenge.Spawn,
+            challenge.AircraftSetup,
+            _lastTelemetry);
+
+        SpawnReadinessDetail = result.Detail;
+
+        if (!result.Ready)
+        {
+            SpawnReadinessText = "PREPARING…";
+            // Throttle log: once per second while waiting.
+            var now = DateTimeOffset.UtcNow;
+            if ((now - _lastSpawnReadinessLogUtc).TotalSeconds >= 1.0)
+            {
+                _lastSpawnReadinessLogUtc = now;
+                var elapsed = (now - _spawnReadinessStartedUtc).TotalSeconds;
+                AppendLog($"Spawn prep ({elapsed:0}s): {result.Detail}");
+                if (elapsed >= 30)
+                    LoadStatus = "Still preparing — check IAS / gear / flaps / spoilers";
+            }
+
+            return;
+        }
+
+        // Ready: stop polling, enable GO.
+        if (_spawnReadinessTimer is not null)
+        {
+            _spawnReadinessTimer.Stop();
+            _spawnReadinessTimer.Tick -= OnSpawnReadinessTick;
+            _spawnReadinessTimer = null;
+        }
+
+        _spawnReadinessChallenge = null;
+        IsSpawnPreparing = false;
+        IsSpawnReady = true;
+        SpawnReadinessText = "READY";
+        LoadStatus = "Ready — PAUSED in air · press GO when ready";
+        HudTip = "READY — press GO on the HUD when ready to fly.";
+        AppendLog($"Spawn ready: {result.Detail}");
         (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 

@@ -36,6 +36,12 @@ public sealed class TelemetrySample
     public double GearHandlePosition { get; init; }
     public int FlapsHandleIndex { get; init; }
 
+    /// <summary>
+    /// Spoilers handle position from the sim (0–1 or 0–100 depending on aircraft/data source).
+    /// Used for spawn readiness; scoring does not depend on this field.
+    /// </summary>
+    public double SpoilersHandlePosition { get; init; }
+
     public double WindDirectionDeg { get; init; }
     public double WindVelocityKts { get; init; }
 
