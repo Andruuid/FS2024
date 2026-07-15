@@ -158,6 +158,38 @@ public class SpawnReadinessTests
 
         Assert.True(result.Ready);
         Assert.True(result.SoftReady);
+        Assert.False(result.ForceReady);
+    }
+
+    [Fact]
+    public void Evaluate_WrongGear_SoftTimeout_UnlocksWhenIasOk()
+    {
+        // Under SET PAUSE A330 often leaves gear down; GO must not spin forever.
+        var result = SpawnReadiness.Evaluate(
+            Spawn(155),
+            Setup(gearDown: false),
+            Sample(ias: 155, gear: 1, flaps: 0, spoilersSurface: 1.0),
+            elapsedSeconds: SpawnReadiness.SoftTimeoutSeconds);
+
+        Assert.True(result.Ready);
+        Assert.True(result.SoftReady);
+        Assert.False(result.CriticalReady);
+        Assert.Contains("soft-ready", result.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Evaluate_HardTimeout_ForceReadyWithoutIas()
+    {
+        var result = SpawnReadiness.Evaluate(
+            Spawn(155),
+            Setup(gearDown: false),
+            Sample(ias: 0, gear: 1, flaps: 0, spoilersSurface: 1.0),
+            elapsedSeconds: SpawnReadiness.HardTimeoutSeconds);
+
+        Assert.True(result.Ready);
+        Assert.True(result.ForceReady);
+        Assert.False(result.SoftReady);
+        Assert.Contains("force-ready", result.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -15,15 +15,22 @@ public static class SpawnReadiness
     public const double MinIasAbsoluteToleranceKts = 5.0;
 
     /// <summary>
-    /// After this many seconds, unlock GO if IAS + gear + flaps match even when spoilers
-    /// stay ambiguous (handle vs surface mismatch on some airframes).
+    /// After this many seconds, unlock GO when IAS matches even if gear/flaps/spoilers
+    /// still disagree. Under SET PAUSE many airframes (A330) ignore surface animation —
+    /// handles and panels only finish after resume. Soft-ready is best-effort, not a fail.
     /// </summary>
     public const double SoftTimeoutSeconds = 12.0;
 
     /// <summary>
+    /// Absolute ceiling: unlock GO with any telemetry so PREPARING never spins forever
+    /// (e.g. user ESC-resumed, or IAS sample stuck low).
+    /// </summary>
+    public const double HardTimeoutSeconds = 18.0;
+
+    /// <summary>
     /// Evaluate whether the aircraft matches spawn speed and start configuration.
     /// </summary>
-    /// <param name="elapsedSeconds">Seconds since prep started (for soft-timeout).</param>
+    /// <param name="elapsedSeconds">Seconds since prep started (for soft/hard timeout).</param>
     public static SpawnReadinessResult Evaluate(
         SpawnConfig spawn,
         AircraftSetupConfig setup,
@@ -35,6 +42,7 @@ public static class SpawnReadiness
                 Ready: false,
                 CriticalReady: false,
                 SoftReady: false,
+                ForceReady: false,
                 Detail: "waiting for telemetry…");
 
         var targetIas = Math.Max(0, spawn.AirspeedKts);
@@ -57,18 +65,27 @@ public static class SpawnReadiness
             $"flaps={flaps}{(flapsOk ? " ok" : " want " + wantFlaps)} · " +
             $"spoilers={spoilerLabel}{(spoilersOk ? " ok" : " want in")}";
 
-        // Critical: speed + primary config. Spoilers soft-timeout is a safety net only.
+        // Critical: speed + primary config. Surfaces often stick under SET PAUSE.
         var criticalReady = iasOk && gearOk && flapsOk;
         var hardReady = criticalReady && spoilersOk;
+
+        // Soft: IAS ok long enough — gear/flaps/spoilers may only finish after GO/unpause.
         var softReady = !hardReady
-                        && criticalReady
+                        && iasOk
                         && elapsedSeconds >= SoftTimeoutSeconds;
 
-        var ready = hardReady || softReady;
-        if (softReady && !spoilersOk)
-            detail += " · soft-ready (spoilers ambiguous)";
+        // Hard: never block the pilot forever (ESC-resume, stuck handles, missing IAS edge).
+        var forceReady = !hardReady
+                         && !softReady
+                         && elapsedSeconds >= HardTimeoutSeconds;
 
-        return new SpawnReadinessResult(ready, criticalReady, softReady, detail);
+        var ready = hardReady || softReady || forceReady;
+        if (softReady && !hardReady)
+            detail += " · soft-ready (surfaces may finish after GO)";
+        if (forceReady)
+            detail += " · force-ready (timeout)";
+
+        return new SpawnReadinessResult(ready, criticalReady, softReady, forceReady, detail);
     }
 
     public static bool IsAirspeedReady(double liveIasKts, double targetIasKts)
@@ -153,4 +170,5 @@ public readonly record struct SpawnReadinessResult(
     bool Ready,
     bool CriticalReady,
     bool SoftReady,
+    bool ForceReady,
     string Detail);

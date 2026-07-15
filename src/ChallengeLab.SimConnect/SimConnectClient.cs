@@ -84,7 +84,8 @@ public sealed class SimConnectClient : ISimBridge
         ZuluDaySet = 19,
         ZuluYearSet = 20,
         SpoilersArmSet = 21,
-        SpoilersOn = 22
+        SpoilersOn = 22,
+        GearSet = 23
     }
 
     private enum Groups
@@ -938,9 +939,7 @@ public sealed class SimConnectClient : ISimBridge
         try
         {
             EnsureEvents();
-            _sim.TransmitClientEvent(MsfsSc.SIMCONNECT_OBJECT_ID_USER,
-                setup.GearDown ? Events.GearDown : Events.GearUp, 0,
-                Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+            CommandGear(setup.GearDown);
 
             // FLAPS_SET uses 0–16383 (index 0 = clean; ~4096 per step for 0–4).
             var flapsIndex = Math.Clamp(setup.FlapsHandleIndex, 0, 5);
@@ -963,6 +962,29 @@ public sealed class SimConnectClient : ISimBridge
         {
             Log($"ConfigureAircraft: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Gear handle: GEAR_SET (0 up / 1 down) plus discrete UP/DOWN pulses.
+    /// A330 often ignores a single GEAR_UP after a prior landing while SET-paused.
+    /// </summary>
+    private void CommandGear(bool gearDown)
+    {
+        if (_sim is null) return;
+        EnsureEvents();
+        // GEAR_SET: 0 = up, 1 = down (boolean handle).
+        _sim.TransmitClientEvent(
+            MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.GearSet, gearDown ? 1u : 0u,
+            Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+        _sim.TransmitClientEvent(
+            MsfsSc.SIMCONNECT_OBJECT_ID_USER,
+            gearDown ? Events.GearDown : Events.GearUp, 0,
+            Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
+        // Second discrete pulse — some hosts drop the first under pause.
+        _sim.TransmitClientEvent(
+            MsfsSc.SIMCONNECT_OBJECT_ID_USER,
+            gearDown ? Events.GearDown : Events.GearUp, 0,
+            Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
     }
 
     /// <summary>
@@ -1718,6 +1740,7 @@ public sealed class SimConnectClient : ISimBridge
         {
             _sim.MapClientEventToSimEvent(Events.GearDown, "GEAR_DOWN");
             _sim.MapClientEventToSimEvent(Events.GearUp, "GEAR_UP");
+            _sim.MapClientEventToSimEvent(Events.GearSet, "GEAR_SET");
             _sim.MapClientEventToSimEvent(Events.FlapsSet, "FLAPS_SET");
             _sim.MapClientEventToSimEvent(Events.PauseOff, "PAUSE_OFF");
             _sim.MapClientEventToSimEvent(Events.PauseOn, "PAUSE_ON");
@@ -1739,6 +1762,7 @@ public sealed class SimConnectClient : ISimBridge
             _sim.MapClientEventToSimEvent(Events.ActivePauseOff, "ACTIVE_PAUSE_OFF");
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.GearDown, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.GearUp, false);
+            _sim.AddClientEventToNotificationGroup(Groups.Input, Events.GearSet, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.FlapsSet, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.PauseOff, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.PauseOn, false);

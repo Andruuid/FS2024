@@ -1071,17 +1071,37 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         if (!CanGoFlight()) return;
 
+        // Fire config again as we unpause — gear/spoilers often only move once SET PAUSE is off.
+        var setup = _activeChallenge?.AircraftSetup ?? _spawnReadinessChallenge?.AircraftSetup;
+        if (setup is not null)
+        {
+            try { _sim.ConfigureAircraft(setup); }
+            catch (Exception ex) { AppendLog($"Go reconfig: {ex.Message}"); }
+        }
+
         _sim.ResumeFlight();
+        if (setup is not null)
+        {
+            try { _sim.ConfigureAircraft(setup); }
+            catch { /* best effort after resume */ }
+        }
+
+        ClearSpawnReadinessUi(flying: true);
         LoadStatus = "Go — flying";
         HudTip = "Go! Fly the approach.";
-        // Hide readiness strip after resume; keep IsSpawnReady so mid-flight re-enable is not re-gated.
-        SpawnReadinessText = "";
-        SpawnReadinessDetail = "";
-        IsSpawnPreparing = false;
-        // ShowSpawnReadiness uses IsSpawnReady — clear it after GO so strip hides.
-        IsSpawnReady = false;
         AppendLog("Go: SET PAUSE OFF (resume flight).");
         (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    /// <summary>Hide PREPARING/READY strip and stop the watch (after GO or ESC-resume detection).</summary>
+    private void ClearSpawnReadinessUi(bool flying)
+    {
+        StopSpawnReadinessWatch(clearUi: true);
+        if (flying)
+        {
+            LoadStatus = "Go — flying";
+            HudTip = "Flying the approach.";
+        }
     }
 
     /// <summary>
@@ -1141,10 +1161,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var now = DateTimeOffset.UtcNow;
         var elapsed = (now - _spawnReadinessStartedUtc).TotalSeconds;
 
-        // Re-pulse gear/flaps/spoilers while waiting — surfaces often ignore the first
-        // command under FREEZE/SET PAUSE (classic A330 spoilers stuck "out").
-        if (elapsed is > 0.4 and < SpawnReadiness.SoftTimeoutSeconds + 2
-            && (now - _lastSpawnConfigPulseUtc).TotalSeconds >= 1.5)
+        // Re-pulse gear/flaps/spoilers while waiting — under SET PAUSE A330 often ignores
+        // the first commands (gear stuck down, spoilers stuck out after a prior landing).
+        if (elapsed > 0.4
+            && elapsed < SpawnReadiness.HardTimeoutSeconds
+            && (now - _lastSpawnConfigPulseUtc).TotalSeconds >= 1.2)
         {
             _lastSpawnConfigPulseUtc = now;
             try
@@ -1155,6 +1176,16 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             {
                 AppendLog($"Spawn prep reconfig: {ex.Message}");
             }
+        }
+
+        // If the pilot ESC-resumed (or slew) and left spawn, stop spinning forever.
+        if (_lastTelemetry is not null && elapsed >= 3.0
+            && HasLeftSpawnHold(challenge.Spawn, _lastTelemetry))
+        {
+            AppendLog($"Spawn prep: aircraft left hold — clearing PREPARING ({elapsed:0}s).");
+            ClearSpawnReadinessUi(flying: true);
+            (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            return;
         }
 
         var result = SpawnReadiness.Evaluate(
@@ -1173,10 +1204,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             {
                 _lastSpawnReadinessLogUtc = now;
                 AppendLog($"Spawn prep ({elapsed:0}s): {result.Detail}");
-                if (elapsed >= 8 && !result.CriticalReady)
-                    LoadStatus = "Still preparing — check IAS / gear / flaps";
-                else if (elapsed >= 8 && result.CriticalReady)
-                    LoadStatus = "Waiting on spoilers… GO unlocks shortly if they stick";
+                if (elapsed >= 8)
+                    LoadStatus = "Still preparing — GO unlocks shortly even if gear/spoilers stick";
             }
 
             return;
@@ -1193,15 +1222,43 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _spawnReadinessChallenge = null;
         IsSpawnPreparing = false;
         IsSpawnReady = true;
-        SpawnReadinessText = result.SoftReady ? "READY (soft)" : "READY";
-        LoadStatus = result.SoftReady
-            ? "Ready — spoilers soft-ok · PAUSED · press GO"
-            : "Ready — PAUSED in air · press GO when ready";
-        HudTip = result.SoftReady
-            ? "READY — spoilers may still be out (check after GO). Press GO to fly."
-            : "READY — press GO on the HUD when ready to fly.";
-        AppendLog($"Spawn ready{(result.SoftReady ? " (soft)" : "")}: {result.Detail}");
+
+        if (result.ForceReady)
+        {
+            SpawnReadinessText = "READY (timeout)";
+            LoadStatus = "Ready — PAUSED · press GO (config best-effort)";
+            HudTip = "READY — gear/spoilers may finish after GO. Press GO to fly.";
+        }
+        else if (result.SoftReady)
+        {
+            SpawnReadinessText = "READY (soft)";
+            LoadStatus = "Ready — PAUSED · press GO (surfaces soft-ok)";
+            HudTip = "READY — surfaces may still settle after GO. Press GO to fly.";
+        }
+        else
+        {
+            SpawnReadinessText = "READY";
+            LoadStatus = "Ready — PAUSED in air · press GO when ready";
+            HudTip = "READY — press GO on the HUD when ready to fly.";
+        }
+
+        AppendLog(
+            $"Spawn ready{(result.ForceReady ? " (force)" : result.SoftReady ? " (soft)" : "")}: {result.Detail}");
         (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// True when live position has moved well away from spawn (pilot resumed without GO).
+    /// </summary>
+    private static bool HasLeftSpawnHold(SpawnConfig spawn, TelemetrySample sample)
+    {
+        // ~0.25 NM horizontal or large altitude departure = no longer on the hold pin.
+        const double leaveMeters = 460; // ~0.25 NM
+        const double leaveAltFeet = 250;
+        var horiz = GeoUtil.HaversineMetersPublic(
+            spawn.Latitude, spawn.Longitude, sample.Latitude, sample.Longitude);
+        var altErr = Math.Abs(sample.AltitudeFeet - spawn.AltitudeFeet);
+        return horiz >= leaveMeters || altErr >= leaveAltFeet;
     }
 
     /// <summary>
