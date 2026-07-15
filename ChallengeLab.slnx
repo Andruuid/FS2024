@@ -5,6 +5,7 @@
     <Project Path="src/ChallengeLab.SimConnect/ChallengeLab.SimConnect.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/ChallengeLab.App.Tests/ChallengeLab.App.Tests.csproj" />
     <Project Path="tests/ChallengeLab.Core.Tests/ChallengeLab.Core.Tests.csproj" />
   </Folder>
 </Solution>

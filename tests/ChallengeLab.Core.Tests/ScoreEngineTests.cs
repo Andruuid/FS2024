@@ -215,6 +215,19 @@ public sealed class ScoreEngineTests
     }
 
     [Fact]
+    public void FreeFlightEvaluationKey_LoadsWithoutFlapGate()
+    {
+        var loader = new ConfigLoader(FindConfig());
+        var catalog = loader.LoadCatalog();
+        var loaded = loader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey);
+
+        Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
+        Assert.Equal("free-flight-evaluation-key", loaded.Key!.Id);
+        Assert.Equal(70, loaded.Key.SpeedTarget!.DefaultVappKts);
+        Assert.Null(loaded.Key.Gates!.Flaps);
+    }
+
+    [Fact]
     public void Centerline_UsesSingleCurveParameters()
     {
         var metric = new EvaluationMetric { Evaluator = "centerline", Params = new() { ["tolerance"] = 3, ["zeroAt"] = 22, ["exponent"] = 1.2 } };

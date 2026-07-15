@@ -8,10 +8,10 @@ A separate challenge mode for **Microsoft Flight Simulator 2024**: hardcore land
 |---------|--------|
 | Modern WPF challenge browser | Yes |
 | **Barcelona Crosswind Final** (A330, LEBL 25L) | Yes |
-| Single full scoring profile (JSON evaluation key) | Yes |
-| Load → final approach (FlightLoad + teleport fallback) | Yes |
+| Normal + aircraft-generic Free scoring profiles (JSON evaluation keys) | Yes |
+| Safe load → final approach (teleport + velocity; no FlightLoad) | Yes |
 | Score when GS &lt; 50 knots | Yes |
-| Companion HUD (tips, live stats, results) | Yes |
+| Companion HUD with Normal / Free flight modes | Yes |
 | Highscores tab | Yes |
 | Disasters (Sioux City, Swissair) | UI placeholders |
 | Admin UI for criteria | Later (JSON only for now) |
@@ -38,6 +38,8 @@ dotnet run --project src\ChallengeLab.App
 4. Select **Barcelona Crosswind Final**.
 5. Click **Start Challenge** — watch the progress bar, then fly the landing.
 6. After touchdown, slow below **50 knots**. Score appears on the **Companion HUD** and under the **Session** tab.
+
+For a flight that is already in progress, select **Free** on the HUD instead. Challenge Lab reads the installed MSFS airport/runway facilities, detects the approached runway from position and true ground track, and arms after the same target wins three one-second scans. Free mode does not change the aircraft, time, weather, position, or pause state. **Clear** releases the current runway and immediately starts detection again in place.
 
 ## Publish (easy install folder)
 
@@ -106,7 +108,9 @@ Spawn verified: horiz=… m · altErr=… ft · ias=… kt
 
 **Primary file — edit this, then restart the app:**
 
-`config/scoring/profiles/landing-evaluation-key.json`
+`config/scoring/profiles/landing-evaluation-key.json` (Normal)
+
+`config/scoring/profiles/free-flight-evaluation-key.json` (Free, generic VS0-based VAPP and no flap-index gate)
 
 Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, VS piecewise curves, gear gate, settle GS, and timing windows all live here. Session log confirms load:
 
@@ -128,9 +132,10 @@ Within each phase, metrics are weighted by `importancePercent` (renormalized if 
 
 | File | Purpose |
 |------|---------|
-| `config/catalog.json` | Points at the evaluation key path |
+| `config/catalog.json` | Points at the Normal and Free evaluation key paths |
 | `config/challenges/*.json` | **Full scenario** (spawn, IAS, aircraft, weather, gear/flaps, runway) — no parallel .FLT |
 | `config/scoring/profiles/landing-evaluation-key.json` | Authoritative scoring, timing, gear, and speed-target settings |
+| `config/scoring/profiles/free-flight-evaluation-key.json` | Aircraft-generic Free scoring; 70-knot VAPP fallback when DESIGN SPEED VS0 is unavailable |
 
 ### Metric fields in the evaluation key
 
@@ -141,10 +146,11 @@ Within each phase, metrics are weighted by `importancePercent` (renormalized if 
 
 **Gear** is a safety gate under `gates.gear`, not a phase metric: gear down = no credit; gear up = overall score cut.
 
-## Modes (vision)
+## Modes
 
-1. **Hardcore Landings** — weather, weight, airports; first challenge is Barcelona crosswind.
-2. **Disasters** — systems failures (hydraulics, smoke); cards are visible but **Coming soon**.
+1. **Normal HUD mode** — configured Hardcore Landing challenges and future Disaster scenarios.
+2. **Free HUD mode** — observes any fixed-wing runway approach, infers the airport/runway locally, and uses the generic scoring profile.
+3. **Disasters** — systems failures (hydraulics, smoke); cards are visible but **Coming soon**.
 
 ## Notes / troubleshooting
 

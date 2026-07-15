@@ -16,24 +16,43 @@ namespace ChallengeLab.App.Views;
 public partial class CompanionHudWindow : Window
 {
     private const double ExpandedWidth = 440;
-    private const double ExpandedHeight = 420;
+    private const double ExpandedHeight = 460;
     private const double CompactWidth = 120;
     private const double CompactHeight = 72;
 
     private bool _compact;
     private double _expandedLeft;
     private double _expandedTop;
+    private readonly MainViewModel _vm;
 
     public CompanionHudWindow(MainViewModel vm)
     {
         InitializeComponent();
+        _vm = vm;
         DataContext = vm;
+        _vm.PropertyChanged += OnViewModelPropertyChanged;
+        Closed += (_, _) => _vm.PropertyChanged -= OnViewModelPropertyChanged;
 
         // Default position: upper-right of primary screen
         Left = SystemParameters.WorkArea.Right - ExpandedWidth - 24;
         Top = SystemParameters.WorkArea.Top + 80;
         Width = ExpandedWidth;
         Height = ExpandedHeight;
+        UpdateModeControls();
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(MainViewModel.IsNormalMode) or nameof(MainViewModel.IsFreeMode))
+            UpdateModeControls();
+    }
+
+    private void UpdateModeControls()
+    {
+        if (_compact) return;
+        var visibility = _vm.IsNormalMode ? Visibility.Visible : Visibility.Collapsed;
+        GoButton.Visibility = visibility;
+        RestartButton.Visibility = visibility;
     }
 
     /// <summary>Drag from chrome / header / empty areas (not from buttons).</summary>
@@ -122,10 +141,9 @@ public partial class CompanionHudWindow : Window
 
         ContentBody.Visibility = Visibility.Visible;
         HeaderBar.Visibility = Visibility.Visible;
-        GoButton.Visibility = Visibility.Visible;
         CleanButton.Visibility = Visibility.Visible;
-        RestartButton.Visibility = Visibility.Visible;
         MenuButton.Visibility = Visibility.Visible;
+        UpdateModeControls();
 
         HideShowButton.Content = "Hide";
         HideShowButton.ToolTip = "Collapse HUD to a small Show chip (drag to move).";

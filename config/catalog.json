@@ -1,6 +1,7 @@
 {
   "appName": "Challenge Lab",
   "evaluationKey": "scoring/profiles/landing-evaluation-key.json",
+  "freeFlightEvaluationKey": "scoring/profiles/free-flight-evaluation-key.json",
   "modes": [
     {
       "id": "hardcore_landings",

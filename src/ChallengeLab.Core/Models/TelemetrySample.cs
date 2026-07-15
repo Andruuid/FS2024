@@ -34,6 +34,9 @@ public sealed class TelemetrySample
     public bool SimOnGround { get; init; }
 
     public double GearHandlePosition { get; init; }
+    public bool IsGearRetractable { get; init; }
+    public bool IsGearWheels { get; init; }
+    public bool IsGearFloats { get; init; }
     public int FlapsHandleIndex { get; init; }
 
     /// <summary>

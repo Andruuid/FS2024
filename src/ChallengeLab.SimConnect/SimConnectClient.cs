@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using ChallengeLab.Core.Config;
+using ChallengeLab.Core.Facilities;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scoring;
 using Microsoft.FlightSimulator.SimConnect;
@@ -22,6 +23,13 @@ public sealed class SimConnectClient : ISimBridge
     private string? _statusMessage = "Not connected";
     private TaskCompletionSource<string?>? _titleTcs;
     private TaskCompletionSource<TelemetryStruct>? _spawnVerifyTcs;
+    private TaskCompletionSource<IReadOnlyList<AirportFacility>>? _airportCatalogTcs;
+    private readonly SortedDictionary<uint, List<AirportFacility>> _airportCatalogPackets = new();
+    private IReadOnlyList<AirportFacility>? _airportCatalogCache;
+    private readonly Dictionary<string, AirportRunwayFacility> _airportDetailCache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<uint, FacilityRequestContext> _facilityRequests = new();
+    private uint _nextFacilityRequestId = 1000;
 
     private enum Definitions
     {
@@ -29,14 +37,16 @@ public sealed class SimConnectClient : ISimBridge
         InitPosition = 2,
         AircraftTitle = 3,
         PoseSet = 4,
-        VelocitySet = 5
+        VelocitySet = 5,
+        AirportFacility = 100
     }
 
     private enum Requests
     {
         Telemetry = 1,
         AircraftTitle = 2,
-        SpawnVerify = 3
+        SpawnVerify = 3,
+        Airports = 100
     }
 
     // Soft thresholds for post-spawn verification (mid-session teleport is imperfect).
@@ -99,6 +109,9 @@ public sealed class SimConnectClient : ISimBridge
         public double GForce;
         public double SimOnGround;
         public double GearHandle;
+        public double IsGearRetractable;
+        public double IsGearWheels;
+        public double IsGearFloats;
         public double FlapsIndex;
         public double WindDir;
         public double WindVel;
@@ -116,6 +129,47 @@ public sealed class SimConnectClient : ISimBridge
     {
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string Title;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    private struct RunwayFacilityStruct
+    {
+        public double Latitude;
+        public double Longitude;
+        public double Altitude;
+        public float Heading;
+        public float Length;
+        public float Width;
+        public int Surface;
+        public int PrimaryNumber;
+        public int PrimaryDesignator;
+        public int SecondaryNumber;
+        public int SecondaryDesignator;
+        public byte PrimaryClosed;
+        public byte SecondaryClosed;
+        public byte PrimaryLanding;
+        public byte SecondaryLanding;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    private struct RunwayStartFacilityStruct
+    {
+        public double Latitude;
+        public double Longitude;
+        public double Altitude;
+        public float Heading;
+        public int Number;
+        public int Designator;
+        public int Type;
+    }
+
+    private sealed class FacilityRequestContext
+    {
+        public required AirportFacility Airport { get; init; }
+        public TaskCompletionSource<AirportRunwayFacility> Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public List<RunwayFacility> Runways { get; } = new();
+        public List<RunwayStartFacility> Starts { get; } = new();
     }
 
     /// <summary>
@@ -193,6 +247,9 @@ public sealed class SimConnectClient : ISimBridge
             _sim.OnRecvQuit += OnRecvQuit;
             _sim.OnRecvException += OnRecvException;
             _sim.OnRecvSimobjectData += OnRecvSimobjectData;
+            _sim.OnRecvAirportList += OnRecvAirportList;
+            _sim.OnRecvFacilityData += OnRecvFacilityData;
+            _sim.OnRecvFacilityDataEnd += OnRecvFacilityDataEnd;
 
             StatusMessage = "Waiting for sim handshake…";
             Log("SimConnect open requested.");
@@ -235,6 +292,69 @@ public sealed class SimConnectClient : ISimBridge
                 State = SimConnectionState.Disconnected;
                 StatusMessage = "Connection lost";
             }
+        }
+    }
+
+    public async Task<IReadOnlyList<AirportFacility>> GetAirportsAsync(CancellationToken ct = default)
+    {
+        if (_airportCatalogCache is not null)
+            return _airportCatalogCache;
+        if (!IsConnected || _sim is null)
+            throw new InvalidOperationException("Not connected to the simulator.");
+
+        if (_airportCatalogTcs is null)
+        {
+            _airportCatalogPackets.Clear();
+            _airportCatalogTcs = new TaskCompletionSource<IReadOnlyList<AirportFacility>>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            Log("Free mode: requesting worldwide airport catalog from SimConnect...");
+            _sim.RequestAllFacilities(SIMCONNECT_FACILITY_LIST_TYPE.AIRPORT, Requests.Airports);
+        }
+
+        try
+        {
+            return await _airportCatalogTcs.Task.WaitAsync(TimeSpan.FromSeconds(30), ct);
+        }
+        catch (TimeoutException)
+        {
+            _airportCatalogTcs = null;
+            _airportCatalogPackets.Clear();
+            throw new TimeoutException("Timed out while loading the SimConnect airport catalog.");
+        }
+    }
+
+    public async Task<AirportRunwayFacility> GetAirportRunwaysAsync(
+        AirportFacility airport,
+        CancellationToken ct = default)
+    {
+        if (!IsConnected || _sim is null)
+            throw new InvalidOperationException("Not connected to the simulator.");
+
+        var cacheKey = FacilityCacheKey(airport);
+        if (_airportDetailCache.TryGetValue(cacheKey, out var cached))
+            return cached;
+
+        var existing = _facilityRequests.Values.FirstOrDefault(x =>
+            FacilityCacheKey(x.Airport).Equals(cacheKey, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+            return await existing.Completion.Task.WaitAsync(TimeSpan.FromSeconds(12), ct);
+
+        var requestId = _nextFacilityRequestId++;
+        var context = new FacilityRequestContext { Airport = airport };
+        _facilityRequests[requestId] = context;
+        try
+        {
+            _sim.RequestFacilityData(
+                Definitions.AirportFacility,
+                (Requests)requestId,
+                airport.Icao,
+                airport.Region);
+            return await context.Completion.Task.WaitAsync(TimeSpan.FromSeconds(12), ct);
+        }
+        catch
+        {
+            _facilityRequests.Remove(requestId);
+            throw;
         }
     }
 
@@ -1243,6 +1363,130 @@ public sealed class SimConnectClient : ISimBridge
         Log($"SimConnect exception: {name} (code {data.dwException}, send {data.dwSendID}, index {data.dwIndex})");
     }
 
+    private void OnRecvAirportList(
+        Microsoft.FlightSimulator.SimConnect.SimConnect sender,
+        SIMCONNECT_RECV_AIRPORT_LIST data)
+    {
+        if (data.dwRequestID != (uint)Requests.Airports || _airportCatalogTcs is null)
+            return;
+
+        try
+        {
+            var packet = new List<AirportFacility>((int)data.dwArraySize);
+            foreach (var item in data.rgData)
+            {
+                if (item is not SIMCONNECT_DATA_FACILITY_AIRPORT airport
+                    || string.IsNullOrWhiteSpace(airport.Ident)
+                    || !double.IsFinite(airport.Latitude)
+                    || !double.IsFinite(airport.Longitude))
+                    continue;
+
+                packet.Add(new AirportFacility(
+                    airport.Ident.Trim(),
+                    airport.Region?.Trim() ?? "",
+                    airport.Latitude,
+                    airport.Longitude,
+                    airport.Altitude));
+            }
+
+            _airportCatalogPackets[data.dwEntryNumber] = packet;
+            var expectedPackets = Math.Max(1u, data.dwOutOf);
+            if (_airportCatalogPackets.Count < expectedPackets)
+                return;
+
+            var catalog = _airportCatalogPackets
+                .OrderBy(x => x.Key)
+                .SelectMany(x => x.Value)
+                .DistinctBy(a => $"{a.Icao}|{a.Region}|{a.Latitude:F6}|{a.Longitude:F6}",
+                    StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            _airportCatalogCache = catalog;
+            _airportCatalogPackets.Clear();
+            var completion = _airportCatalogTcs;
+            _airportCatalogTcs = null;
+            completion.TrySetResult(catalog);
+            Log($"Free mode: airport catalog ready ({catalog.Count:N0} airports).");
+        }
+        catch (Exception ex)
+        {
+            var completion = _airportCatalogTcs;
+            _airportCatalogTcs = null;
+            _airportCatalogPackets.Clear();
+            completion?.TrySetException(ex);
+            Log($"Airport catalog parse failed: {ex.Message}");
+        }
+    }
+
+    private void OnRecvFacilityData(
+        Microsoft.FlightSimulator.SimConnect.SimConnect sender,
+        SIMCONNECT_RECV_FACILITY_DATA data)
+    {
+        if (!_facilityRequests.TryGetValue(data.UserRequestId, out var context)
+            || data.Data.Length == 0)
+            return;
+
+        try
+        {
+            switch ((SIMCONNECT_FACILITY_DATA_TYPE)data.Type)
+            {
+                case SIMCONNECT_FACILITY_DATA_TYPE.RUNWAY
+                    when data.Data[0] is RunwayFacilityStruct runway:
+                    context.Runways.Add(new RunwayFacility(
+                        runway.Latitude,
+                        runway.Longitude,
+                        runway.Altitude,
+                        runway.Heading,
+                        runway.Length,
+                        runway.Width,
+                        runway.Surface,
+                        runway.PrimaryNumber,
+                        runway.PrimaryDesignator,
+                        runway.SecondaryNumber,
+                        runway.SecondaryDesignator,
+                        runway.PrimaryClosed != 0,
+                        runway.SecondaryClosed != 0,
+                        runway.PrimaryLanding != 0,
+                        runway.SecondaryLanding != 0));
+                    break;
+
+                case SIMCONNECT_FACILITY_DATA_TYPE.START
+                    when data.Data[0] is RunwayStartFacilityStruct start:
+                    context.Starts.Add(new RunwayStartFacility(
+                        start.Latitude,
+                        start.Longitude,
+                        start.Altitude,
+                        start.Heading,
+                        start.Number,
+                        start.Designator,
+                        start.Type));
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Completion.TrySetException(ex);
+            _facilityRequests.Remove(data.UserRequestId);
+            Log($"Facility data parse failed for {context.Airport.Icao}: {ex.Message}");
+        }
+    }
+
+    private void OnRecvFacilityDataEnd(
+        Microsoft.FlightSimulator.SimConnect.SimConnect sender,
+        SIMCONNECT_RECV_FACILITY_DATA_END data)
+    {
+        if (!_facilityRequests.Remove(data.RequestId, out var context))
+            return;
+
+        var detail = new AirportRunwayFacility(
+            context.Airport,
+            context.Runways.ToList(),
+            context.Starts.ToList());
+        _airportDetailCache[FacilityCacheKey(context.Airport)] = detail;
+        context.Completion.TrySetResult(detail);
+        Log($"Free mode: {context.Airport.Icao} facility data — " +
+            $"{detail.Runways.Count} runways, {detail.Starts.Count} starts.");
+    }
+
     private void OnRecvSimobjectData(Microsoft.FlightSimulator.SimConnect.SimConnect sender, SIMCONNECT_RECV_SIMOBJECT_DATA data)
     {
         if (data.dwRequestID == (uint)Requests.AircraftTitle)
@@ -1307,6 +1551,9 @@ public sealed class SimConnectClient : ISimBridge
                 GForce = t.GForce,
                 SimOnGround = t.SimOnGround > 0.5,
                 GearHandlePosition = t.GearHandle,
+                IsGearRetractable = t.IsGearRetractable > 0.5,
+                IsGearWheels = t.IsGearWheels > 0.5,
+                IsGearFloats = t.IsGearFloats > 0.5,
                 FlapsHandleIndex = (int)Math.Round(t.FlapsIndex),
                 SpoilersHandlePosition = t.SpoilersHandle,
                 // Max panel deflection is ground truth; handle alone mis-reports "armed" as out.
@@ -1357,6 +1604,12 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.Telemetry, "SIM ON GROUND", "bool",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "GEAR HANDLE POSITION", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "IS GEAR RETRACTABLE", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "IS GEAR WHEELS", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "IS GEAR FLOATS", "bool",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "FLAPS HANDLE INDEX", "number",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
@@ -1419,6 +1672,41 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.VelocitySet, "ROTATION VELOCITY BODY Z", "radians per second",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.RegisterDataDefineStruct<VelocitySetStruct>(Definitions.VelocitySet);
+
+        // Free-mode navdata: request only the runway and start fields needed by scoring.
+        // This API is read-only and never changes the aircraft or simulation state.
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "OPEN AIRPORT");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "OPEN RUNWAY");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "LATITUDE");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "LONGITUDE");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "ALTITUDE");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "HEADING");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "LENGTH");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "WIDTH");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "SURFACE");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "PRIMARY_NUMBER");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "PRIMARY_DESIGNATOR");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "SECONDARY_NUMBER");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "SECONDARY_DESIGNATOR");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "PRIMARY_CLOSED");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "SECONDARY_CLOSED");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "PRIMARY_LANDING");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "SECONDARY_LANDING");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "CLOSE RUNWAY");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "OPEN START");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "LATITUDE");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "LONGITUDE");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "ALTITUDE");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "HEADING");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "NUMBER");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "DESIGNATOR");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "TYPE");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "CLOSE START");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "CLOSE AIRPORT");
+        _sim.RegisterFacilityDataDefineStruct<RunwayFacilityStruct>(
+            SIMCONNECT_FACILITY_DATA_TYPE.RUNWAY);
+        _sim.RegisterFacilityDataDefineStruct<RunwayStartFacilityStruct>(
+            SIMCONNECT_FACILITY_DATA_TYPE.START);
 
         _defsRegistered = true;
     }
@@ -1483,20 +1771,37 @@ public sealed class SimConnectClient : ISimBridge
 
     private void CleanupSim()
     {
-        if (_sim is null) return;
-        try
+        if (_sim is not null)
         {
-            _sim.OnRecvOpen -= OnRecvOpen;
-            _sim.OnRecvQuit -= OnRecvQuit;
-            _sim.OnRecvException -= OnRecvException;
-            _sim.OnRecvSimobjectData -= OnRecvSimobjectData;
-            _sim.Dispose();
+            try
+            {
+                _sim.OnRecvOpen -= OnRecvOpen;
+                _sim.OnRecvQuit -= OnRecvQuit;
+                _sim.OnRecvException -= OnRecvException;
+                _sim.OnRecvSimobjectData -= OnRecvSimobjectData;
+                _sim.OnRecvAirportList -= OnRecvAirportList;
+                _sim.OnRecvFacilityData -= OnRecvFacilityData;
+                _sim.OnRecvFacilityDataEnd -= OnRecvFacilityDataEnd;
+                _sim.Dispose();
+            }
+            catch { /* ignore */ }
         }
-        catch { /* ignore */ }
+
         _sim = null;
         _defsRegistered = false;
         _eventsMapped = false;
+        _airportCatalogTcs?.TrySetException(new InvalidOperationException("SimConnect disconnected."));
+        _airportCatalogTcs = null;
+        _airportCatalogPackets.Clear();
+        _airportCatalogCache = null;
+        foreach (var request in _facilityRequests.Values)
+            request.Completion.TrySetException(new InvalidOperationException("SimConnect disconnected."));
+        _facilityRequests.Clear();
+        _airportDetailCache.Clear();
     }
+
+    private static string FacilityCacheKey(AirportFacility airport)
+        => $"{airport.Icao}|{airport.Region}";
 
     private void Log(string message) => LogMessage?.Invoke(this, message);
 }

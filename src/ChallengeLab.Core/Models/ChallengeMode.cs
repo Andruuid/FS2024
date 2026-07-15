@@ -3,7 +3,8 @@ namespace ChallengeLab.Core.Models;
 public enum ChallengeMode
 {
     HardcoreLandings,
-    Disasters
+    Disasters,
+    FreeFlight
 }
 
 public static class ChallengeModeExtensions
@@ -12,6 +13,7 @@ public static class ChallengeModeExtensions
     {
         ChallengeMode.HardcoreLandings => "hardcore_landings",
         ChallengeMode.Disasters => "disasters",
+        ChallengeMode.FreeFlight => "free_flight",
         _ => "hardcore_landings"
     };
 
@@ -19,12 +21,14 @@ public static class ChallengeModeExtensions
     {
         ChallengeMode.HardcoreLandings => "Hardcore Landings",
         ChallengeMode.Disasters => "Disasters",
+        ChallengeMode.FreeFlight => "Free Flight",
         _ => mode.ToString()
     };
 
     public static ChallengeMode FromConfigKey(string? key) => key?.ToLowerInvariant() switch
     {
         "disasters" => ChallengeMode.Disasters,
+        "free_flight" => ChallengeMode.FreeFlight,
         _ => ChallengeMode.HardcoreLandings
     };
 }

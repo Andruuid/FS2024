@@ -7,6 +7,7 @@ using MessageBox = System.Windows.MessageBox;
 using MessageBoxButton = System.Windows.MessageBoxButton;
 using MessageBoxImage = System.Windows.MessageBoxImage;
 using ChallengeLab.Core.Config;
+using ChallengeLab.Core.Facilities;
 using ChallengeLab.Core.Highscores;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scenarios;
@@ -26,8 +27,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private readonly LandingSessionSettings? _sessionSettings;
     private readonly EvaluationKeyLoadResult _evaluationKeyLoad;
     private readonly string? _evaluationKeyPath;
+    private readonly ScoreEngine? _freeScoreEngine;
+    private readonly LandingSessionSettings? _freeSessionSettings;
+    private readonly EvaluationKeyLoadResult _freeEvaluationKeyLoad;
+    private readonly string? _freeEvaluationKeyPath;
     private readonly ISimBridge _sim;
     private readonly DispatcherTimer _reconnectTimer;
+    private readonly DispatcherTimer _freeInferenceTimer;
+    private readonly FreeFlightRunwayInference _freeInference = new();
 
     private ChallengeCardViewModel? _selectedChallenge;
     private string _connectionStatus = "Disconnected";
@@ -59,6 +66,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _reportBodyText = "";
     private ObservableCollection<ReportMetricViewModel> _reportMetrics = new();
     private string _windowTitle = AppBuild.WindowTitleDefault;
+    private HudOperatingMode _hudOperatingMode = HudOperatingMode.Normal;
+    private string _freeAirportStatus = "Detecting airport and runway...";
+    private CancellationTokenSource? _freeFlightCts;
+    private bool _freeInferenceBusy;
+    private string _lastFreeInferenceError = "";
 
     // Post-spawn GO gate: wait until IAS + surfaces match challenge before enabling GO.
     private bool _isSpawnPreparing;
@@ -93,16 +105,37 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             ConfigurationStatus = "SCORING DISABLED — " + string.Join(" | ", _evaluationKeyLoad.Errors);
         }
 
+        try
+        {
+            var catalog = _configLoader.LoadCatalog();
+            _freeEvaluationKeyLoad = string.IsNullOrWhiteSpace(catalog.FreeFlightEvaluationKey)
+                ? EvaluationKeyLoadResult.Failure(null, "catalog.json must define freeFlightEvaluationKey.")
+                : _configLoader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey);
+        }
+        catch (Exception ex)
+        {
+            _freeEvaluationKeyLoad = EvaluationKeyLoadResult.Failure(null, ex.Message);
+        }
+
+        _freeEvaluationKeyPath = _freeEvaluationKeyLoad.Path;
+        if (_freeEvaluationKeyLoad.Key is { } freeKey && _freeEvaluationKeyLoad.IsValid)
+        {
+            _freeScoreEngine = new ScoreEngine(freeKey);
+            _freeSessionSettings = freeKey.ToSessionSettings();
+        }
+
         Challenges = new ObservableCollection<ChallengeCardViewModel>();
         Highscores = new ObservableCollection<HighscoreEntry>();
         CriterionResults = new ObservableCollection<CriterionResultViewModel>();
 
         StartChallengeCommand = new RelayCommand(async () => await StartChallengeAsync(), () =>
-            SelectedChallenge is { Available: true } && HasValidScoringConfiguration && !IsLoading);
+            IsNormalMode && SelectedChallenge is { Available: true } && HasValidScoringConfiguration && !IsLoading);
         RestartCommand = new RelayCommand(async () => await RestartAsync(), () =>
-            (_activeChallenge is not null || SelectedChallenge is { Available: true })
+            IsNormalMode && (_activeChallenge is not null || SelectedChallenge is { Available: true })
             && HasValidScoringConfiguration && !IsLoading);
         CleanMetricsCommand = new RelayCommand(CleanMetrics, CanCleanMetrics);
+        NormalModeCommand = new RelayCommand(async () => await SetHudOperatingModeAsync(HudOperatingMode.Normal), () => !IsLoading);
+        FreeModeCommand = new RelayCommand(async () => await SetHudOperatingModeAsync(HudOperatingMode.Free), () => !IsLoading);
         GoCommand = new RelayCommand(GoFlight, CanGoFlight);
         ConnectCommand = new RelayCommand(TriggerConnect);
         DismissResultCommand = new RelayCommand(() => ResultVisible = false);
@@ -127,9 +160,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         };
         _reconnectTimer.Start();
 
+        _freeInferenceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _freeInferenceTimer.Tick += async (_, _) => await RunFreeInferenceAsync();
+
         LoadCatalog();
         AppendLog($"{AppBuild.Tag} started");
         LogEvaluationKeyStatus();
+        LogFreeEvaluationKeyStatus();
         RefreshHighscores();
     }
 
@@ -157,6 +194,21 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private void LogFreeEvaluationKeyStatus()
+    {
+        if (_freeEvaluationKeyLoad.Key is { Phases.Count: > 0 } key)
+        {
+            AppendLog($"Free-flight evaluation key loaded: {key.Id} v{key.Version}");
+            if (!string.IsNullOrEmpty(_freeEvaluationKeyPath))
+                AppendLog($"  path: {_freeEvaluationKeyPath}");
+            return;
+        }
+
+        AppendLog(
+            "FREE MODE SCORING DISABLED: " +
+            string.Join(" | ", _freeEvaluationKeyLoad.Errors));
+    }
+
     public event Action? RequestConnect;
     public event Action? RequestShowHud;
     /// <summary>Show or hide the main app window (HUD stays). Menu button toggle.</summary>
@@ -164,9 +216,47 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public event Action<ScoreResult>? ScoreComputed;
 
     public bool HasValidScoringConfiguration => _scoreEngine is not null && _sessionSettings is not null;
+    public bool HasValidFreeScoringConfiguration =>
+        _freeScoreEngine is not null && _freeSessionSettings is not null;
     public string ConfigurationStatus { get; }
 
+    private ScoreEngine? CurrentScoreEngine => IsFreeMode ? _freeScoreEngine : _scoreEngine;
+    private LandingSessionSettings? CurrentSessionSettings =>
+        IsFreeMode ? _freeSessionSettings : _sessionSettings;
+
+    public HudOperatingMode OperatingMode
+    {
+        get => _hudOperatingMode;
+        private set
+        {
+            if (_hudOperatingMode == value) return;
+            SetProperty(ref _hudOperatingMode, value);
+            RaisePropertyChanged(nameof(IsNormalMode));
+            RaisePropertyChanged(nameof(IsFreeMode));
+            RaiseModeCommandStates();
+        }
+    }
+
+    public bool IsNormalMode => OperatingMode == HudOperatingMode.Normal;
+    public bool IsFreeMode => OperatingMode == HudOperatingMode.Free;
+
+    public string FreeAirportStatus
+    {
+        get => _freeAirportStatus;
+        private set => SetProperty(ref _freeAirportStatus, value);
+    }
+
     public void TriggerConnect() => RequestConnect?.Invoke();
+
+    private void RaiseModeCommandStates()
+    {
+        (StartChallengeCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (RestartCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (NormalModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (FreeModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
 
     public ObservableCollection<ChallengeCardViewModel> Challenges { get; }
     public ObservableCollection<HighscoreEntry> Highscores { get; }
@@ -176,6 +266,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand RestartCommand { get; }
     /// <summary>Wipe landing metrics only (no re-spawn); preview returns to 100%.</summary>
     public ICommand CleanMetricsCommand { get; }
+    public ICommand NormalModeCommand { get; }
+    public ICommand FreeModeCommand { get; }
     /// <summary>HUD Go: SET PAUSE OFF (resume flight after Start/Restart hold).</summary>
     public ICommand GoCommand { get; }
     public ICommand ConnectCommand { get; }
@@ -314,6 +406,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             SetProperty(ref _isConnected, value);
             (StartChallengeCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
@@ -327,6 +420,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             (RestartCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (NormalModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (FreeModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
@@ -537,9 +632,196 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private Task SetHudOperatingModeAsync(HudOperatingMode mode)
+    {
+        if (OperatingMode == mode || IsLoading)
+            return Task.CompletedTask;
+
+        _tipTimer?.Stop();
+        DetachSession();
+        StopFreeInference(resetTarget: true);
+        _activeChallenge = null;
+        LastScore = null;
+        ResultVisible = false;
+        LoadProgress = 0;
+        LoadStatus = "";
+        OperatingMode = mode;
+
+        if (mode == HudOperatingMode.Free)
+        {
+            PhaseLabel = "Detecting";
+            HudTip = "Free mode observes this flight and detects the runway from your true ground track.";
+            SpeedTargetInfo = "Optimal landing speed: —";
+            FreeAirportStatus = HasValidFreeScoringConfiguration
+                ? "Detecting airport and runway..."
+                : "Detecting unavailable · generic scoring profile is invalid";
+            _freeFlightCts = new CancellationTokenSource();
+            _freeInferenceTimer.Start();
+            RequestShowHud?.Invoke();
+            _ = RunFreeInferenceAsync();
+            AppendLog("HUD mode: Free — observing current flight; no simulator state changes.");
+        }
+        else
+        {
+            PhaseLabel = "Idle";
+            HudTip = "Start a challenge to begin.";
+            SpeedTargetInfo = "Optimal landing speed: —";
+            FreeAirportStatus = "Detecting airport and runway...";
+            AppendLog("HUD mode: Normal — select Start or Restart for a challenge.");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void StopFreeInference(bool resetTarget)
+    {
+        _freeInferenceTimer.Stop();
+        _freeFlightCts?.Cancel();
+        _freeFlightCts?.Dispose();
+        _freeFlightCts = null;
+        if (resetTarget)
+            _freeInference.Reset();
+    }
+
+    private async Task RunFreeInferenceAsync()
+    {
+        if (!IsFreeMode || !_sim.IsConnected || _lastTelemetry is null || _freeInferenceBusy)
+            return;
+
+        var cts = _freeFlightCts;
+        if (cts is null || cts.IsCancellationRequested)
+            return;
+
+        _freeInferenceBusy = true;
+        try
+        {
+            var sample = _lastTelemetry;
+            var airports = await _sim.GetAirportsAsync(cts.Token);
+            if (!IsCurrentFreeScan(cts)) return;
+
+            var nearby = _freeInference.RankNearbyAirports(sample, airports);
+            var nearest = nearby.FirstOrDefault();
+            if (nearest is null)
+            {
+                FreeAirportStatus = "Detecting · airport catalog is empty";
+                PhaseLabel = "Detecting";
+                return;
+            }
+
+            IReadOnlyList<AirportRunwayFacility> details = Array.Empty<AirportRunwayFacility>();
+            if (_freeInference.LockedTarget is null)
+            {
+                var detailTasks = nearby
+                    .Where(a => a.DistanceNm <= _freeInference.Settings.NearbyAirportRadiusNm)
+                    .Select(a => GetAirportRunwaysOrNullAsync(a.Airport, cts.Token));
+                details = (await Task.WhenAll(detailTasks))
+                    .Where(x => x is not null)
+                    .Cast<AirportRunwayFacility>()
+                    .ToList();
+                if (!IsCurrentFreeScan(cts)) return;
+            }
+
+            var inference = _freeInference.Update(sample, nearby, details);
+            var nearestText = $"Nearest {nearest.Airport.Icao} · {nearest.DistanceNm:0.0} NM";
+            if (inference.LockedTarget is { } locked)
+            {
+                FreeAirportStatus =
+                    $"{nearestText} · Locked {locked.Runway.Airport.Icao} RWY {locked.Runway.RunwayId}";
+                if (_session is null)
+                    ArmFreeFlightSession(locked, sample);
+            }
+            else if (inference.Candidate is { } candidate)
+            {
+                FreeAirportStatus =
+                    $"{nearestText} · Checking {candidate.Runway.Airport.Icao} RWY {candidate.Runway.RunwayId} " +
+                    $"({inference.StableSamples}/{_freeInference.Settings.StableSamplesToLock})";
+                PhaseLabel = "Detecting";
+            }
+            else
+            {
+                FreeAirportStatus = $"{nearestText} · Detecting approach runway";
+                PhaseLabel = "Detecting";
+            }
+
+            _lastFreeInferenceError = "";
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            // Expected when switching modes, clearing, or disconnecting.
+        }
+        catch (Exception ex)
+        {
+            if (!IsCurrentFreeScan(cts)) return;
+            PhaseLabel = "Detecting";
+            FreeAirportStatus = "Detecting · facility data temporarily unavailable";
+            if (!string.Equals(_lastFreeInferenceError, ex.Message, StringComparison.Ordinal))
+            {
+                _lastFreeInferenceError = ex.Message;
+                AppendLog($"Free detection retry: {ex.Message}");
+            }
+        }
+        finally
+        {
+            _freeInferenceBusy = false;
+        }
+    }
+
+    private bool IsCurrentFreeScan(CancellationTokenSource cts) =>
+        IsFreeMode && ReferenceEquals(_freeFlightCts, cts) && !cts.IsCancellationRequested;
+
+    private async Task<AirportRunwayFacility?> GetAirportRunwaysOrNullAsync(
+        AirportFacility airport,
+        CancellationToken ct)
+    {
+        try
+        {
+            return await _sim.GetAirportRunwaysAsync(airport, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Facility {airport.Icao} unavailable: {ex.Message}");
+            return null;
+        }
+    }
+
+    private void ArmFreeFlightSession(FreeFlightTarget target, TelemetrySample sample)
+    {
+        if (_freeSessionSettings is null || _freeScoreEngine is null)
+        {
+            PhaseLabel = "Detecting";
+            HudTip = "Free scoring profile is unavailable. Check the Session log.";
+            return;
+        }
+
+        var airport = target.Runway.Airport.Icao.Trim().ToUpperInvariant();
+        var runway = target.Runway.RunwayId.Trim().ToUpperInvariant();
+        var challenge = FreeFlightChallengeFactory.Create(target, sample);
+
+        _activeChallenge = challenge;
+        _session = new LandingSession(challenge, _freeSessionSettings);
+        _session.PhaseChanged += OnSessionPhaseChanged;
+        _session.SettledReady += OnSettledReady;
+        _session.Arm();
+        PhaseLabel = "Free · Armed";
+        HudTip = $"Locked {airport} RWY {runway} · scoring this landing.";
+        LastScore = null;
+        ResultVisible = false;
+        SetPreviewPerfect("free flight · runway locked · unmeasured metrics assumed 100%");
+        UpdateSpeedTargetInfo(challenge, sample, sample.AirspeedKts);
+        (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        AppendLog(
+            $"Free armed: {airport} RWY {runway} · {target.ThresholdDistanceNm:0.0} NM · " +
+            $"track error {target.TrackErrorDeg:0.0}° · cross-track {target.CrossTrackNm:0.00} NM · " +
+            $"gear gate={(challenge.RequireGearDown ? "on" : "not applicable")}.");
+    }
+
     private async Task StartChallengeAsync()
     {
-        if (SelectedChallenge is null || !SelectedChallenge.Available) return;
+        if (!IsNormalMode || SelectedChallenge is null || !SelectedChallenge.Available) return;
 
         if (!_sim.IsConnected)
         {
@@ -555,6 +837,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private async Task RestartAsync()
     {
+        if (!IsNormalMode) return;
         var challenge = _activeChallenge ?? SelectedChallenge?.Config;
         if (challenge is null) return;
         await RunLoadAsync(challenge);
@@ -735,24 +1018,28 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void DetachSession()
     {
         StopSpawnReadinessWatch(clearUi: true);
-        if (_session is null) return;
-        _session.PhaseChanged -= OnSessionPhaseChanged;
-        _session.SettledReady -= OnSettledReady;
-        _session.Reset();
-        _session = null;
+        if (_session is not null)
+        {
+            _session.PhaseChanged -= OnSessionPhaseChanged;
+            _session.SettledReady -= OnSettledReady;
+            _session.Reset();
+            _session = null;
+        }
         ClearPreview();
         (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     private bool CanCleanMetrics() =>
-        _session is not null
-        && _session.Phase is not LandingPhase.Idle
-        && HasValidScoringConfiguration
-        && !IsLoading;
+        !IsLoading && (IsFreeMode
+            ? HasValidFreeScoringConfiguration
+            : _session is not null
+              && _session.Phase is not LandingPhase.Idle
+              && HasValidScoringConfiguration);
 
     private bool CanGoFlight() =>
-        _sim.IsConnected
+        IsNormalMode
+        && _sim.IsConnected
         && !IsLoading
         && !IsSpawnPreparing
         && IsSpawnReady
@@ -900,19 +1187,40 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// HUD "Clean": zero all metrics from this landing at this moment only.
+    /// HUD "Clear": zero all metrics from this landing at this moment only.
     /// No spawn, weather, or aircraft change — scoring re-arms and preview → 100%.
     /// </summary>
     private void CleanMetrics()
     {
-        if (_session is null || !CanCleanMetrics()) return;
+        if (!CanCleanMetrics()) return;
+
+        if (IsFreeMode)
+        {
+            DetachSession();
+            _activeChallenge = null;
+            LastScore = null;
+            ResultVisible = false;
+            StopFreeInference(resetTarget: true);
+            PhaseLabel = "Detecting";
+            HudTip = "Cleared · detecting again from your current position and true ground track.";
+            FreeAirportStatus = "Detecting airport and runway...";
+            SpeedTargetInfo = "Optimal landing speed: —";
+            _freeFlightCts = new CancellationTokenSource();
+            _freeInferenceTimer.Start();
+            _ = RunFreeInferenceAsync();
+            AppendLog("Free Clear: score/session and runway lock released; detection restarted in place.");
+            (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            return;
+        }
+
+        if (_session is null) return;
 
         _session.CleanMetrics();
         LastScore = null;
         ResultVisible = false;
         PhaseLabel = "Armed";
         SetPreviewPerfect("cleaned · waiting for approach window · unmeasured = 100%");
-        AppendLog("Clean: landing metrics wiped — re-armed from this moment (preview 100%).");
+        AppendLog("Clear: landing metrics wiped — re-armed from this moment (preview 100%).");
         (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
@@ -940,12 +1248,16 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void OnSettledReady(object? sender, EventArgs e)
     {
-        if (_session is null || _activeChallenge is null || _scoreEngine is null) return;
-        if (_session.IsComplete && LastScore is not null) return;
+        var session = _session;
+        var challenge = _activeChallenge;
+        var scoreEngine = CurrentScoreEngine;
+        if (session is null || challenge is null || scoreEngine is null) return;
+        if (session.IsComplete && LastScore is not null) return;
 
         Application.Current.Dispatcher.Invoke(() =>
         {
-            var result = _scoreEngine.Evaluate(_activeChallenge, _session.Snapshot);
+            if (!ReferenceEquals(_session, session)) return;
+            var result = scoreEngine.Evaluate(challenge, session.Snapshot);
             LastScore = result;
             ResultVisible = true;
             ApplyFinalPreview(result);
@@ -954,7 +1266,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             try
             {
                 // Always keep a time-series dump for offline analysis (even unranked).
-                tracePath = _landingTraces.Save(result, _session.Snapshot, samplesPerSecond: 5);
+                tracePath = _landingTraces.Save(result, session.Snapshot, samplesPerSecond: 5);
             }
             catch (Exception ex)
             {
@@ -996,7 +1308,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 $"Wind {sample.WindDirectionDeg:000}/{sample.WindVelocityKts:0}kt  ·  " +
                 $"{(sample.SimOnGround ? "GND" : "AIR")}";
 
-            if (_activeChallenge is not null && _sessionSettings is not null)
+            if (_activeChallenge is not null && CurrentSessionSettings is not null)
                 UpdateSpeedTargetInfo(_activeChallenge, sample, sample.AirspeedKts);
 
             _session?.Ingest(sample);
@@ -1054,7 +1366,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void UpdateLivePreview(bool force)
     {
-        if (_session is null || _activeChallenge is null || _scoreEngine is null)
+        var scoreEngine = CurrentScoreEngine;
+        if (_session is null || _activeChallenge is null || scoreEngine is null)
             return;
         if (_session.Phase is LandingPhase.Idle or LandingPhase.Scored)
             return;
@@ -1080,7 +1393,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             // Ensure approach/rollout derived fields are current before scoring.
             _session.RefreshDerivedMetrics();
 
-            var preview = _scoreEngine.EvaluatePreview(_activeChallenge, _session.Snapshot);
+            var preview = scoreEngine.EvaluatePreview(_activeChallenge, _session.Snapshot);
             PreviewActive = true;
             PreviewHeading = "PREVIEW SCORE";
             PreviewScorePercent = preview.ScorePercent;
@@ -1105,9 +1418,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
         double? vapp = null;
         double? targetTd = null;
-        if (_sessionSettings is not null)
+        var sessionSettings = CurrentSessionSettings;
+        if (sessionSettings is not null)
         {
-            var resolved = SpeedTargetCalculator.Resolve(_activeChallenge, _sessionSettings, _lastTelemetry);
+            var resolved = SpeedTargetCalculator.Resolve(_activeChallenge, sessionSettings, _lastTelemetry);
             vapp = resolved.VappKts;
             targetTd = resolved.TargetTouchdownIasKts;
         }
@@ -1125,7 +1439,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             _lastTelemetry,
             vapp,
             targetTd,
-            _sessionSettings?.ApproachPathMaxDistNm ?? 4.5);
+            sessionSettings?.ApproachPathMaxDistNm ?? 4.5);
         SetPreviewIssues(LiveApproachIssueBuilder.FormatLine(issues));
     }
 
@@ -1143,7 +1457,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             return "armed · not airborne yet · all metrics assumed 100%";
 
         var snap = session.Snapshot;
-        var maxNm = _sessionSettings?.ApproachPathMaxDistNm ?? 4.5;
+        var maxNm = CurrentSessionSettings?.ApproachPathMaxDistNm ?? 4.5;
         var measuringApproach = snap.ApproachPathSampleCount >= 2
                                 && snap.ApproachMetricDurationSec >= 0.5;
         var hasTouchdown = snap.Touchdown is not null;
@@ -1231,13 +1545,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void UpdateSpeedTargetInfo(ChallengeConfig challenge, TelemetrySample? sample, double? liveIas)
     {
-        if (_sessionSettings is null)
+        var sessionSettings = CurrentSessionSettings;
+        if (sessionSettings is null)
         {
             SpeedTargetInfo = "Optimal landing speed: —";
             return;
         }
 
-        var (vapp, targetTd, source) = SpeedTargetCalculator.Resolve(challenge, _sessionSettings, sample);
+        var (vapp, targetTd, source) = SpeedTargetCalculator.Resolve(challenge, sessionSettings, sample);
         // Informational only — same formula used at scoring time (VAPP − offset, default −5 kt).
         if (liveIas is null)
         {
@@ -1259,6 +1574,30 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             IsConnected = state == SimConnectionState.Connected;
             ConnectionStatus = _sim.StatusMessage ?? state.ToString();
+
+            if (state == SimConnectionState.Connected)
+            {
+                RequestShowHud?.Invoke();
+                if (IsFreeMode)
+                {
+                    StopFreeInference(resetTarget: true);
+                    DetachSession();
+                    _activeChallenge = null;
+                    PhaseLabel = "Detecting";
+                    FreeAirportStatus = "Detecting airport and runway...";
+                    _freeFlightCts = new CancellationTokenSource();
+                    _freeInferenceTimer.Start();
+                    _ = RunFreeInferenceAsync();
+                }
+            }
+            else if (IsFreeMode)
+            {
+                StopFreeInference(resetTarget: true);
+                DetachSession();
+                _activeChallenge = null;
+                PhaseLabel = "Detecting";
+                FreeAirportStatus = "Detecting · waiting for simulator connection";
+            }
         });
     }
 
@@ -1290,6 +1629,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         _reconnectTimer.Stop();
         _tipTimer?.Stop();
+        StopFreeInference(resetTarget: true);
         DetachSession();
         _sim.StateChanged -= OnSimStateChanged;
         _sim.TelemetryReceived -= OnTelemetry;

@@ -1,4 +1,5 @@
 using ChallengeLab.Core.Config;
+using ChallengeLab.Core.Facilities;
 using ChallengeLab.Core.Models;
 
 namespace ChallengeLab.SimConnect;
@@ -25,6 +26,14 @@ public interface ISimBridge : IDisposable
     void Connect(IntPtr windowHandle);
     void Disconnect();
     void ReceiveMessage();
+
+    /// <summary>Return the simulator's worldwide airport catalog for the current connection.</summary>
+    Task<IReadOnlyList<AirportFacility>> GetAirportsAsync(CancellationToken ct = default);
+
+    /// <summary>Return physical runways and runway start positions for one airport.</summary>
+    Task<AirportRunwayFacility> GetAirportRunwaysAsync(
+        AirportFacility airport,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Safe mid-session scenario apply (time/weather/teleport/gear). No FlightLoad.

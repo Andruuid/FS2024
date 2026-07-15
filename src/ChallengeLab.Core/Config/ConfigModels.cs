@@ -14,6 +14,9 @@ public sealed class CatalogConfig
     /// Default: scoring/profiles/landing-evaluation-key.json
     /// </summary>
     public string EvaluationKey { get; set; } = "";
+
+    /// <summary>Aircraft-generic evaluation key used by automatic Free HUD mode.</summary>
+    public string FreeFlightEvaluationKey { get; set; } = "";
 }
 
 public sealed class ModeConfig

@@ -28,6 +28,20 @@ public static class SpeedTargetCalculator
             vapp = challenge.AircraftSetup.VappKts.Value;
             source = "challenge config";
         }
+        else if (challenge.ModeEnum == ChallengeMode.FreeFlight)
+        {
+            if (sample?.DesignSpeedVs0Kts is > 20 and < 200)
+            {
+                var factor = settings.Vs0Factor;
+                vapp = sample.DesignSpeedVs0Kts * factor;
+                source = $"DESIGN SPEED VS0 × {factor:0.##}";
+            }
+            else
+            {
+                vapp = settings.DefaultVappKts;
+                source = "free profile fallback (VS0 unavailable)";
+            }
+        }
         else if (sample?.DesignSpeedVs0Kts is > 40 and < 200)
         {
             var factor = settings.Vs0Factor;
