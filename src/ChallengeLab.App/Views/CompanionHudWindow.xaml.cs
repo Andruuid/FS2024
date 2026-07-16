@@ -16,7 +16,7 @@ namespace ChallengeLab.App.Views;
 public partial class CompanionHudWindow : Window
 {
     private const double ExpandedWidth = 440;
-    private const double ExpandedHeight = 460;
+    private const double ExpandedHeight = 500;
     private const double CompactWidth = 120;
     private const double CompactHeight = 72;
 

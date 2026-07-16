@@ -1,0 +1,15 @@
+{
+  "id": "career-madeira-storm-corridor",
+  "mode": "hardcore_landings",
+  "title": "Madeira Storm Corridor",
+  "subtitle": "LPMA · Mountain turbulence · Reward preview",
+  "description": "Thread the Madeira terrain corridor in a violent Atlantic storm, then stabilize for the offset runway arrival.",
+  "available": false,
+  "comingSoonNote": "Career reward preview — implementation pending.",
+  "aircraftTitles": ["A330-200 (RR)", "Airbus A330-200", "A330"],
+  "spawn": {},
+  "weather": {},
+  "aircraftSetup": {},
+  "runway": { "airportIcao": "LPMA", "runwayId": "05" },
+  "hudTips": []
+}

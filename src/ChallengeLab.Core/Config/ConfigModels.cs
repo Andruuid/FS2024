@@ -17,6 +17,26 @@ public sealed class CatalogConfig
 
     /// <summary>Aircraft-generic evaluation key used by automatic Free HUD mode.</summary>
     public string FreeFlightEvaluationKey { get; set; } = "";
+
+    /// <summary>
+    /// Optional, independently validated Career Mode configuration. A bad career
+    /// section must not prevent the normal catalog or scoring profiles from loading.
+    /// </summary>
+    public CareerConfig? Career { get; set; }
+}
+
+public sealed class CareerConfig
+{
+    public double PassScorePercent { get; set; } = 80;
+    public List<string> AssignmentChallengeIds { get; set; } = new();
+    public List<CareerRankConfig> Ranks { get; set; } = new();
+}
+
+public sealed class CareerRankConfig
+{
+    public string Id { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string RewardChallengeId { get; set; } = "";
 }
 
 public sealed class ModeConfig

@@ -1,0 +1,15 @@
+{
+  "id": "career-paro-monsoon-engine-out",
+  "mode": "disasters",
+  "title": "Paro Monsoon Engine-Out",
+  "subtitle": "VQPR · Mountain visual · Reward preview",
+  "description": "Carry an asymmetric A330 through Paro's mountain turns in monsoon rain and commit to one of aviation's least forgiving runways.",
+  "available": false,
+  "comingSoonNote": "Career reward preview — implementation pending.",
+  "aircraftTitles": ["A330-200 (RR)", "Airbus A330-200", "A330"],
+  "spawn": {},
+  "weather": {},
+  "aircraftSetup": {},
+  "runway": { "airportIcao": "VQPR", "runwayId": "15" },
+  "hudTips": []
+}

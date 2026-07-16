@@ -1,0 +1,15 @@
+{
+  "id": "career-arctic-ice-runway-rescue",
+  "mode": "disasters",
+  "title": "Arctic Ice Runway Rescue",
+  "subtitle": "High Arctic · Improvised strip · Reward preview",
+  "description": "Deliver a rescue flight onto a narrow improvised ice strip in polar darkness, with braking action and usable runway both uncertain.",
+  "available": false,
+  "comingSoonNote": "Career reward preview — implementation pending.",
+  "aircraftTitles": ["A330-200 (RR)", "Airbus A330-200", "A330"],
+  "spawn": {},
+  "weather": {},
+  "aircraftSetup": {},
+  "runway": { "airportIcao": "CYLT", "runwayId": "TBD" },
+  "hudTips": []
+}

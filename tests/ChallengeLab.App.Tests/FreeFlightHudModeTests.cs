@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Text;
 using ChallengeLab.App.ViewModels;
 using ChallengeLab.App.Views;
+using ChallengeLab.Core.Career;
 using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Facilities;
 using ChallengeLab.Core.Highscores;
@@ -27,11 +28,13 @@ public sealed class FreeFlightHudModeTests
             var bindingErrors = new BindingErrorListener();
             PresentationTraceSources.DataBindingSource.Listeners.Add(bindingErrors);
             var scorePath = Path.Combine(Path.GetTempPath(), $"challenge-lab-{Guid.NewGuid():N}.json");
+            var careerPath = Path.Combine(Path.GetTempPath(), $"challenge-lab-career-{Guid.NewGuid():N}.json");
             var sim = new FakeSimBridge { BlockAirportCatalog = true };
             var vm = new MainViewModel(
                 sim,
                 new ConfigLoader(FindConfig()),
-                new HighscoreStore(scorePath));
+                new HighscoreStore(scorePath),
+                new CareerProgressStore(careerPath));
             CompanionHudWindow? hud = null;
             SecondaryHudWindow? secondary = null;
             SecondaryHudWindow? restoredSecondary = null;
@@ -119,6 +122,36 @@ public sealed class FreeFlightHudModeTests
                     : default);
                 Assert.True(string.IsNullOrWhiteSpace(bindingErrors.Errors), bindingErrors.Errors);
                 AssertNoSimulatorMutation(sim);
+
+                // Career uses the same safe Normal-mode load path, becomes active only
+                // after the fake spawn verifies/arms, and paints the compact HUD strip.
+                sim.SetState(SimConnectionState.Connected);
+                vm.AcceptCareerAssignmentCommand.Execute(null);
+                Assert.True(vm.CareerHasAssignment);
+                vm.StartCareerAssignmentCommand.Execute(null);
+                Assert.Equal(1, sim.LoadScenarioCalls);
+                Assert.True(vm.IsCareerAttemptActive);
+                Assert.Contains("80.0%", vm.CareerHudStatus, StringComparison.Ordinal);
+                hud.UpdateLayout();
+                Assert.Equal(
+                    Visibility.Visible,
+                    Assert.IsType<Border>(hud.FindName("CareerStatusStrip")).Visibility);
+
+                vm.CleanMetricsCommand.Execute(null);
+                Assert.True(vm.IsCareerAttemptActive);
+                vm.RestartCommand.Execute(null);
+                Assert.Equal(2, sim.LoadScenarioCalls);
+                Assert.True(vm.IsCareerAttemptActive);
+
+                vm.SelectedChallenge = vm.Challenges.First(c => c.Available);
+                vm.StartChallengeCommand.Execute(null);
+                Assert.Equal(3, sim.LoadScenarioCalls);
+                Assert.False(vm.IsCareerAttemptActive);
+                hud.UpdateLayout();
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    Assert.IsType<Border>(hud.FindName("CareerStatusStrip")).Visibility);
+                Assert.True(string.IsNullOrWhiteSpace(bindingErrors.Errors), bindingErrors.Errors);
             }
             finally
             {
@@ -129,6 +162,7 @@ public sealed class FreeFlightHudModeTests
                 vm.Dispose();
                 app.Shutdown();
                 if (File.Exists(scorePath)) File.Delete(scorePath);
+                if (File.Exists(careerPath)) File.Delete(careerPath);
                 if (File.Exists(positionPath)) File.Delete(positionPath);
             }
         });

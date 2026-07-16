@@ -2,6 +2,41 @@
   "appName": "Challenge Lab",
   "evaluationKey": "scoring/profiles/landing-evaluation-key.json",
   "freeFlightEvaluationKey": "scoring/profiles/free-flight-evaluation-key.json",
+  "career": {
+    "passScorePercent": 80,
+    "assignmentChallengeIds": [
+      "barcelona-crosswind-final",
+      "la-paz-high-altitude-final",
+      "skiathos-short-final"
+    ],
+    "ranks": [
+      {
+        "id": "cadet",
+        "title": "Cadet",
+        "rewardChallengeId": "career-madeira-storm-corridor"
+      },
+      {
+        "id": "first-officer",
+        "title": "First Officer",
+        "rewardChallengeId": "career-innsbruck-alpine-whiteout"
+      },
+      {
+        "id": "senior-first-officer",
+        "title": "Senior First Officer",
+        "rewardChallengeId": "career-kai-tak-night-return"
+      },
+      {
+        "id": "captain",
+        "title": "Captain",
+        "rewardChallengeId": "career-paro-monsoon-engine-out"
+      },
+      {
+        "id": "command-captain",
+        "title": "Command Captain",
+        "rewardChallengeId": "career-arctic-ice-runway-rescue"
+      }
+    ]
+  },
   "modes": [
     {
       "id": "hardcore_landings",
@@ -19,6 +54,11 @@
     "challenges/la-paz-high-altitude-final.json",
     "challenges/skiathos-short-final.json",
     "challenges/sioux-city-hydraulics.json",
-    "challenges/swissair-smoke.json"
+    "challenges/swissair-smoke.json",
+    "challenges/career-madeira-storm-corridor.json",
+    "challenges/career-innsbruck-alpine-whiteout.json",
+    "challenges/career-kai-tak-night-return.json",
+    "challenges/career-paro-monsoon-engine-out.json",
+    "challenges/career-arctic-ice-runway-rescue.json"
   ]
 }

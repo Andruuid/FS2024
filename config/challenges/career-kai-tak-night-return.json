@@ -1,0 +1,15 @@
+{
+  "id": "career-kai-tak-night-return",
+  "mode": "hardcore_landings",
+  "title": "Kai Tak Checkerboard: Night Return",
+  "subtitle": "VHHX · Checkerboard turn · Reward preview",
+  "description": "Recreate the legendary checkerboard turn at night, with city lights, crosswind, and almost no time to settle after rollout onto final.",
+  "available": false,
+  "comingSoonNote": "Career reward preview — implementation pending.",
+  "aircraftTitles": ["A330-200 (RR)", "Airbus A330-200", "A330"],
+  "spawn": {},
+  "weather": {},
+  "aircraftSetup": {},
+  "runway": { "airportIcao": "VHHX", "runwayId": "13" },
+  "hudTips": []
+}

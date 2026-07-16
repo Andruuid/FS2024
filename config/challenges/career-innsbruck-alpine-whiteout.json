@@ -1,0 +1,15 @@
+{
+  "id": "career-innsbruck-alpine-whiteout",
+  "mode": "hardcore_landings",
+  "title": "Innsbruck Alpine Whiteout",
+  "subtitle": "LOWI · Snowbound valley · Reward preview",
+  "description": "Descend into the Inn valley with almost no horizon, severe snow, and terrain leaving no room for an unstable approach.",
+  "available": false,
+  "comingSoonNote": "Career reward preview — implementation pending.",
+  "aircraftTitles": ["A330-200 (RR)", "Airbus A330-200", "A330"],
+  "spawn": {},
+  "weather": {},
+  "aircraftSetup": {},
+  "runway": { "airportIcao": "LOWI", "runwayId": "26" },
+  "hudTips": []
+}

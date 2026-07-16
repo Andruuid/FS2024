@@ -67,6 +67,20 @@ public sealed class HighscoreEntry
     public string? RankedBucketId { get; set; }
     public LandingResultDiagnostics? Diagnostics { get; set; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? CareerStageNumber { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CareerRankId { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CareerRankTitle { get; set; }
+
+    [JsonIgnore]
+    public string CareerDisplay => CareerStageNumber is null || string.IsNullOrWhiteSpace(CareerRankTitle)
+        ? ""
+        : $"Career {CareerStageNumber} · {CareerRankTitle}";
+
     [JsonIgnore]
     public bool IsLegacy => string.IsNullOrWhiteSpace(RankedBucketId)
                             || !string.IsNullOrWhiteSpace(Level)
@@ -201,7 +215,11 @@ public sealed class HighscoreStore
         }
     }
 
-    public void Add(ScoreResult result)
+    public void Add(
+        ScoreResult result,
+        int? careerStageNumber = null,
+        string? careerRankId = null,
+        string? careerRankTitle = null)
     {
         if (!result.IsRanked || result.ScorePercent is null)
             throw new InvalidOperationException("Unranked results cannot be saved as highscores.");
@@ -258,7 +276,10 @@ public sealed class HighscoreStore
             EvaluationKeyVersion = result.EvaluationKeyVersion,
             ScoringProfileHash = result.ScoringProfileHash,
             RankedBucketId = result.RankedBucketId,
-            Diagnostics = result.Diagnostics
+            Diagnostics = result.Diagnostics,
+            CareerStageNumber = careerStageNumber,
+            CareerRankId = careerRankId,
+            CareerRankTitle = careerRankTitle
         };
 
         lock (_lock)

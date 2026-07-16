@@ -7,6 +7,7 @@ A separate challenge mode for **Microsoft Flight Simulator 2024**: hardcore land
 | Feature | Status |
 |---------|--------|
 | Modern WPF challenge browser | Yes |
+| Optional five-rank classified Career Mode | Prototype |
 | **Barcelona Crosswind Final** (A330, LEBL 25L) | Yes |
 | Normal + aircraft-generic Free scoring profiles (JSON evaluation keys) | Yes |
 | Safe load → final approach (teleport + velocity; no FlightLoad) | Yes |
@@ -35,11 +36,31 @@ dotnet run --project src\ChallengeLab.App
 1. Start **MSFS 2024** (main menu or free flight is fine).
 2. Launch **Challenge Lab**.
 3. Wait until the status shows **Connected** (or click **Connect**).
-4. Select **Barcelona Crosswind Final**.
-5. Click **Start Challenge** — watch the progress bar, then fly the landing.
+4. On **Career**, accept the classified assignment (A330 required), or open **Challenges** and select **Barcelona Crosswind Final** directly.
+5. Start the revealed assignment or default challenge — watch the progress bar, then fly the landing.
 6. After touchdown, slow below **50 knots**. Score appears on the **Companion HUD** and under the **Session** tab.
 
 For a flight that is already in progress, select **Free** on the HUD instead. Challenge Lab reads the installed MSFS airport/runway facilities, detects the approached runway from position and true ground track, and arms after the same target wins three one-second scans. Free mode does not change the aircraft, time, weather, position, or pause state. **Clear** releases the current runway and immediately starts detection again in place.
+
+## Career Mode — classified promotion flights
+
+Career is an optional five-stage ladder. The app opens on **Career**, while the ordinary **Challenges** tab remains available at all times and does not affect career progress.
+
+At each rank:
+
+1. Accept a classified assignment knowing only that an **A330** is required and the pass mark is a ranked **80.0%**.
+2. The app reveals one random playable landing from the Barcelona, La Paz, and Skiathos pool.
+3. That assignment stays locked across app restarts. There is no abandon or reroll, but retries are unlimited.
+4. Earn a ranked final score of **at least 80.0% after gear/flap gates** to pass. Lower or unranked results retain the assignment.
+5. Passing reveals one future challenge reward and advances Cadet → First Officer → Senior First Officer → Captain → Command Captain.
+
+The fifth pass shows **CAREER COMPLETE**. The five revealed rewards are honest UI previews only—Madeira, Innsbruck, Kai Tak, Paro, and the Arctic ice runway are `available=false` and their simulator scenarios remain future work. Locked rewards stay out of the regular Challenges list; revealed rewards appear there as non-playable **Coming Soon** cards.
+
+Career configuration lives under `career` in `config/catalog.json`. Invalid career configuration disables only Career; normal challenges and scoring still load. Progress is stored immediately and atomically in:
+
+`%LocalAppData%\ChallengeLab\career.json`
+
+If that state is corrupt or references an obsolete assignment, the bad file is preserved beside it with a `corrupt-...` or `obsolete-...` suffix and a fresh career state is created.
 
 ## Publish (easy install folder)
 
@@ -178,7 +199,7 @@ Every attempt freezes and hashes its complete effective scoring key (including c
 
 | File | Purpose |
 |------|---------|
-| `config/catalog.json` | Points at the Normal and Free evaluation key paths |
+| `config/catalog.json` | Points at the Normal/Free evaluation keys and defines the Career ladder/pools |
 | `config/challenges/*.json` | **Full scenario** (spawn, IAS, aircraft, weather, gear/flaps, runway) — no parallel .FLT |
 | `config/scoring/profiles/landing-evaluation-key.json` | Authoritative scoring, timing, gear, and speed-target settings |
 | `config/scoring/profiles/free-flight-evaluation-key.json` | Aircraft-generic Free scoring; 70-knot VAPP fallback when DESIGN SPEED VS0 is unavailable |
@@ -196,9 +217,10 @@ Every attempt freezes and hashes its complete effective scoring key (including c
 
 ## Modes
 
-1. **Normal HUD mode** — configured Hardcore Landing challenges and future Disaster scenarios.
-2. **Free HUD mode** — observes any fixed-wing runway approach, infers the airport/runway locally, and uses the generic scoring profile.
-3. **Disasters** — systems failures (hydraulics, smoke); cards are visible but **Coming soon**.
+1. **Career** — optional classified promotion flights using the Normal challenge/scoring pipeline.
+2. **Normal HUD mode** — configured Hardcore Landing challenges and future Disaster scenarios.
+3. **Free HUD mode** — observes any fixed-wing runway approach, infers the airport/runway locally, and uses the generic scoring profile.
+4. **Disasters** — systems failures (hydraulics, smoke); cards are visible but **Coming soon**.
 
 ## Notes / troubleshooting
 
@@ -216,6 +238,8 @@ Every attempt freezes and hashes its complete effective scoring key (including c
 Highscores are stored in:
 
 `%LocalAppData%\ChallengeLab\highscores.json`
+
+Career attempts add optional stage/rank metadata to new highscore rows. Older rows remain readable and display no Career label.
 
 ## License / scope
 

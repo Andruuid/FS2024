@@ -44,7 +44,7 @@
     "flaps": {
       "minIndex": 2,
       "maxIndex": 5,
-      "multiplierOnFail": 0.5,
+      "multiplierOnFail": 0.8,
       "penaltyDescription": "If flaps are not set for landing (index below min / above max), multiply the complete ranked score by 0.5. Correct flaps award no points."
     }
   },

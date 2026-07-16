@@ -52,6 +52,216 @@
 
         <!-- Body -->
         <TabControl Grid.Row="1" Margin="24,12,24,8" SelectedIndex="{Binding SelectedTab}">
+            <TabItem Header="CAREER">
+                <Grid Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1.08*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="0.92*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel>
+                            <TextBlock Text="CLASSIFIED PROMOTION FLIGHTS" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource BrushAccentAmber}"/>
+                            <TextBlock Text="Earn the next stripe." FontSize="28" FontWeight="SemiBold"
+                                       Margin="0,5,0,0"/>
+                            <TextBlock Margin="0,5,0,16" TextWrapping="Wrap" LineHeight="20"
+                                       Foreground="{StaticResource BrushTextMuted}"
+                                       Text="Accept an undisclosed assignment, land it at 80% or better, and reveal the next future challenge. Career is optional — the regular Challenges tab stays open."/>
+
+                            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,12"
+                                    Visibility="{Binding IsCareerAvailable, Converter={StaticResource BoolToVisInvert}}">
+                                <StackPanel>
+                                    <TextBlock Text="CAREER UNAVAILABLE" FontSize="12" FontWeight="Bold"
+                                               Foreground="{StaticResource BrushAccentRed}"/>
+                                    <TextBlock Text="{Binding CareerConfigurationStatus, Mode=OneWay}" Margin="0,8,0,0"
+                                               TextWrapping="Wrap" Foreground="{StaticResource BrushTextPrimary}"/>
+                                    <TextBlock Text="Normal Challenges and Free Flight are still available."
+                                               Margin="0,8,0,0" Foreground="{StaticResource BrushTextMuted}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,12"
+                                    Visibility="{Binding IsCareerAvailable, Converter={StaticResource BoolToVis}}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="CURRENT RANK" FontSize="10" FontWeight="Bold"
+                                                       Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding CareerCurrentRankTitle, Mode=OneWay}"
+                                                       FontSize="24" FontWeight="SemiBold" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="1" Background="#222DE2E6" CornerRadius="8" Padding="10,6"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding CareerProgressText, Mode=OneWay}" FontSize="11"
+                                                       FontWeight="Bold" Foreground="{StaticResource BrushAccentCyan}"/>
+                                        </Border>
+                                    </Grid>
+                                    <ProgressBar Margin="0,14,0,0" Height="10" Maximum="100"
+                                                 Value="{Binding CareerProgressPercent, Mode=OneWay, TargetNullValue=0, FallbackValue=0}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Margin="0,0,0,12" Padding="20" CornerRadius="14"
+                                    Background="#332DE2E6" BorderBrush="{StaticResource BrushAccentCyan}" BorderThickness="1"
+                                    Visibility="{Binding CareerIsComplete, Converter={StaticResource BoolToVis}}">
+                                <StackPanel>
+                                    <TextBlock Text="CAREER COMPLETE" FontSize="13" FontWeight="Bold"
+                                               Foreground="{StaticResource BrushAccentCyan}"/>
+                                    <TextBlock Text="Command Captain" FontSize="30" FontWeight="Bold" Margin="0,5,0,0"/>
+                                    <TextBlock Text="Five classified promotion flights passed. Every prototype reward is revealed."
+                                               TextWrapping="Wrap" Margin="0,8,0,0" LineHeight="20"
+                                               Foreground="{StaticResource BrushTextMuted}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,12"
+                                    Visibility="{Binding CareerNeedsAssignment, Converter={StaticResource BoolToVis}}">
+                                <StackPanel>
+                                    <TextBlock Text="NEXT ASSIGNMENT" FontSize="10" FontWeight="Bold"
+                                               Foreground="{StaticResource BrushAccentAmber}"/>
+                                    <TextBlock Text="CLASSIFIED" FontSize="32" FontWeight="Bold" Margin="0,4,0,0"/>
+                                    <Border Background="#22000000" CornerRadius="8" Padding="12" Margin="0,12,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="AIRCRAFT · A330 REQUIRED" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding CareerPassRequirement, Mode=OneWay}"
+                                                       FontWeight="SemiBold" Margin="0,5,0,0"/>
+                                            <TextBlock Text="Airport, runway, weather, and mission brief reveal only after acceptance."
+                                                       TextWrapping="Wrap" Margin="0,7,0,0"
+                                                       Foreground="{StaticResource BrushTextMuted}"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <Button Content="ACCEPT CLASSIFIED ASSIGNMENT" Style="{StaticResource AmberButton}"
+                                            Command="{Binding AcceptCareerAssignmentCommand}" Margin="0,16,0,0"/>
+                                    <TextBlock Text="No reroll · unlimited retries · assignment persists after restart"
+                                               Margin="0,8,0,0" HorizontalAlignment="Center" FontSize="11"
+                                               Foreground="{StaticResource BrushTextMuted}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,12"
+                                    Visibility="{Binding CareerHasAssignment, Converter={StaticResource BoolToVis}}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="ASSIGNMENT REVEALED" FontSize="10" FontWeight="Bold"
+                                                   Foreground="{StaticResource BrushAccentCyan}"/>
+                                        <Border Grid.Column="1" Background="#33FFB020" CornerRadius="6" Padding="8,4">
+                                            <TextBlock Text="LOCKED IN" FontSize="10" FontWeight="Bold"
+                                                       Foreground="{StaticResource BrushAccentAmber}"/>
+                                        </Border>
+                                    </Grid>
+                                    <TextBlock Text="{Binding CareerAssignmentTitle, Mode=OneWay}" FontSize="26"
+                                               FontWeight="SemiBold" Margin="0,7,0,0" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding CareerAssignmentSubtitle, Mode=OneWay}"
+                                               Foreground="{StaticResource BrushAccentCyan}" Margin="0,4,0,0"/>
+                                    <TextBlock Text="{Binding CareerAssignmentAirportRunway, Mode=OneWay}"
+                                               FontFamily="{StaticResource MonoFont}" FontWeight="Bold" Margin="0,12,0,0"/>
+                                    <TextBlock Text="{Binding CareerAssignmentDescription, Mode=OneWay}"
+                                               TextWrapping="Wrap" LineHeight="20" Margin="0,10,0,0"
+                                               Foreground="{StaticResource BrushTextMuted}"/>
+                                    <Border Background="#22000000" CornerRadius="8" Padding="12" Margin="0,12,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="WEATHER" FontSize="10" FontWeight="Bold"
+                                                       Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding CareerAssignmentWeather, Mode=OneWay}"
+                                                       FontFamily="{StaticResource MonoFont}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <TextBlock Text="{Binding CareerAssignmentAcceptedAt, Mode=OneWay}" Margin="0,9,0,0"
+                                               FontSize="11" Foreground="{StaticResource BrushTextMuted}"/>
+                                    <Grid Margin="0,12,0,0" Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Text="{Binding LoadStatus}" FontSize="12" Margin="0,0,0,6"
+                                                   Foreground="{StaticResource BrushAccentCyan}"/>
+                                        <ProgressBar Grid.Row="1" Maximum="100"
+                                                     Value="{Binding LoadProgress, Mode=OneWay, TargetNullValue=0, FallbackValue=0}"/>
+                                    </Grid>
+                                    <Button Content="START / RETRY ASSIGNMENT" Style="{StaticResource PrimaryButton}"
+                                            Command="{Binding StartCareerAssignmentCommand}" Margin="0,14,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource CardBorder}"
+                                    Visibility="{Binding IsCareerAvailable, Converter={StaticResource BoolToVis}}">
+                                <StackPanel>
+                                    <TextBlock Text="LAST CAREER RESULT" FontSize="10" FontWeight="Bold"
+                                               Foreground="{StaticResource BrushTextMuted}"/>
+                                    <TextBlock Text="{Binding CareerLastOutcomeText, Mode=OneWay}" FontSize="15"
+                                               FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,6,0,0"
+                                               Foreground="{StaticResource BrushAccentAmber}"/>
+                                    <TextBlock Text="{Binding CareerAttemptCountText, Mode=OneWay}" FontSize="11"
+                                               Margin="0,5,0,0" Foreground="{StaticResource BrushTextMuted}"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <Border Grid.Column="2" Style="{StaticResource CardBorder}">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                                <TextBlock Text="FUTURE CHALLENGE REWARDS" FontSize="11" FontWeight="Bold"
+                                           Foreground="{StaticResource BrushTextMuted}"/>
+                                <TextBlock Text="One reveal per promotion" FontSize="18" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                            </StackPanel>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl ItemsSource="{Binding CareerRewards}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border CornerRadius="10" Padding="13" Margin="0,0,0,10"
+                                                    BorderThickness="1">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="#22000000"/>
+                                                        <Setter Property="BorderBrush" Value="#22FFFFFF"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsUnlocked}" Value="True">
+                                                                <Setter Property="Background" Value="#222DE2E6"/>
+                                                                <Setter Property="BorderBrush" Value="#662DE2E6"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <StackPanel>
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Text="{Binding StageLabel}" FontSize="9" FontWeight="Bold"
+                                                                   Foreground="{StaticResource BrushTextMuted}"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding StatusLabel}" FontSize="9"
+                                                                   FontWeight="Bold" Foreground="{StaticResource BrushAccentCyan}"/>
+                                                    </Grid>
+                                                    <TextBlock Text="{Binding DisplayTitle}" FontSize="17" FontWeight="SemiBold"
+                                                               Margin="0,5,0,0" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{Binding DisplaySubtitle}" FontSize="11" Margin="0,3,0,0"
+                                                               Foreground="{StaticResource BrushAccentAmber}" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{Binding Description}" FontSize="11" Margin="0,7,0,0"
+                                                               Foreground="{StaticResource BrushTextMuted}" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+
             <TabItem Header="CHALLENGES">
                 <Grid Margin="0,16,0,0">
                     <Grid.ColumnDefinitions>
@@ -227,7 +437,7 @@
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Date (UTC)" Binding="{Binding Utc, StringFormat=yyyy-MM-dd HH:mm}" Width="130"/>
                                     <DataGridTextColumn Header="Challenge" Binding="{Binding ChallengeTitle}" Width="*"/>
-
+                                    <DataGridTextColumn Header="Career" Binding="{Binding CareerDisplay}" Width="150"/>
                                     <DataGridTextColumn Header="Score %" Binding="{Binding ScorePercent, StringFormat=0.0}" Width="70"/>
                                     <DataGridTextColumn Header="Grade" Binding="{Binding Grade}" Width="55"/>
                                     <DataGridTextColumn Header="VS (fpm)" Binding="{Binding VerticalSpeedDisplay}" Width="90"/>
@@ -267,6 +477,8 @@
                                            TextWrapping="Wrap" Margin="0,8,0,0" Foreground="#FFF2F6FF"/>
                                 <TextBlock Text="{Binding LandingReport.Subtitle}" Foreground="#FFC5D0E6"
                                            Margin="0,4,0,0" FontSize="12"/>
+                                <TextBlock Text="{Binding SelectedHighscore.CareerDisplay, Mode=OneWay}"
+                                           Foreground="#FFFFB020" Margin="0,4,0,0" FontSize="11" FontWeight="Bold"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                                     <TextBlock Text="{Binding LandingReport.ScorePercent, StringFormat={}{0:0.0}%}"
                                                FontSize="36" FontWeight="Bold" Foreground="#FF2DE2E6"/>
@@ -430,7 +642,7 @@
 
         <Border Grid.Row="2" Background="{StaticResource BrushBgPanel}" Padding="20,10">
             <TextBlock Foreground="{StaticResource BrushTextMuted}" FontSize="11"
-                       Text="Tip: Start MSFS 2024, press Connect, pick Barcelona Crosswind Final, then Start. After landing, slow below 50 knots to see your score."/>
+                       Text="Tip: Accept a classified Career flight or use Challenges directly. Load the A330 in MSFS first; after landing, slow below 50 knots to score."/>
         </Border>
     </Grid>
 </Window>

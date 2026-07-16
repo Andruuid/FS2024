@@ -6,6 +6,7 @@ using Application = System.Windows.Application;
 using MessageBox = System.Windows.MessageBox;
 using MessageBoxButton = System.Windows.MessageBoxButton;
 using MessageBoxImage = System.Windows.MessageBoxImage;
+using ChallengeLab.Core.Career;
 using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Facilities;
 using ChallengeLab.Core.Highscores;
@@ -19,9 +20,16 @@ namespace ChallengeLab.App.ViewModels;
 
 public sealed class MainViewModel : ViewModelBase, IDisposable
 {
+    public const int CareerTabIndex = 0;
+    public const int ChallengesTabIndex = 1;
+    public const int HighscoresTabIndex = 2;
+    public const int SessionTabIndex = 3;
+
     private readonly ConfigLoader _configLoader;
     private readonly HighscoreStore _highscores;
     private readonly LandingTraceStore _landingTraces;
+    private readonly CareerProgressStore _careerStore;
+    private readonly IRandomIndexProvider? _careerRandom;
     private readonly ScoreEngine? _scoreEngine;
     private readonly LandingEvaluationKey? _evaluationKey;
     private readonly LandingSessionSettings? _sessionSettings;
@@ -37,6 +45,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private readonly DispatcherTimer _reconnectTimer;
     private readonly DispatcherTimer _freeInferenceTimer;
     private readonly FreeFlightRunwayInference _freeInference = new();
+    private readonly List<ChallengeConfig> _allChallenges = new();
+    private readonly HashSet<string> _careerRewardIds = new(StringComparer.OrdinalIgnoreCase);
+    private CareerProgressionService? _career;
+    private string _careerConfigurationStatus = "Career configuration has not loaded.";
+    private LandingAttemptOrigin _attemptOrigin = LandingAttemptOrigin.DefaultChallenge;
+    private int? _careerAttemptStageNumber;
+    private string? _careerAttemptRankId;
+    private string? _careerAttemptRankTitle;
+    private CareerOutcome? _activeCareerOutcome;
 
     private ChallengeCardViewModel? _selectedChallenge;
     private string _connectionStatus = "Disconnected";
@@ -48,6 +65,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _phaseLabel = "Idle";
     private string _liveStats = "—";
     private string _speedTargetInfo = "Optimal landing speed: —";
+    private bool _showTouchdownImpactSummary;
+    private string _hudPeakGDisplay = "—";
+    private string _hudTouchdownVsDisplay = "—";
     private double? _previewScorePercent;
     private string _previewScoreDisplay = "—";
     private string _previewGrade = "";
@@ -86,12 +106,19 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private DateTimeOffset _lastSpawnReadinessLogUtc;
     private DateTimeOffset _lastSpawnConfigPulseUtc = DateTimeOffset.MinValue;
 
-    public MainViewModel(ISimBridge sim, ConfigLoader? configLoader = null, HighscoreStore? highscores = null)
+    public MainViewModel(
+        ISimBridge sim,
+        ConfigLoader? configLoader = null,
+        HighscoreStore? highscores = null,
+        CareerProgressStore? careerStore = null,
+        IRandomIndexProvider? careerRandom = null)
     {
         _sim = sim;
         _configLoader = configLoader ?? new ConfigLoader();
         _highscores = highscores ?? new HighscoreStore();
         _landingTraces = new LandingTraceStore();
+        _careerStore = careerStore ?? new CareerProgressStore();
+        _careerRandom = careerRandom;
 
         // Load phase-weighted evaluation key from repo JSON at startup (finetune without code changes).
         _evaluationKeyLoad = _configLoader.LoadEvaluationKey();
@@ -130,10 +157,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         Challenges = new ObservableCollection<ChallengeCardViewModel>();
         Highscores = new ObservableCollection<HighscoreEntry>();
         CriterionResults = new ObservableCollection<CriterionResultViewModel>();
+        CareerRewards = new ObservableCollection<CareerRewardSlotViewModel>();
         SecondaryHud = new SecondaryHudViewModel();
 
         StartChallengeCommand = new RelayCommand(async () => await StartChallengeAsync(), () =>
             IsNormalMode && SelectedChallenge is { Available: true } && HasValidScoringConfiguration && !IsLoading);
+        AcceptCareerAssignmentCommand = new RelayCommand(AcceptCareerAssignment, () =>
+            IsCareerAvailable && !CareerIsComplete && !CareerHasAssignment && !IsLoading);
+        StartCareerAssignmentCommand = new RelayCommand(async () => await StartCareerAssignmentAsync(), () =>
+            IsCareerAvailable && CareerHasAssignment && HasValidScoringConfiguration && !IsLoading);
         RestartCommand = new RelayCommand(async () => await RestartAsync(), () =>
             IsNormalMode && (_activeChallenge is not null || SelectedChallenge is { Available: true })
             && HasValidScoringConfiguration && !IsLoading);
@@ -148,7 +180,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         OpenMenuCommand = new RelayCommand(() =>
         {
             ResultVisible = false;
-            SelectedTab = 0;
+            SelectedTab = CareerTabIndex;
             // Toggle main window; HUD stays up (wired in MainWindow).
             RequestToggleMain?.Invoke();
         });
@@ -268,6 +300,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void RaiseModeCommandStates()
     {
         (StartChallengeCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (AcceptCareerAssignmentCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (StartCareerAssignmentCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (RestartCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
@@ -278,8 +312,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ObservableCollection<ChallengeCardViewModel> Challenges { get; }
     public ObservableCollection<HighscoreEntry> Highscores { get; }
     public ObservableCollection<CriterionResultViewModel> CriterionResults { get; }
+    public ObservableCollection<CareerRewardSlotViewModel> CareerRewards { get; }
 
     public ICommand StartChallengeCommand { get; }
+    public ICommand AcceptCareerAssignmentCommand { get; }
+    public ICommand StartCareerAssignmentCommand { get; }
     public ICommand RestartCommand { get; }
     /// <summary>Wipe landing metrics only (no re-spawn); preview returns to 100%.</summary>
     public ICommand CleanMetricsCommand { get; }
@@ -292,6 +329,57 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand ClearHighscoreSelectionCommand { get; }
     public ICommand ToggleSecondaryHudCommand { get; }
     public ICommand OpenMenuCommand { get; }
+
+    public bool IsCareerAvailable => _career is not null;
+    public string CareerConfigurationStatus
+    {
+        get => _careerConfigurationStatus;
+        private set => SetProperty(ref _careerConfigurationStatus, value);
+    }
+
+    public bool CareerIsComplete => _career?.IsComplete == true;
+    public bool CareerHasAssignment => _career?.AcceptedAssignment is not null;
+    public bool CareerNeedsAssignment => IsCareerAvailable && !CareerIsComplete && !CareerHasAssignment;
+    public int CareerCompletedStageCount => _career?.State.CompletedStageCount ?? 0;
+    public int CareerTotalStageCount => _career?.TotalStageCount ?? 5;
+    public double CareerProgressPercent => _career?.ProgressPercent ?? 0;
+    public string CareerProgressText => $"{CareerCompletedStageCount} / {CareerTotalStageCount} PROMOTIONS";
+    public string CareerCurrentRankTitle => CareerIsComplete
+        ? "Command Captain"
+        : _career?.CurrentRank?.Title ?? "Career unavailable";
+    public string CareerPassRequirement =>
+        $"Ranked final score ≥ {_career?.Config.PassScorePercent ?? 80:0.0}%";
+    public string CareerLastOutcomeText => _career?.State.LastResult?.Message ?? "No career attempt recorded yet.";
+    public string CareerAttemptCountText => _career is null
+        ? ""
+        : $"{_career.State.AttemptCount} classified attempt{(_career.State.AttemptCount == 1 ? "" : "s")} recorded";
+
+    // These properties deliberately return no mission data before acceptance.
+    public string CareerAssignmentTitle => _career?.AcceptedAssignment?.Title ?? "";
+    public string CareerAssignmentSubtitle => _career?.AcceptedAssignment?.Subtitle ?? "";
+    public string CareerAssignmentDescription => _career?.AcceptedAssignment?.Description ?? "";
+    public string CareerAssignmentAirportRunway => _career?.AcceptedAssignment is { } challenge
+        ? $"{challenge.Runway.AirportIcao} · RUNWAY {challenge.Runway.RunwayId}"
+        : "";
+    public string CareerAssignmentWeather => _career?.AcceptedAssignment is { } challenge
+        ? FormatCareerWeather(challenge)
+        : "";
+    public string CareerAssignmentAcceptedAt => _career?.State.AcceptedAtUtc is { } acceptedAt
+        ? $"Accepted {acceptedAt.ToLocalTime():g} · assignment locked until passed"
+        : "";
+
+    public bool IsCareerAttemptActive => _attemptOrigin == LandingAttemptOrigin.CareerAssignment;
+    public string CareerHudStatus
+    {
+        get
+        {
+            if (!IsCareerAttemptActive) return "";
+            if (_activeCareerOutcome is not null) return _activeCareerOutcome.Message;
+            var rank = _careerAttemptRankTitle ?? "Career";
+            var target = _career?.Config.PassScorePercent ?? 80;
+            return $"{rank.ToUpperInvariant()} · CLASSIFIED ASSIGNMENT · TARGET ≥ {target:0.0}%";
+        }
+    }
 
     public HighscoreEntry? SelectedHighscore
     {
@@ -367,7 +455,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             var metricCount = ReportMetrics.Count;
 
             ReportStatus =
-                $"{AppBuild.Tag} | score {value.ScorePercent:0.0}% grade {value.Grade} | {metricCount} metrics";
+                $"{AppBuild.Tag} | score {value.ScorePercent:0.0}% grade {value.Grade} | {metricCount} metrics" +
+                (string.IsNullOrWhiteSpace(value.CareerDisplay) ? "" : $" | {value.CareerDisplay}");
 
             // Primary view: hierarchical Total / phases / metrics
             var sb = new StringBuilder();
@@ -435,6 +524,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             SetProperty(ref _isLoading, value);
             (StartChallengeCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (AcceptCareerAssignmentCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (StartCareerAssignmentCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (RestartCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
@@ -519,6 +610,29 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         get => _liveStats;
         set => SetProperty(ref _liveStats, value);
+    }
+
+    /// <summary>
+    /// After settle: replace live IAS/GS/VS strip with Peak G + touchdown VS cards.
+    /// </summary>
+    public bool ShowTouchdownImpactSummary
+    {
+        get => _showTouchdownImpactSummary;
+        private set => SetProperty(ref _showTouchdownImpactSummary, value);
+    }
+
+    /// <summary>HUD card value, e.g. <c>1.49 G</c>.</summary>
+    public string HudPeakGDisplay
+    {
+        get => _hudPeakGDisplay;
+        private set => SetProperty(ref _hudPeakGDisplay, value);
+    }
+
+    /// <summary>HUD card value, e.g. <c>-363 FPM</c>.</summary>
+    public string HudTouchdownVsDisplay
+    {
+        get => _hudTouchdownVsDisplay;
+        private set => SetProperty(ref _hudTouchdownVsDisplay, value);
     }
 
     /// <summary>
@@ -633,20 +747,125 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         try
         {
-            var challenges = _configLoader.LoadAllChallenges();
-            Challenges.Clear();
-            foreach (var c in challenges.OrderByDescending(c => c.Available).ThenBy(c => c.Title))
-                Challenges.Add(new ChallengeCardViewModel(c));
+            var catalog = _configLoader.LoadCatalog();
+            var challenges = _configLoader.LoadAllChallenges(catalog);
+            _allChallenges.Clear();
+            _allChallenges.AddRange(challenges);
+            _careerRewardIds.Clear();
+            if (catalog.Career is not null)
+            {
+                foreach (var rank in catalog.Career.Ranks)
+                    if (!string.IsNullOrWhiteSpace(rank.RewardChallengeId))
+                        _careerRewardIds.Add(rank.RewardChallengeId);
+            }
 
-            SelectedChallenge = Challenges.FirstOrDefault(c => c.Available) ?? Challenges.FirstOrDefault();
-            AppendLog($"Loaded {Challenges.Count} challenge(s) from {_configLoader.RootPath}");
+            var careerValidation = CareerConfigValidationResult.Validate(catalog.Career, challenges);
+            if (careerValidation.IsValid && careerValidation.Config is not null)
+            {
+                try
+                {
+                    _career = new CareerProgressionService(
+                        careerValidation.Config,
+                        challenges,
+                        _careerStore,
+                        _careerRandom);
+                    CareerConfigurationStatus = "Career ready · classified promotion ladder loaded.";
+                    if (!string.IsNullOrWhiteSpace(_career.RecoveryMessage))
+                    {
+                        CareerConfigurationStatus += " " + _career.RecoveryMessage;
+                        AppendLog(_career.RecoveryMessage);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _career = null;
+                    CareerConfigurationStatus = "CAREER DISABLED — " + ex.Message;
+                }
+            }
+            else
+            {
+                _career = null;
+                CareerConfigurationStatus = "CAREER DISABLED — " + string.Join(" | ", careerValidation.Errors);
+            }
+
+            RefreshCareerPresentation(refreshChallenges: true);
+            AppendLog($"Loaded {_allChallenges.Count} challenge(s) from {_configLoader.RootPath}");
+            AppendLog(CareerConfigurationStatus);
         }
         catch (Exception ex)
         {
+            _career = null;
+            CareerConfigurationStatus = "CAREER DISABLED — catalog could not load: " + ex.Message;
             AppendLog($"Catalog error: {ex.Message}");
             MessageBox.Show($"Failed to load challenge catalog:\n{ex.Message}", "Challenge Lab",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    private void RefreshChallengeCards()
+    {
+        var selectedId = SelectedChallenge?.Id;
+        Challenges.Clear();
+        foreach (var challenge in _allChallenges
+                     .Where(c => !_careerRewardIds.Contains(c.Id)
+                                 || (_career?.UnlockedRanks.Any(r =>
+                                     string.Equals(r.RewardChallengeId, c.Id, StringComparison.OrdinalIgnoreCase)) == true))
+                     .OrderByDescending(c => c.Available)
+                     .ThenBy(c => c.Title))
+        {
+            Challenges.Add(new ChallengeCardViewModel(challenge));
+        }
+
+        SelectedChallenge = Challenges.FirstOrDefault(c =>
+                                string.Equals(c.Id, selectedId, StringComparison.OrdinalIgnoreCase))
+                            ?? Challenges.FirstOrDefault(c => c.Available)
+                            ?? Challenges.FirstOrDefault();
+    }
+
+    private void RefreshCareerPresentation(bool refreshChallenges = false)
+    {
+        CareerRewards.Clear();
+        if (_career is not null)
+        {
+            for (var index = 0; index < _career.Config.Ranks.Count; index++)
+            {
+                CareerRewards.Add(new CareerRewardSlotViewModel(
+                    index + 1,
+                    _career.Config.Ranks[index],
+                    _career.GetRewardChallenge(index),
+                    index < _career.State.CompletedStageCount));
+            }
+        }
+
+        if (refreshChallenges) RefreshChallengeCards();
+
+        foreach (var property in new[]
+                 {
+                     nameof(IsCareerAvailable), nameof(CareerIsComplete), nameof(CareerHasAssignment),
+                     nameof(CareerNeedsAssignment), nameof(CareerCompletedStageCount), nameof(CareerTotalStageCount),
+                     nameof(CareerProgressPercent), nameof(CareerProgressText), nameof(CareerCurrentRankTitle),
+                     nameof(CareerPassRequirement), nameof(CareerLastOutcomeText), nameof(CareerAttemptCountText),
+                     nameof(CareerAssignmentTitle), nameof(CareerAssignmentSubtitle),
+                     nameof(CareerAssignmentDescription), nameof(CareerAssignmentAirportRunway),
+                     nameof(CareerAssignmentWeather), nameof(CareerAssignmentAcceptedAt),
+                     nameof(CareerHudStatus)
+                 })
+        {
+            RaisePropertyChanged(property);
+        }
+
+        (AcceptCareerAssignmentCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (StartCareerAssignmentCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    private static string FormatCareerWeather(ChallengeConfig challenge)
+    {
+        var weather = challenge.Weather;
+        if (weather.UseLiveWeather) return "LIVE WEATHER";
+        if (!string.IsNullOrWhiteSpace(weather.Metar)) return weather.Metar;
+        return $"Wind {weather.WindDirectionDeg:000}/{weather.WindVelocityKts:0} kt" +
+               (weather.GustKts > weather.WindVelocityKts ? $" gusting {weather.GustKts:0}" : "") +
+               $" · visibility {weather.VisibilitySm} SM";
     }
 
     private Task SetHudOperatingModeAsync(HudOperatingMode mode)
@@ -659,6 +878,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         DetachSession();
         StopFreeInference(resetTarget: true);
         _activeChallenge = null;
+        SetAttemptOrigin(LandingAttemptOrigin.DefaultChallenge);
         LastScore = null;
         ResultVisible = false;
         LoadProgress = 0;
@@ -689,6 +909,21 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
 
         return Task.CompletedTask;
+    }
+
+    private void SetAttemptOrigin(
+        LandingAttemptOrigin origin,
+        int? careerStageNumber = null,
+        string? careerRankId = null,
+        string? careerRankTitle = null)
+    {
+        _attemptOrigin = origin;
+        _careerAttemptStageNumber = origin == LandingAttemptOrigin.CareerAssignment ? careerStageNumber : null;
+        _careerAttemptRankId = origin == LandingAttemptOrigin.CareerAssignment ? careerRankId : null;
+        _careerAttemptRankTitle = origin == LandingAttemptOrigin.CareerAssignment ? careerRankTitle : null;
+        _activeCareerOutcome = null;
+        RaisePropertyChanged(nameof(IsCareerAttemptActive));
+        RaisePropertyChanged(nameof(CareerHudStatus));
     }
 
     private void StopFreeInference(bool resetTarget)
@@ -828,6 +1063,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _session.PhaseChanged += OnSessionPhaseChanged;
         _session.SettledReady += OnSettledReady;
         _session.Arm();
+        SetAttemptOrigin(LandingAttemptOrigin.FreeFlight);
         PhaseLabel = "Free · Armed";
         HudTip = $"Locked {airport} RWY {runway} · scoring this landing.";
         LastScore = null;
@@ -845,16 +1081,55 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         if (!IsNormalMode || SelectedChallenge is null || !SelectedChallenge.Available) return;
 
-        if (!_sim.IsConnected)
-        {
-            MessageBox.Show(
-                "Not connected to Microsoft Flight Simulator 2024.\n\nStart the sim first, then click Connect (or wait for auto-reconnect).",
-                "Challenge Lab", MessageBoxButton.OK, MessageBoxImage.Information);
-            TriggerConnect();
-            return;
-        }
+        if (!EnsureSimulatorConnected()) return;
 
-        await RunLoadAsync(SelectedChallenge.Config);
+        await RunLoadAsync(SelectedChallenge.Config, LandingAttemptOrigin.DefaultChallenge);
+    }
+
+    private void AcceptCareerAssignment()
+    {
+        if (_career is null || _career.IsComplete || _career.AcceptedAssignment is not null) return;
+        try
+        {
+            var assignment = _career.AcceptAssignment();
+            _activeCareerOutcome = null;
+            RefreshCareerPresentation();
+            AppendLog(
+                $"Career assignment accepted for {_career.CurrentRank?.Title}: {assignment.Id}. " +
+                "Assignment is locked until a ranked pass.");
+        }
+        catch (Exception ex)
+        {
+            CareerConfigurationStatus = "CAREER ERROR — " + ex.Message;
+            AppendLog(CareerConfigurationStatus);
+        }
+    }
+
+    private async Task StartCareerAssignmentAsync()
+    {
+        if (_career?.AcceptedAssignment is not { } assignment || IsLoading) return;
+        if (!EnsureSimulatorConnected()) return;
+
+        if (!IsNormalMode)
+            await SetHudOperatingModeAsync(HudOperatingMode.Normal);
+
+        var rank = _career.CurrentRank;
+        await RunLoadAsync(
+            assignment,
+            LandingAttemptOrigin.CareerAssignment,
+            _career.State.CompletedStageCount + 1,
+            rank?.Id,
+            rank?.Title);
+    }
+
+    private bool EnsureSimulatorConnected()
+    {
+        if (_sim.IsConnected) return true;
+        MessageBox.Show(
+            "Not connected to Microsoft Flight Simulator 2024.\n\nStart the sim first, then click Connect (or wait for auto-reconnect).",
+            "Challenge Lab", MessageBoxButton.OK, MessageBoxImage.Information);
+        TriggerConnect();
+        return false;
     }
 
     private async Task RestartAsync()
@@ -862,10 +1137,23 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         if (!IsNormalMode) return;
         var challenge = _activeChallenge ?? SelectedChallenge?.Config;
         if (challenge is null) return;
-        await RunLoadAsync(challenge);
+        var origin = _activeChallenge is null
+            ? LandingAttemptOrigin.DefaultChallenge
+            : _attemptOrigin;
+        await RunLoadAsync(
+            challenge,
+            origin,
+            _careerAttemptStageNumber,
+            _careerAttemptRankId,
+            _careerAttemptRankTitle);
     }
 
-    private async Task RunLoadAsync(ChallengeConfig challenge)
+    private async Task RunLoadAsync(
+        ChallengeConfig challenge,
+        LandingAttemptOrigin requestedOrigin,
+        int? careerStageNumber = null,
+        string? careerRankId = null,
+        string? careerRankTitle = null)
     {
         if (_sessionSettings is null || _scoreEngine is null)
         {
@@ -894,6 +1182,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
 
         SecondaryHud.ResetAttempt();
+        SetAttemptOrigin(LandingAttemptOrigin.DefaultChallenge);
         IsLoading = true;
         ResultVisible = false;
         LastScore = null;
@@ -1018,6 +1307,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             }
 
             _session.Arm();
+            SetAttemptOrigin(
+                requestedOrigin,
+                careerStageNumber,
+                careerRankId,
+                careerRankTitle);
             PhaseLabel = "Armed";
             ResultVisible = false;
             LastScore = null;
@@ -1300,6 +1594,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         if (!CanCleanMetrics()) return;
         SecondaryHud.ResetAttempt();
+        _activeCareerOutcome = null;
+        RaisePropertyChanged(nameof(CareerHudStatus));
 
         if (IsFreeMode)
         {
@@ -1387,17 +1683,57 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 AppendLog($"Landing trace save failed: {ex.Message}");
             }
 
+            var careerAttempt = _attemptOrigin == LandingAttemptOrigin.CareerAssignment;
             if (result.IsRanked)
             {
-                _highscores.Add(result);
+                _highscores.Add(
+                    result,
+                    careerAttempt ? _careerAttemptStageNumber : null,
+                    careerAttempt ? _careerAttemptRankId : null,
+                    careerAttempt ? _careerAttemptRankTitle : null);
                 RefreshHighscores();
                 SelectedHighscore = Highscores.FirstOrDefault();
-                SelectedTab = 1;
+            }
+
+            CareerOutcome? careerOutcome = null;
+            if (_career is not null)
+            {
+                try
+                {
+                    careerOutcome = _career.RecordAttempt(
+                        _attemptOrigin,
+                        result.ChallengeId,
+                        result.IsRanked,
+                        result.ScorePercent,
+                        string.Join(" | ", result.IncompleteReasons));
+                    if (careerOutcome is not null)
+                    {
+                        _activeCareerOutcome = careerOutcome;
+                        RefreshCareerPresentation(refreshChallenges: careerOutcome.Passed);
+                        AppendLog("Career: " + careerOutcome.Message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppendLog("Career result save failed: " + ex.Message);
+                    CareerConfigurationStatus = "CAREER SAVE ERROR — " + ex.Message;
+                }
+            }
+
+            if (careerAttempt)
+            {
+                SelectedTab = CareerTabIndex;
+                HudTip = careerOutcome?.Message
+                         ?? "Career result did not match the currently accepted assignment; no progress was changed.";
+            }
+            else if (result.IsRanked)
+            {
+                SelectedTab = HighscoresTabIndex;
                 HudTip = $"Score {result.ScorePercent:0.#}% · Grade {result.Grade} — full report on Highscores tab";
             }
             else
             {
-                SelectedTab = 2;
+                SelectedTab = SessionTabIndex;
                 HudTip = "UNRANKED — required telemetry was unavailable. See Session for details.";
             }
             PhaseLabel = "Scored";
@@ -1418,6 +1754,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         Application.Current.Dispatcher.Invoke(() =>
         {
             _lastTelemetry = sample;
+            // Session tab keeps the strip; scored HUD swaps to Peak G / touchdown VS cards.
             LiveStats =
                 $"IAS {sample.AirspeedKts:0} kt  ·  GS {sample.GroundSpeedKts:0} kt  ·  " +
                 $"VS {sample.VerticalSpeedFpm:0} fpm  ·  Bank {sample.BankDeg:0.0}°  ·  " +
@@ -1456,6 +1793,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         PreviewGrade = "S";
         PreviewCaption = caption ?? BuildPreviewCaption(_session);
         SetPreviewIssues("");
+        ClearTouchdownImpactSummary();
         _lastPreviewUtc = DateTimeOffset.UtcNow;
     }
 
@@ -1468,6 +1806,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         PreviewGrade = "";
         PreviewCaption = "";
         SetPreviewIssues("");
+        ClearTouchdownImpactSummary();
         _lastPreviewUtc = DateTimeOffset.MinValue;
     }
 
@@ -1486,7 +1825,38 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         else
             SetPreviewIssues("");
 
+        ApplyTouchdownImpactSummary(result);
         _lastPreviewUtc = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>
+    /// Final HUD: Peak G + touchdown VS (replaces the live IAS/GS/VS strip after settle).
+    /// </summary>
+    private void ApplyTouchdownImpactSummary(ScoreResult result)
+    {
+        var d = result.Diagnostics;
+        var peakG = d.TouchdownRobustPeakG;
+        if (peakG <= 0 && _session?.Snapshot is { } snap)
+            peakG = snap.InitialImpact?.RobustPeakG ?? snap.PeakGForce;
+
+        var vs = d.TouchdownVerticalSpeedFpm;
+        if (vs == 0 && _session?.Snapshot is { VerticalSpeedAtTouchdownFpm: var snapVs } && snapVs != 0)
+            vs = snapVs;
+
+        HudPeakGDisplay = double.IsFinite(peakG) && peakG > 0
+            ? $"{peakG:0.00} G"
+            : "—";
+        HudTouchdownVsDisplay = double.IsFinite(vs) && (vs != 0 || peakG > 1.0)
+            ? $"{vs:0} FPM"
+            : "—";
+        ShowTouchdownImpactSummary = true;
+    }
+
+    private void ClearTouchdownImpactSummary()
+    {
+        ShowTouchdownImpactSummary = false;
+        HudPeakGDisplay = "—";
+        HudTouchdownVsDisplay = "—";
     }
 
     private void SetPreviewIssues(string line)
