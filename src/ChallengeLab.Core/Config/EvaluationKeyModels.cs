@@ -51,7 +51,8 @@ public sealed class LandingEvaluationKey
                 Gates?.ManualBraking,
                 Gates?.Automation,
                 Gates?.PauseUsage,
-                Gates?.SimulationRate)
+                Gates?.SimulationRate,
+                Gates?.NoseGearImpact)
         };
     }
 }
@@ -120,13 +121,15 @@ public sealed record OperationalGateSessionSettings(
     ManualBrakingGateConfig? ManualBraking = null,
     AutomationGateConfig? Automation = null,
     PauseUsageGateConfig? PauseUsage = null,
-    SimulationRateGateConfig? SimulationRate = null)
+    SimulationRateGateConfig? SimulationRate = null,
+    NoseGearImpactGateConfig? NoseGearImpact = null)
 {
     public bool Enabled => SpoilerDeployment is not null
                            || ManualBraking is not null
                            || Automation is not null
                            || PauseUsage is not null
-                           || SimulationRate is not null;
+                           || SimulationRate is not null
+                           || NoseGearImpact is not null;
 }
 
 public sealed class EvaluationSettle
@@ -237,6 +240,29 @@ public sealed class EvaluationGates
     public AutomationGateConfig? Automation { get; set; }
     public PauseUsageGateConfig? PauseUsage { get; set; }
     public SimulationRateGateConfig? SimulationRate { get; set; }
+    public NoseGearImpactGateConfig? NoseGearImpact { get; set; }
+}
+
+/// <summary>
+/// Graded penalty gate for the aircraft-G transient at verified nose-gear contact.
+/// Contact-point compression corroborates the event but is not treated as a force value.
+/// </summary>
+public sealed class NoseGearImpactGateConfig
+{
+    public double PreContactWindowSeconds { get; set; } = 0.25;
+    public double PostContactWindowSeconds { get; set; } = 0.75;
+    public double FilterCutoffHz { get; set; } = 10.0;
+    public double PeakQuantile { get; set; } = 0.99;
+    public int MinimumPostContactSamples { get; set; } = 8;
+    public double ModerateDeltaG { get; set; } = 0.25;
+    public double ModeratePeakG { get; set; } = 1.30;
+    public double ModerateMultiplier { get; set; } = 0.95;
+    public double SevereDeltaG { get; set; } = 0.50;
+    public double SeverePeakG { get; set; } = 1.70;
+    public double SevereMultiplier { get; set; } = 0.90;
+    public double RecontactDebounceSeconds { get; set; } = 0.08;
+    public double CompressionNoiseThreshold { get; set; } = 0.02;
+    public string? PenaltyDescription { get; set; }
 }
 
 public sealed class SpoilerDeploymentGateConfig

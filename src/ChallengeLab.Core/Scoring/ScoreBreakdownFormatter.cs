@@ -34,7 +34,7 @@ public static class ScoreBreakdownFormatter
             && c.Status == MetricStatus.GateFailed);
         var operationalPenalties = criteria.Where(c =>
                 c.Status == MetricStatus.GateFailed
-                && c.Id is "spoiler_deployment" or "manual_braking" or "automation" or "pause_usage" or "simulation_rate")
+                && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate")
             .ToList();
         if (scorePercent is not null)
             sb.Append("Total Grade ").Append(grade).Append("  ").Append(Pct(scorePercent));
@@ -199,6 +199,7 @@ public static class ScoreBreakdownFormatter
         "flaps" => "flaps",
         "spoiler_deployment" => "spoilers",
         "manual_braking" => "manual brakes",
+        "nose_gear_impact" => "nose impact",
         "automation" => "automation",
         "pause_usage" => "pause",
         "simulation_rate" => "sim rate",

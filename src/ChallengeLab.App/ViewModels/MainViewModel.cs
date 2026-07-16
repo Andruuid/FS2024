@@ -1056,6 +1056,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var effective = EffectiveEvaluationProfileBuilder.Build(_freeEvaluationKeyLoad.Key!, challenge);
         _activeScoreEngine = new ScoreEngine(effective.Key, effective.ProfileHash);
         _activeSessionSettings = effective.Key.ToSessionSettings();
+        _sim.SetNoseGearImpactTelemetryEnabled(false);
 
         SecondaryHud.ResetAttempt();
         _activeChallenge = challenge;
@@ -1196,6 +1197,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             DetachSession();
             _activeScoreEngine = new ScoreEngine(effective.Key, effective.ProfileHash);
             _activeSessionSettings = effective.Key.ToSessionSettings();
+            _sim.SetNoseGearImpactTelemetryEnabled(
+                _activeSessionSettings.OperationalGates.NoseGearImpact is not null);
 
             var stages = new[]
             {
@@ -1351,6 +1354,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
         finally
         {
+            if (_session is null)
+                _sim.SetNoseGearImpactTelemetryEnabled(false);
             IsLoading = false;
             (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
@@ -1359,6 +1364,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void DetachSession()
     {
         StopSpawnReadinessWatch(clearUi: true);
+        _sim.SetNoseGearImpactTelemetryEnabled(false);
         if (_session is not null)
         {
             _session.PhaseChanged -= OnSessionPhaseChanged;
@@ -1664,6 +1670,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         Application.Current.Dispatcher.Invoke(() =>
         {
             if (!ReferenceEquals(_session, session)) return;
+            _sim.SetNoseGearImpactTelemetryEnabled(false);
             var result = scoreEngine.Evaluate(challenge, session.Snapshot);
             LastScore = result;
             ResultVisible = true;

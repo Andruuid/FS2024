@@ -27,6 +27,13 @@ public interface ISimBridge : IDisposable
     void Disconnect();
     void ReceiveMessage();
 
+    /// <summary>
+    /// Enable high-rate contact-point probes only while a controlled Challenge/Career
+    /// attempt uses the nose-gear impact gate. Implementations without this optional
+    /// telemetry may leave the default no-op behavior.
+    /// </summary>
+    void SetNoseGearImpactTelemetryEnabled(bool enabled) { }
+
     /// <summary>Return the simulator's worldwide airport catalog for the current connection.</summary>
     Task<IReadOnlyList<AirportFacility>> GetAirportsAsync(CancellationToken ct = default);
 

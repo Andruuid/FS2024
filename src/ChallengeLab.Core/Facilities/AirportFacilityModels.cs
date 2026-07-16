@@ -1,4 +1,5 @@
 using ChallengeLab.Core.Config;
+using ChallengeLab.Core.Scoring;
 
 namespace ChallengeLab.Core.Facilities;
 
@@ -36,7 +37,9 @@ public sealed record RunwayFacility(
     bool PrimaryClosed,
     bool SecondaryClosed,
     bool PrimaryLandingAllowed,
-    bool SecondaryLandingAllowed);
+    bool SecondaryLandingAllowed,
+    /// <summary>VASI/PAPI angles in definition order: primary L/R, secondary L/R (null if none).</summary>
+    IReadOnlyList<double?>? VasiAnglesDeg = null);
 
 /// <summary>Detailed airport data assembled from the SimConnect facility-data stream.</summary>
 public sealed record AirportRunwayFacility(
@@ -55,7 +58,9 @@ public sealed record RunwayEndFacility(
     double LengthMeters,
     double WidthMeters,
     int Surface,
-    bool IsWater)
+    bool IsWater,
+    double GlideslopeDeg = 3.0,
+    string GlideslopeSource = "default")
 {
     public string Key => $"{Airport.Icao}:{RunwayId}";
 
@@ -68,7 +73,9 @@ public sealed record RunwayEndFacility(
         HeadingTrueDeg = HeadingTrueDeg,
         ElevationFeet = ElevationFeet,
         LengthM = LengthMeters,
-        WidthM = WidthMeters
+        WidthM = WidthMeters,
+        GlideslopeDeg = GlideslopeDeg,
+        GlideslopeSource = GlideslopeSource
     };
 }
 
@@ -93,7 +100,8 @@ public static class RunwayFacilityGeometry
                     runway,
                     runway.PrimaryNumber,
                     runway.PrimaryDesignator,
-                    Normalize(runway.HeadingTrueDeg)));
+                    Normalize(runway.HeadingTrueDeg),
+                    primaryEnd: true));
             }
 
             if (!runway.SecondaryClosed && runway.SecondaryLandingAllowed)
@@ -103,7 +111,8 @@ public static class RunwayFacilityGeometry
                     runway,
                     runway.SecondaryNumber,
                     runway.SecondaryDesignator,
-                    Normalize(runway.HeadingTrueDeg + 180)));
+                    Normalize(runway.HeadingTrueDeg + 180),
+                    primaryEnd: false));
             }
         }
 
@@ -145,7 +154,8 @@ public static class RunwayFacilityGeometry
         RunwayFacility runway,
         int number,
         int designator,
-        double heading)
+        double heading,
+        bool primaryEnd)
     {
         var start = airport.Starts.FirstOrDefault(s =>
             s.Type is 1 or 2 && s.Number == number && s.Designator == designator);
@@ -171,6 +181,16 @@ public static class RunwayFacilityGeometry
             altitudeMeters = runway.AltitudeMeters;
         }
 
+        // VASI order from facility def: primary L, primary R, secondary L, secondary R.
+        var vasi = runway.VasiAnglesDeg;
+        var left = primaryEnd
+            ? AngleAt(vasi, 0)
+            : AngleAt(vasi, 2);
+        var right = primaryEnd
+            ? AngleAt(vasi, 1)
+            : AngleAt(vasi, 3);
+        var gs = GlideslopeAngleResolver.ResolveEnd(left, right);
+
         return new RunwayEndFacility(
             airport.Airport,
             FormatRunwayId(number, designator, heading),
@@ -181,7 +201,16 @@ public static class RunwayFacilityGeometry
             runway.LengthMeters,
             runway.WidthMeters,
             runway.Surface,
-            IsWaterSurface(runway.Surface));
+            IsWaterSurface(runway.Surface),
+            gs.Degrees,
+            gs.Source);
+    }
+
+    private static double? AngleAt(IReadOnlyList<double?>? angles, int index)
+    {
+        if (angles is null || index < 0 || index >= angles.Count)
+            return null;
+        return angles[index];
     }
 
     private static (double Latitude, double Longitude) Project(

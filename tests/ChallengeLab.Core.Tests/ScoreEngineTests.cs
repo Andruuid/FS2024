@@ -91,7 +91,39 @@ public sealed class ScoreEngineTests
             NoseGearContactCoverageAvailable = true,
             ManualBrakeTelemetryCoverageAvailable = true,
             NoseGearTouchdownTimeSeconds = 10.5,
-            FirstSimultaneousBrakingTimeSeconds = 11
+            FirstSimultaneousBrakingTimeSeconds = 11,
+            NoseGearImpact = PassingNoseImpact()
+        }
+    };
+
+    private static NoseGearImpactAnalysis PassingNoseImpact() => new()
+    {
+        CoverageSufficient = true,
+        NoseGearContactCoverageAvailable = true,
+        GForceCoverageAvailable = true,
+        CompressionFallbackUsed = true,
+        Events =
+        {
+            new NoseGearImpactEvent
+            {
+                ContactTimeSeconds = 10.5,
+                MedianPreContactG = 1,
+                RawPeakG = 1.1,
+                RobustPeakG = 1.1,
+                DeltaG = 0.1,
+                ValidPostContactSamples = 8,
+                CompressionFallbackUsed = true
+            }
+        },
+        WorstEvent = new NoseGearImpactEvent
+        {
+            ContactTimeSeconds = 10.5,
+            MedianPreContactG = 1,
+            RawPeakG = 1.1,
+            RobustPeakG = 1.1,
+            DeltaG = 0.1,
+            ValidPostContactSamples = 8,
+            CompressionFallbackUsed = true
         }
     };
 
@@ -312,7 +344,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(15, loaded.Key.Version);
+        Assert.Equal(16, loaded.Key.Version);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
 

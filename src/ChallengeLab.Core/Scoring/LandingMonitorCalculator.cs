@@ -34,12 +34,15 @@ public static class LandingMonitorCalculator
 {
     public const double FeetPerMeter = 3.280839895013123;
 
+    public const double GlideslopeGreenHalfBandDeg = 0.2;
+
     public static LandingMonitorReading Calculate(
         TelemetrySample sample,
         RunwayConfig? runway,
         double? targetAirspeedKts,
         double approachPathMinDistNm,
-        double approachPathMaxDistNm)
+        double approachPathMaxDistNm,
+        double approachPathMinAglFeet = 50)
     {
         var airspeed = FiniteOrNull(sample.AirspeedKts);
         var target = targetAirspeedKts is > 0 && double.IsFinite(targetAirspeedKts.Value)
@@ -77,10 +80,11 @@ public static class LandingMonitorCalculator
                 false);
         }
 
+        var targetGlideslopeDeg = RunwayPathGeometry.SanitizeGlideslopeDeg(runway.GlideslopeDeg);
         double? glideslope = null;
         var glideslopeStatus = LandingMonitorStatus.Neutral;
         var heightAboveFieldFeet = sample.AltitudeFeet - runway.ElevationFeet;
-        // Geometric path angle to the aim point (threshold + 1,200 ft), matching scored 3° path.
+        // Geometric path angle to the aim point, compared against the runway's nominal GS.
         var pathDistanceMeters = path.GlideslopePathDistanceMeters;
         if (!sample.SimOnGround
             && pathDistanceMeters > 0
@@ -91,7 +95,7 @@ public static class LandingMonitorCalculator
                     heightAboveFieldFeet,
                     pathDistanceMeters * FeetPerMeter)
                 * 180.0 / Math.PI;
-            glideslopeStatus = ClassifyGlideslope(glideslope.Value);
+            glideslopeStatus = ClassifyGlideslope(glideslope.Value, targetGlideslopeDeg);
         }
 
         double? closingSpeed = null;
@@ -108,7 +112,9 @@ public static class LandingMonitorCalculator
 
         var progress = (1.0 - Math.Clamp(path.ApproachDistanceNm, 0, approachPathMaxDistNm)
             / approachPathMaxDistNm) * 100.0;
+        var aboveFlare = IsAboveFlareHeight(sample, approachPathMinAglFeet);
         var insideCollectionWindow = !sample.SimOnGround
+                                     && aboveFlare
                                      && path.ApproachDistanceNm >= approachPathMinDistNm
                                      && path.ApproachDistanceNm <= approachPathMaxDistNm;
 
@@ -134,10 +140,28 @@ public static class LandingMonitorCalculator
         return error < 50 ? LandingMonitorStatus.Orange : LandingMonitorStatus.Red;
     }
 
-    public static LandingMonitorStatus ClassifyGlideslope(double degrees) =>
-        degrees is >= 2.8 and <= 3.2
+    /// <summary>Green when geometric angle is within ±0.2° of the runway target path.</summary>
+    public static LandingMonitorStatus ClassifyGlideslope(
+        double measuredDeg,
+        double targetDeg = RunwayPathGeometry.DefaultGlideslopeDeg)
+    {
+        var target = RunwayPathGeometry.SanitizeGlideslopeDeg(targetDeg);
+        // Small epsilon so exact half-band edges (e.g. 2.8 vs 3.0) stay green.
+        return Math.Abs(measuredDeg - target) <= GlideslopeGreenHalfBandDeg + 1e-9
             ? LandingMonitorStatus.Green
             : LandingMonitorStatus.Red;
+    }
+
+    private static bool IsAboveFlareHeight(TelemetrySample sample, double minimumAglFeet)
+    {
+        if (!double.IsFinite(minimumAglFeet) || minimumAglFeet <= 0)
+            return true;
+        if (double.IsFinite(sample.RadioHeightFeet) && sample.RadioHeightFeet > 0)
+            return sample.RadioHeightFeet >= minimumAglFeet;
+        if (double.IsFinite(sample.AglFeet))
+            return sample.AglFeet >= minimumAglFeet;
+        return true;
+    }
 
     public static LandingMonitorStatus ClassifyVerticalSpeed(double verticalSpeedFpm)
     {

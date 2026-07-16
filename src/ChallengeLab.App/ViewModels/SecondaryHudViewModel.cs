@@ -36,7 +36,7 @@ public sealed class SecondaryHudViewModel : ViewModelBase
     private string _airspeedDetail = "TARGET —";
     private Brush _airspeedBrush = NeutralBrush;
     private string _glideslopeDisplay = "—";
-    private string _glideslopeDetail = "GREEN 2.8°–3.2°";
+    private string _glideslopeDetail = "GREEN · TARGET 3.0° ±0.2°";
     private Brush _glideslopeBrush = NeutralBrush;
     private string _verticalSpeedDisplay = "—";
     private string _verticalSpeedDetail = "GREEN −700–0 FPM";
@@ -91,8 +91,9 @@ public sealed class SecondaryHudViewModel : ViewModelBase
             challenge?.Runway,
             targetAirspeedKts,
             settings?.ApproachPathMinDistNm ?? .2,
-            settings?.ApproachPathMaxDistNm ?? 4.5);
-        ApplyIndicators(reading);
+            settings?.ApproachPathMaxDistNm ?? 4.5,
+            settings?.FlareAglFeet ?? 50);
+        ApplyIndicators(reading, challenge?.Runway);
 
         if (!isConnected)
         {
@@ -174,6 +175,7 @@ public sealed class SecondaryHudViewModel : ViewModelBase
         AirspeedDetail = "TARGET —";
         AirspeedBrush = NeutralBrush;
         GlideslopeDisplay = "—";
+        GlideslopeDetail = "GREEN · TARGET 3.0° ±0.2°";
         GlideslopeBrush = NeutralBrush;
         VerticalSpeedDisplay = "—";
         VerticalSpeedBrush = NeutralBrush;
@@ -182,7 +184,7 @@ public sealed class SecondaryHudViewModel : ViewModelBase
         SetProgress(0, "STANDBY");
     }
 
-    private void ApplyIndicators(LandingMonitorReading reading)
+    private void ApplyIndicators(LandingMonitorReading reading, RunwayConfig? runway)
     {
         AirspeedDisplay = reading.AirspeedKts is { } ias ? $"{ias:0} KT" : "—";
         AirspeedDetail = reading.TargetAirspeedKts is { } target && reading.AirspeedDeltaKts is { } delta
@@ -190,7 +192,11 @@ public sealed class SecondaryHudViewModel : ViewModelBase
             : "TARGET —";
         AirspeedBrush = StatusBrush(reading.AirspeedStatus);
 
+        var targetGs = RunwayPathGeometry.SanitizeGlideslopeDeg(
+            runway?.GlideslopeDeg ?? RunwayPathGeometry.DefaultGlideslopeDeg);
+        var half = LandingMonitorCalculator.GlideslopeGreenHalfBandDeg;
         GlideslopeDisplay = reading.GlideslopeDeg is { } angle ? $"{angle:0.0}°" : "—";
+        GlideslopeDetail = $"GREEN · TARGET {targetGs:0.0}° ±{half:0.0}°";
         GlideslopeBrush = StatusBrush(reading.GlideslopeStatus);
 
         VerticalSpeedDisplay = reading.VerticalSpeedFpm is { } verticalSpeed

@@ -19,6 +19,8 @@ internal static class OperationalGateEvaluator
             multiplier *= AppendSpoilers(spoiler, snapshot, observations, criteria, incompleteReasons, preview);
         if (key.Gates?.ManualBraking is { } brakes)
             multiplier *= AppendBrakes(brakes, observations, criteria, incompleteReasons, preview);
+        if (key.Gates?.NoseGearImpact is { } noseImpact)
+            multiplier *= AppendNoseGearImpact(noseImpact, observations, criteria, incompleteReasons, preview);
         if (key.Gates?.Automation is { } automation)
             multiplier *= AppendAutomation(automation, observations, criteria, incompleteReasons, preview);
         if (key.Gates?.PauseUsage is { } pause)
@@ -64,6 +66,57 @@ internal static class OperationalGateEvaluator
         AddFailed(criteria, id, name, elapsed, "s after touchdown", cfg.MultiplierOnFail,
             $"Both spoiler surfaces did not reach {cfg.MinimumSurfacePosition:P0} inside the inclusive touchdown window. {cfg.PenaltyDescription}");
         return cfg.MultiplierOnFail;
+    }
+
+    private static double AppendNoseGearImpact(
+        NoseGearImpactGateConfig cfg,
+        LandingGateObservations obs,
+        List<CriterionScore> criteria,
+        List<string> incomplete,
+        bool preview)
+    {
+        const string id = "nose_gear_impact";
+        const string name = "Nose-gear impact";
+        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview))
+            return 1;
+
+        var analysis = obs.NoseGearImpact;
+        if (analysis is null)
+            return PendingOrUnavailable(id, name,
+                "Nose-gear impact analysis has not completed.", criteria, incomplete, preview);
+        if (!analysis.CoverageSufficient)
+            return PendingOrUnavailable(id, name,
+                analysis.DegradedReason ?? "Nose-gear contact or aircraft-G coverage is unavailable.",
+                criteria, incomplete, preview);
+        if (analysis.WorstEvent is not { } impact)
+            return PendingOrUnavailable(id, name,
+                "A verified nose-gear touchdown was not observed.", criteria, incomplete, preview);
+
+        var afterMain = obs.MainGearTouchdownTimeSeconds is { } main
+            ? impact.ContactTimeSeconds - main
+            : (double?)null;
+        var baseline = impact.MedianPreContactG is { } pre ? $"{pre:0.00} G" : "unavailable";
+        var compression = impact.CompressionCorroborated
+            ? $"Suspension compression corroborated contact point(s) {string.Join(", ", impact.CorrelatedContactPointIndices)}" +
+              (impact.CompressionRise is { } rise ? $" with a {rise:P0} rise." : ".")
+            : "Contact-point compression could not be correlated; the ranked aircraft-G fallback was used.";
+        var timing = afterMain is { } seconds
+            ? $"Nose contact was main TD+{seconds:0.00} s. "
+            : "";
+        var measured = $"{timing}Baseline {baseline}; robust peak {impact.RobustPeakG:0.00} G; ΔG {impact.DeltaG:0.00}. {compression}";
+
+        if (impact.Severity == NoseGearImpactSeverity.Pass)
+        {
+            AddPassed(criteria, id, name, impact.DeltaG, "ΔG",
+                $"{measured} The nose gear was lowered without a penalized impact.");
+            return 1;
+        }
+
+        var severity = impact.Severity == NoseGearImpactSeverity.Severe ? "Severe" : "Moderate";
+        AddFailed(criteria, id, $"{name} — {severity.ToLowerInvariant()}", impact.DeltaG, "ΔG",
+            impact.AppliedMultiplier,
+            $"{severity} nose-gear impact. {measured} {cfg.PenaltyDescription}");
+        return impact.AppliedMultiplier;
     }
 
     private static double AppendBrakes(

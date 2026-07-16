@@ -11,7 +11,11 @@ public sealed record LandingTelemetrySample(
     bool RightMainOnGround,
     bool NoseOnGround,
     bool MainGearContactsAvailable,
-    bool NoseGearContactAvailable = true);
+    bool NoseGearContactAvailable = true,
+    bool GForceAvailable = true,
+    IReadOnlyDictionary<int, bool>? ContactPointOnGroundByIndex = null,
+    IReadOnlyDictionary<int, double>? ContactPointCompressionByIndex = null,
+    bool ContactPointTelemetryAvailable = false);
 
 public sealed record ImpactAnalysis(
     bool Available,

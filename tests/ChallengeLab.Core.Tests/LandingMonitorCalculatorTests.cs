@@ -37,12 +37,15 @@ public sealed class LandingMonitorCalculatorTests
         Assert.Equal(expected, LandingMonitorCalculator.ClassifyVerticalSpeed(verticalSpeed));
 
     [Theory]
-    [InlineData(2.8, LandingMonitorStatus.Green)]
-    [InlineData(3.2, LandingMonitorStatus.Green)]
-    [InlineData(2.79, LandingMonitorStatus.Red)]
-    [InlineData(3.21, LandingMonitorStatus.Red)]
-    public void GlideslopeBands_RespectExactBoundaries(double angle, LandingMonitorStatus expected) =>
-        Assert.Equal(expected, LandingMonitorCalculator.ClassifyGlideslope(angle));
+    [InlineData(2.8, 3.0, LandingMonitorStatus.Green)]
+    [InlineData(3.2, 3.0, LandingMonitorStatus.Green)]
+    [InlineData(2.79, 3.0, LandingMonitorStatus.Red)]
+    [InlineData(3.21, 3.0, LandingMonitorStatus.Red)]
+    [InlineData(5.3, 5.5, LandingMonitorStatus.Green)]
+    [InlineData(5.8, 5.5, LandingMonitorStatus.Red)]
+    public void GlideslopeBands_AreRelativeToTarget(
+        double measured, double target, LandingMonitorStatus expected) =>
+        Assert.Equal(expected, LandingMonitorCalculator.ClassifyGlideslope(measured, target));
 
     [Fact]
     public void Calculate_UsesGeometricPathAndTrueGroundTrackUnderCrab()

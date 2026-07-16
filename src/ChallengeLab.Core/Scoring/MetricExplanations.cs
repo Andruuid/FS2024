@@ -62,8 +62,10 @@ public static class MetricExplanations
         "approach_path" =>
             "Legacy single-metric approach path (RMS altitude error vs 3°). Replaced by average glideslope + steadiness.",
         "approach_glideslope" =>
-            "Time-weighted mean absolute altitude error versus the nominal 3° path on short final (∫|e|dt / T). " +
-            "The path meets runway elevation 1,200 ft past the threshold (aim point), not at the threshold. " +
+            "Time-weighted mean absolute altitude error versus the runway's nominal glideslope path on short final (∫|e|dt / T). " +
+            "Default angle is 3°; challenges set the angle, free flight may resolve VASI/PAPI. " +
+            "The path meets runway elevation 1,200 ft past the threshold (aim point). " +
+            "Samples at or below flare height (~50 ft AGL) are excluded. " +
             "High and low deviations cannot cancel one another.",
         "approach_vertical_steady" =>
             "Vertical path steadiness: reversal-only excess variation of altitude error per second. " +

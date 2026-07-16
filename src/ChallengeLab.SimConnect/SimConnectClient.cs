@@ -35,6 +35,11 @@ public sealed class SimConnectClient : ISimBridge
     private long _pauseGeneration;
     private bool _pauseStateKnown;
     private bool _pauseWasActive;
+    private readonly object _contactPointLock = new();
+    private bool _contactPointTelemetryEnabled;
+    private double _latestContactPointSimulationTime = double.NaN;
+    private bool _latestContactPointAvailable;
+    private ContactPointTelemetryStruct _latestContactPointData;
 
     private enum Definitions
     {
@@ -43,6 +48,7 @@ public sealed class SimConnectClient : ISimBridge
         AircraftTitle = 3,
         PoseSet = 4,
         VelocitySet = 5,
+        ContactPoints = 6,
         AirportFacility = 100
     }
 
@@ -51,6 +57,7 @@ public sealed class SimConnectClient : ISimBridge
         Telemetry = 1,
         AircraftTitle = 2,
         SpawnVerify = 3,
+        ContactPoints = 4,
         Airports = 100
     }
 
@@ -168,6 +175,44 @@ public sealed class SimConnectClient : ISimBridge
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
+    private struct ContactPointTelemetryStruct
+    {
+        public double SimulationTime;
+        public double ContactPointOnGround0;
+        public double ContactPointOnGround1;
+        public double ContactPointOnGround2;
+        public double ContactPointOnGround3;
+        public double ContactPointOnGround4;
+        public double ContactPointOnGround5;
+        public double ContactPointOnGround6;
+        public double ContactPointOnGround7;
+        public double ContactPointOnGround8;
+        public double ContactPointOnGround9;
+        public double ContactPointOnGround10;
+        public double ContactPointOnGround11;
+        public double ContactPointOnGround12;
+        public double ContactPointOnGround13;
+        public double ContactPointOnGround14;
+        public double ContactPointOnGround15;
+        public double ContactPointCompression0;
+        public double ContactPointCompression1;
+        public double ContactPointCompression2;
+        public double ContactPointCompression3;
+        public double ContactPointCompression4;
+        public double ContactPointCompression5;
+        public double ContactPointCompression6;
+        public double ContactPointCompression7;
+        public double ContactPointCompression8;
+        public double ContactPointCompression9;
+        public double ContactPointCompression10;
+        public double ContactPointCompression11;
+        public double ContactPointCompression12;
+        public double ContactPointCompression13;
+        public double ContactPointCompression14;
+        public double ContactPointCompression15;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
     private struct AircraftTitleStruct
     {
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
@@ -206,13 +251,66 @@ public sealed class SimConnectClient : ISimBridge
         public int Type;
     }
 
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    private struct VasiFacilityStruct
+    {
+        public int Type;
+        public float BiasX;
+        public float BiasZ;
+        public float Spacing;
+        public float Angle;
+    }
+
     private sealed class FacilityRequestContext
     {
         public required AirportFacility Airport { get; init; }
         public TaskCompletionSource<AirportRunwayFacility> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public List<RunwayFacility> Runways { get; } = new();
+        public List<RunwayFacilityDraft> Runways { get; } = new();
         public List<RunwayStartFacility> Starts { get; } = new();
+        /// <summary>Maps facility UniqueRequestId of a RUNWAY packet to its draft index.</summary>
+        public Dictionary<uint, int> RunwayIndexByUniqueId { get; } = new();
+    }
+
+    /// <summary>Mutable runway draft so VASI child packets can attach angles.</summary>
+    private sealed class RunwayFacilityDraft
+    {
+        public required double CenterLatitude { get; init; }
+        public required double CenterLongitude { get; init; }
+        public required double AltitudeMeters { get; init; }
+        public required double HeadingTrueDeg { get; init; }
+        public required double LengthMeters { get; init; }
+        public required double WidthMeters { get; init; }
+        public required int Surface { get; init; }
+        public required int PrimaryNumber { get; init; }
+        public required int PrimaryDesignator { get; init; }
+        public required int SecondaryNumber { get; init; }
+        public required int SecondaryDesignator { get; init; }
+        public required bool PrimaryClosed { get; init; }
+        public required bool SecondaryClosed { get; init; }
+        public required bool PrimaryLandingAllowed { get; init; }
+        public required bool SecondaryLandingAllowed { get; init; }
+        /// <summary>Order: primary L, primary R, secondary L, secondary R.</summary>
+        public double?[] VasiAnglesDeg { get; } = new double?[4];
+        public int VasiCount { get; set; }
+
+        public RunwayFacility ToFacility() => new(
+            CenterLatitude,
+            CenterLongitude,
+            AltitudeMeters,
+            HeadingTrueDeg,
+            LengthMeters,
+            WidthMeters,
+            Surface,
+            PrimaryNumber,
+            PrimaryDesignator,
+            SecondaryNumber,
+            SecondaryDesignator,
+            PrimaryClosed,
+            SecondaryClosed,
+            PrimaryLandingAllowed,
+            SecondaryLandingAllowed,
+            VasiAnglesDeg.ToList());
     }
 
     /// <summary>
@@ -1403,6 +1501,11 @@ public sealed class SimConnectClient : ISimBridge
         EnsureDefinitions();
         EnsureEvents();
         StartTelemetry();
+        bool contactPointsEnabled;
+        lock (_contactPointLock)
+            contactPointsEnabled = _contactPointTelemetryEnabled;
+        if (contactPointsEnabled)
+            SetNoseGearImpactTelemetryEnabled(true);
     }
 
     private void OnRecvQuit(Microsoft.FlightSimulator.SimConnect.SimConnect sender, SIMCONNECT_RECV data)
@@ -1515,23 +1618,52 @@ public sealed class SimConnectClient : ISimBridge
             {
                 case SIMCONNECT_FACILITY_DATA_TYPE.RUNWAY
                     when data.Data[0] is RunwayFacilityStruct runway:
-                    context.Runways.Add(new RunwayFacility(
-                        runway.Latitude,
-                        runway.Longitude,
-                        runway.Altitude,
-                        runway.Heading,
-                        runway.Length,
-                        runway.Width,
-                        runway.Surface,
-                        runway.PrimaryNumber,
-                        runway.PrimaryDesignator,
-                        runway.SecondaryNumber,
-                        runway.SecondaryDesignator,
-                        runway.PrimaryClosed != 0,
-                        runway.SecondaryClosed != 0,
-                        runway.PrimaryLanding != 0,
-                        runway.SecondaryLanding != 0));
+                {
+                    var draft = new RunwayFacilityDraft
+                    {
+                        CenterLatitude = runway.Latitude,
+                        CenterLongitude = runway.Longitude,
+                        AltitudeMeters = runway.Altitude,
+                        HeadingTrueDeg = runway.Heading,
+                        LengthMeters = runway.Length,
+                        WidthMeters = runway.Width,
+                        Surface = runway.Surface,
+                        PrimaryNumber = runway.PrimaryNumber,
+                        PrimaryDesignator = runway.PrimaryDesignator,
+                        SecondaryNumber = runway.SecondaryNumber,
+                        SecondaryDesignator = runway.SecondaryDesignator,
+                        PrimaryClosed = runway.PrimaryClosed != 0,
+                        SecondaryClosed = runway.SecondaryClosed != 0,
+                        PrimaryLandingAllowed = runway.PrimaryLanding != 0,
+                        SecondaryLandingAllowed = runway.SecondaryLanding != 0
+                    };
+                    var index = context.Runways.Count;
+                    context.Runways.Add(draft);
+                    context.RunwayIndexByUniqueId[data.UniqueRequestId] = index;
                     break;
+                }
+
+                case SIMCONNECT_FACILITY_DATA_TYPE.VASI
+                    when data.Data[0] is VasiFacilityStruct vasi:
+                {
+                    if (!context.RunwayIndexByUniqueId.TryGetValue(data.ParentUniqueRequestId, out var runwayIndex)
+                        || runwayIndex < 0
+                        || runwayIndex >= context.Runways.Count)
+                        break;
+
+                    var draft = context.Runways[runwayIndex];
+                    // Definition order: PRIMARY_LEFT, PRIMARY_RIGHT, SECONDARY_LEFT, SECONDARY_RIGHT.
+                    var slot = draft.VasiCount;
+                    if (slot is >= 0 and < 4)
+                    {
+                        // TYPE 0 = NONE in the SDK; ignore empty / nonsense angles.
+                        if (vasi.Type != 0 && double.IsFinite(vasi.Angle) && vasi.Angle is >= 1.5f and <= 10f)
+                            draft.VasiAnglesDeg[slot] = vasi.Angle;
+                        draft.VasiCount = slot + 1;
+                    }
+
+                    break;
+                }
 
                 case SIMCONNECT_FACILITY_DATA_TYPE.START
                     when data.Data[0] is RunwayStartFacilityStruct start:
@@ -1561,14 +1693,18 @@ public sealed class SimConnectClient : ISimBridge
         if (!_facilityRequests.Remove(data.RequestId, out var context))
             return;
 
+        var runways = context.Runways.Select(r => r.ToFacility()).ToList();
         var detail = new AirportRunwayFacility(
             context.Airport,
-            context.Runways.ToList(),
+            runways,
             context.Starts.ToList());
         _airportDetailCache[FacilityCacheKey(context.Airport)] = detail;
         context.Completion.TrySetResult(detail);
+        var vasiHits = runways.Count(r =>
+            r.VasiAnglesDeg is not null && r.VasiAnglesDeg.Any(a => a is > 0));
         Log($"Free mode: {context.Airport.Icao} facility data — " +
-            $"{detail.Runways.Count} runways, {detail.Starts.Count} starts.");
+            $"{detail.Runways.Count} runways, {detail.Starts.Count} starts" +
+            (vasiHits > 0 ? $", VASI angles on {vasiHits} runway(s)." : "."));
     }
 
     private void OnRecvSimobjectData(Microsoft.FlightSimulator.SimConnect.SimConnect sender, SIMCONNECT_RECV_SIMOBJECT_DATA data)
@@ -1613,6 +1749,28 @@ public sealed class SimConnectClient : ISimBridge
             return;
         }
 
+        if (data.dwRequestID == (uint)Requests.ContactPoints)
+        {
+            try
+            {
+                var contact = (ContactPointTelemetryStruct)data.dwData[0];
+                lock (_contactPointLock)
+                {
+                    if (_contactPointTelemetryEnabled)
+                    {
+                        _latestContactPointSimulationTime = contact.SimulationTime;
+                        _latestContactPointData = contact;
+                        _latestContactPointAvailable = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Contact-point telemetry parse: {ex.Message}");
+            }
+            return;
+        }
+
         if (data.dwRequestID != (uint)Requests.Telemetry) return;
 
         try
@@ -1628,6 +1786,28 @@ public sealed class SimConnectClient : ISimBridge
                 normalPauseActive = (_pauseStateFlags & (1u | 2u | 8u)) != 0;
                 activePauseActive = (_pauseStateFlags & 4u) != 0;
                 pauseGeneration = _pauseGeneration;
+            }
+            var gForceAvailable = double.IsFinite(t.GForce);
+            IReadOnlyDictionary<int, bool>? contactPointOnGround = null;
+            IReadOnlyDictionary<int, double>? contactPointCompression = null;
+            var contactPointTelemetryAvailable = false;
+            ContactPointTelemetryStruct contactPointData = default;
+            lock (_contactPointLock)
+            {
+                if (_contactPointTelemetryEnabled
+                    && double.IsFinite(_latestContactPointSimulationTime)
+                    && Math.Abs(t.SimulationTime - _latestContactPointSimulationTime) <= 0.5
+                    && _latestContactPointAvailable
+                    && (t.Agl <= 100 || t.SimOnGround > 0.5))
+                {
+                    contactPointData = _latestContactPointData;
+                    contactPointTelemetryAvailable = true;
+                }
+            }
+            if (contactPointTelemetryAvailable)
+            {
+                contactPointOnGround = ContactPointOnGround(contactPointData);
+                contactPointCompression = ContactPointCompression(contactPointData);
             }
             var sample = new TelemetrySample
             {
@@ -1647,7 +1827,8 @@ public sealed class SimConnectClient : ISimBridge
                 TouchdownNormalVelocityFps = double.IsFinite(t.TouchdownNormalVelocity)
                     ? t.TouchdownNormalVelocity
                     : null,
-                GForce = t.GForce,
+                GForce = gForceAvailable ? t.GForce : 1.0,
+                GForceAvailable = gForceAvailable,
                 SimOnGround = t.SimOnGround > 0.5,
                 GearOnGroundByIndex = new Dictionary<int, bool>
                 {
@@ -1660,6 +1841,9 @@ public sealed class SimConnectClient : ISimBridge
                     [12] = t.GearOnGround12 > 0.5, [13] = t.GearOnGround13 > 0.5,
                     [14] = t.GearOnGround14 > 0.5, [15] = t.GearOnGround15 > 0.5
                 },
+                ContactPointOnGroundByIndex = contactPointOnGround,
+                ContactPointCompressionByIndex = contactPointCompression,
+                ContactPointTelemetryAvailable = contactPointTelemetryAvailable,
                 GearHandlePosition = t.GearHandle,
                 IsGearRetractable = t.IsGearRetractable > 0.5,
                 IsGearWheels = t.IsGearWheels > 0.5,
@@ -1727,6 +1911,40 @@ public sealed class SimConnectClient : ISimBridge
         if (raw <= 16384) return raw / 16384.0;
         return Math.Clamp(raw / 32768.0, 0, 1);
     }
+
+    private static IReadOnlyDictionary<int, bool> ContactPointOnGround(
+        ContactPointTelemetryStruct t) => new Dictionary<int, bool>
+    {
+        [0] = t.ContactPointOnGround0 > 0.5, [1] = t.ContactPointOnGround1 > 0.5,
+        [2] = t.ContactPointOnGround2 > 0.5, [3] = t.ContactPointOnGround3 > 0.5,
+        [4] = t.ContactPointOnGround4 > 0.5, [5] = t.ContactPointOnGround5 > 0.5,
+        [6] = t.ContactPointOnGround6 > 0.5, [7] = t.ContactPointOnGround7 > 0.5,
+        [8] = t.ContactPointOnGround8 > 0.5, [9] = t.ContactPointOnGround9 > 0.5,
+        [10] = t.ContactPointOnGround10 > 0.5, [11] = t.ContactPointOnGround11 > 0.5,
+        [12] = t.ContactPointOnGround12 > 0.5, [13] = t.ContactPointOnGround13 > 0.5,
+        [14] = t.ContactPointOnGround14 > 0.5, [15] = t.ContactPointOnGround15 > 0.5
+    };
+
+    private static IReadOnlyDictionary<int, double> ContactPointCompression(
+        ContactPointTelemetryStruct t) => new Dictionary<int, double>
+    {
+        [0] = NormalizeUnitPosition(t.ContactPointCompression0),
+        [1] = NormalizeUnitPosition(t.ContactPointCompression1),
+        [2] = NormalizeUnitPosition(t.ContactPointCompression2),
+        [3] = NormalizeUnitPosition(t.ContactPointCompression3),
+        [4] = NormalizeUnitPosition(t.ContactPointCompression4),
+        [5] = NormalizeUnitPosition(t.ContactPointCompression5),
+        [6] = NormalizeUnitPosition(t.ContactPointCompression6),
+        [7] = NormalizeUnitPosition(t.ContactPointCompression7),
+        [8] = NormalizeUnitPosition(t.ContactPointCompression8),
+        [9] = NormalizeUnitPosition(t.ContactPointCompression9),
+        [10] = NormalizeUnitPosition(t.ContactPointCompression10),
+        [11] = NormalizeUnitPosition(t.ContactPointCompression11),
+        [12] = NormalizeUnitPosition(t.ContactPointCompression12),
+        [13] = NormalizeUnitPosition(t.ContactPointCompression13),
+        [14] = NormalizeUnitPosition(t.ContactPointCompression14),
+        [15] = NormalizeUnitPosition(t.ContactPointCompression15)
+    };
 
     private void EnsureDefinitions()
     {
@@ -1832,8 +2050,19 @@ public sealed class SimConnectClient : ISimBridge
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_BRAKE_PEDAL_RIGHT", "number",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.ContactPoints, "SIMULATION TIME", "seconds",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        for (var contactPointIndex = 0; contactPointIndex <= 15; contactPointIndex++)
+            _sim.AddToDataDefinition(Definitions.ContactPoints,
+                $"CONTACT POINT IS ON GROUND:{contactPointIndex}", "bool",
+                SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        for (var contactPointIndex = 0; contactPointIndex <= 15; contactPointIndex++)
+            _sim.AddToDataDefinition(Definitions.ContactPoints,
+                $"CONTACT POINT COMPRESSION:{contactPointIndex}", "position",
+                SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
 
         _sim.RegisterDataDefineStruct<TelemetryStruct>(Definitions.Telemetry);
+        _sim.RegisterDataDefineStruct<ContactPointTelemetryStruct>(Definitions.ContactPoints);
 
         _sim.AddToDataDefinition(Definitions.InitPosition, "Initial Position", null,
             SIMCONNECT_DATATYPE.INITPOSITION, 0, MsfsSc.SIMCONNECT_UNUSED);
@@ -1891,6 +2120,11 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "SECONDARY_CLOSED");
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "PRIMARY_LANDING");
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "SECONDARY_LANDING");
+        // VASI/PAPI angle structs (arrive as FACILITY_DATA_TYPE.VASI children of RUNWAY).
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "PRIMARY_LEFT_VASI");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "PRIMARY_RIGHT_VASI");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "SECONDARY_LEFT_VASI");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "SECONDARY_RIGHT_VASI");
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "CLOSE RUNWAY");
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "OPEN START");
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "LATITUDE");
@@ -1906,6 +2140,8 @@ public sealed class SimConnectClient : ISimBridge
             SIMCONNECT_FACILITY_DATA_TYPE.RUNWAY);
         _sim.RegisterFacilityDataDefineStruct<RunwayStartFacilityStruct>(
             SIMCONNECT_FACILITY_DATA_TYPE.START);
+        _sim.RegisterFacilityDataDefineStruct<VasiFacilityStruct>(
+            SIMCONNECT_FACILITY_DATA_TYPE.VASI);
 
         _defsRegistered = true;
     }
@@ -1972,6 +2208,36 @@ public sealed class SimConnectClient : ISimBridge
             0, 0, 0);
     }
 
+    public void SetNoseGearImpactTelemetryEnabled(bool enabled)
+    {
+        lock (_contactPointLock)
+        {
+            _contactPointTelemetryEnabled = enabled;
+            _latestContactPointSimulationTime = double.NaN;
+            _latestContactPointAvailable = false;
+            _latestContactPointData = default;
+        }
+
+        if (_sim is null)
+            return;
+
+        try
+        {
+            _sim.RequestDataOnSimObject(
+                Requests.ContactPoints,
+                Definitions.ContactPoints,
+                MsfsSc.SIMCONNECT_OBJECT_ID_USER,
+                enabled ? SIMCONNECT_PERIOD.VISUAL_FRAME : SIMCONNECT_PERIOD.NEVER,
+                SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT,
+                0, 0, 0);
+            Log($"Nose-impact contact-point telemetry {(enabled ? "enabled" : "disabled")}.");
+        }
+        catch (Exception ex)
+        {
+            Log($"Contact-point telemetry toggle: {ex.Message}");
+        }
+    }
+
     private void CleanupSim()
     {
         if (_sim is not null)
@@ -2000,6 +2266,12 @@ public sealed class SimConnectClient : ISimBridge
             _pauseGeneration = 0;
             _pauseStateKnown = false;
             _pauseWasActive = false;
+        }
+        lock (_contactPointLock)
+        {
+            _latestContactPointSimulationTime = double.NaN;
+            _latestContactPointAvailable = false;
+            _latestContactPointData = default;
         }
         _airportCatalogTcs?.TrySetException(new InvalidOperationException("SimConnect disconnected."));
         _airportCatalogTcs = null;

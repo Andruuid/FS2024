@@ -16,12 +16,13 @@ public sealed class OperationalLandingGateTests
         var free = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey);
 
         Assert.True(challenge.IsValid, string.Join("; ", challenge.Errors));
-        Assert.Equal(15, challenge.Key!.Version);
+        Assert.Equal(16, challenge.Key!.Version);
         Assert.NotNull(challenge.Key.Gates!.SpoilerDeployment);
         Assert.NotNull(challenge.Key.Gates.ManualBraking);
         Assert.NotNull(challenge.Key.Gates.Automation);
         Assert.NotNull(challenge.Key.Gates.PauseUsage);
         Assert.NotNull(challenge.Key.Gates.SimulationRate);
+        Assert.NotNull(challenge.Key.Gates.NoseGearImpact);
 
         Assert.True(free.IsValid, string.Join("; ", free.Errors));
         Assert.Null(free.Key!.Gates!.SpoilerDeployment);
@@ -29,6 +30,7 @@ public sealed class OperationalLandingGateTests
         Assert.Null(free.Key.Gates.Automation);
         Assert.Null(free.Key.Gates.PauseUsage);
         Assert.Null(free.Key.Gates.SimulationRate);
+        Assert.Null(free.Key.Gates.NoseGearImpact);
     }
 
     [Fact]
@@ -41,6 +43,7 @@ public sealed class OperationalLandingGateTests
         key.Gates.Automation.AllAutomationOffRadioHeightFeet = 1000;
         key.Gates.PauseUsage!.MultiplierOnFail = 0;
         key.Gates.SimulationRate!.MinimumAllowedRate = 0;
+        key.Gates.NoseGearImpact!.SevereDeltaG = 0.1;
 
         var errors = EvaluationKeyValidator.Validate(key);
         Assert.Contains(errors, error => error.Contains("minimumSurfacePosition"));
@@ -48,6 +51,35 @@ public sealed class OperationalLandingGateTests
         Assert.Contains(errors, error => error.Contains("headingAltitudeOffRadioHeightFeet"));
         Assert.Contains(errors, error => error.Contains("pauseUsage.multiplierOnFail"));
         Assert.Contains(errors, error => error.Contains("simulationRate.minimumAllowedRate"));
+        Assert.Contains(errors, error => error.Contains("noseGearImpact.severeDeltaG"));
+    }
+
+    [Fact]
+    public void NoseGearImpactConfiguration_ValidatesEveryTimingThresholdAndMultiplierGroup()
+    {
+        var invalidCases = new (Action<NoseGearImpactGateConfig> Mutate, string Path)[]
+        {
+            (g => g.PreContactWindowSeconds = -0.1, "preContactWindowSeconds"),
+            (g => g.PostContactWindowSeconds = 0, "postContactWindowSeconds"),
+            (g => g.FilterCutoffHz = 0, "filterCutoffHz"),
+            (g => g.PeakQuantile = 1.1, "peakQuantile"),
+            (g => g.MinimumPostContactSamples = 0, "minimumPostContactSamples"),
+            (g => g.ModerateDeltaG = -0.1, "moderateDeltaG"),
+            (g => g.ModeratePeakG = -0.1, "moderatePeakG"),
+            (g => g.SevereDeltaG = 0.1, "severeDeltaG"),
+            (g => g.SeverePeakG = 1.0, "severePeakG"),
+            (g => g.RecontactDebounceSeconds = 0, "recontactDebounceSeconds"),
+            (g => g.CompressionNoiseThreshold = 1.1, "compressionNoiseThreshold"),
+            (g => g.ModerateMultiplier = 0, "moderateMultiplier"),
+            (g => g.SevereMultiplier = 1, "severeMultiplier")
+        };
+
+        foreach (var (mutate, path) in invalidCases)
+        {
+            var (key, _) = LoadChallengeProfile();
+            mutate(key.Gates!.NoseGearImpact!);
+            Assert.Contains(EvaluationKeyValidator.Validate(key), error => error.Contains(path));
+        }
     }
 
     [Theory]
@@ -110,6 +142,45 @@ public sealed class OperationalLandingGateTests
         var failed = new ScoreEngine(key).Evaluate(challenge, failedSnapshot);
         Assert.Equal(Math.Round(clean.ScorePercent!.Value * 0.9, 1), failed.ScorePercent);
         Assert.Single(failed.Criteria, c => c.Id == "automation");
+    }
+
+    [Fact]
+    public void NoseGearImpact_UsesConfiguredGradeAndWorstEventOnlyOnce()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var clean = new ScoreEngine(key).Evaluate(challenge, PassingSnapshot());
+
+        var moderateSnapshot = PassingSnapshot();
+        moderateSnapshot.GateObservations.NoseGearImpact =
+            ImpactAnalysis(NoseGearImpactSeverity.Moderate, 0.95, 0.3, 1.4);
+        var moderate = new ScoreEngine(key).Evaluate(challenge, moderateSnapshot);
+
+        var severeSnapshot = PassingSnapshot();
+        var severeAnalysis = ImpactAnalysis(NoseGearImpactSeverity.Severe, 0.9, 0.7, 1.8);
+        severeAnalysis.Events.Insert(0, new NoseGearImpactEvent
+        {
+            ContactTimeSeconds = 10.25,
+            MedianPreContactG = 1,
+            RawPeakG = 1.4,
+            RobustPeakG = 1.4,
+            DeltaG = 0.4,
+            ValidPostContactSamples = 8,
+            Severity = NoseGearImpactSeverity.Moderate,
+            AppliedMultiplier = 0.95,
+            CompressionFallbackUsed = true
+        });
+        severeSnapshot.GateObservations.NoseGearImpact = severeAnalysis;
+        var severe = new ScoreEngine(key).Evaluate(challenge, severeSnapshot);
+
+        Assert.Equal(Math.Round(clean.ScorePercent!.Value * 0.95, 1), moderate.ScorePercent);
+        Assert.Equal(Math.Round(clean.ScorePercent.Value * 0.9, 1), severe.ScorePercent);
+        Assert.Single(severe.Criteria, c => c.Id == "nose_gear_impact");
+        var note = severe.Criteria.Single(c => c.Id == "nose_gear_impact").Note;
+        Assert.Contains("Severe", note);
+        Assert.Contains("main TD+", note);
+        Assert.Contains("robust peak", note);
+        Assert.Contains("0.9", note);
+        Assert.Contains("nose impact penalty", severe.Summary, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -194,6 +265,35 @@ public sealed class OperationalLandingGateTests
     }
 
     [Fact]
+    public void Session_RecordsInitialNoseContactAndOnlyDebouncedRecontactsAfterMainTouchdown()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var settings = key.ToSessionSettings() with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false
+        };
+        var session = new LandingSession(challenge, settings);
+        session.Arm();
+        session.Ingest(GearSample(0, leftMain: false, rightMain: false, nose: false));
+        session.Ingest(GearSample(1, leftMain: true, rightMain: true, nose: false));
+        session.Ingest(GearSample(1.1, leftMain: true, rightMain: true, nose: true));
+
+        var observations = session.Snapshot.GateObservations;
+        Assert.Equal(1, observations.MainGearTouchdownTimeSeconds);
+        Assert.Equal(1.1, observations.NoseGearTouchdownTimeSeconds);
+        Assert.Equal(1.1, observations.LastNoseGearImpactContactTimeSeconds);
+
+        session.Ingest(GearSample(2, leftMain: true, rightMain: true, nose: false));
+        session.Ingest(GearSample(2.04, leftMain: true, rightMain: true, nose: true));
+        Assert.Equal(1.1, observations.LastNoseGearImpactContactTimeSeconds);
+
+        session.Ingest(GearSample(3, leftMain: true, rightMain: true, nose: false));
+        session.Ingest(GearSample(3.1, leftMain: true, rightMain: true, nose: true));
+        Assert.Equal(3.1, observations.LastNoseGearImpactContactTimeSeconds);
+    }
+
+    [Fact]
     public void Pause_ControlledInitialHoldIsIgnored_ButLaterPauseGenerationFails()
     {
         var session = CreateSession();
@@ -246,13 +346,14 @@ public sealed class OperationalLandingGateTests
         obs.PauseViolation = true;
         obs.ReducedSimulationRateViolation = true;
         obs.MinimumSimulationRate = 0.5;
+        obs.NoseGearImpact = ImpactAnalysis(NoseGearImpactSeverity.Severe, 0.9, 0.7, 1.8);
 
         var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
         var expected = Math.Round(result.ScoreBeforeGatesPercent!.Value
-                                  * 0.9 * 0.9 * 0.9 * 0.95 * 0.8, 1);
+                                  * 0.9 * 0.9 * 0.9 * 0.9 * 0.95 * 0.8, 1);
         Assert.Equal(expected, result.ScorePercent);
-        Assert.Equal(5, result.Criteria.Count(c => c.Status == MetricStatus.GateFailed
-                                                   && c.Id is "spoiler_deployment" or "manual_braking" or "automation" or "pause_usage" or "simulation_rate"));
+        Assert.Equal(6, result.Criteria.Count(c => c.Status == MetricStatus.GateFailed
+                                                   && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate"));
     }
 
     [Fact]
@@ -271,7 +372,29 @@ public sealed class OperationalLandingGateTests
         var freeResult = new ScoreEngine(freeKey).Evaluate(challenge, PassingSnapshot(includeOperationalCoverage: false));
         Assert.True(freeResult.IsRanked, string.Join("; ", freeResult.IncompleteReasons));
         Assert.DoesNotContain(freeResult.Criteria, c =>
-            c.Id is "spoiler_deployment" or "manual_braking" or "automation" or "pause_usage" or "simulation_rate");
+            c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate");
+    }
+
+    [Theory]
+    [InlineData("Nose-gear contact mapping is unavailable.")]
+    [InlineData("Aircraft-G telemetry is unavailable around nose contact.")]
+    public void MissingNoseImpactCoverageMakesChallengeUnranked(string reason)
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var snapshot = PassingSnapshot();
+        snapshot.GateObservations.NoseGearImpact = new NoseGearImpactAnalysis
+        {
+            CoverageSufficient = false,
+            DegradedReason = reason
+        };
+
+        var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
+
+        Assert.False(result.IsRanked);
+        Assert.Null(result.ScorePercent);
+        Assert.Contains(result.IncompleteReasons, item => item.Contains(reason));
+        Assert.Equal(MetricStatus.Unavailable,
+            result.Criteria.Single(c => c.Id == "nose_gear_impact").Status);
     }
 
     [Fact]
@@ -294,6 +417,8 @@ public sealed class OperationalLandingGateTests
             Assert.NotNull(reloaded.Diagnostics);
             Assert.True(reloaded.Diagnostics!.OperationalGates.AutomationViolation);
             Assert.Equal(950, reloaded.Diagnostics.OperationalGates.FirstAutomationViolationRadioHeightFeet);
+            Assert.NotNull(reloaded.Diagnostics.OperationalGates.NoseGearImpact?.WorstEvent);
+            Assert.Contains(reloaded.Criteria, c => c.Id == "nose_gear_impact");
         }
         finally
         {
@@ -316,9 +441,14 @@ public sealed class OperationalLandingGateTests
             var root = document.RootElement;
             Assert.True(root.GetProperty("Snapshot").GetProperty("OperationalGates")
                 .GetProperty("PauseViolation").GetBoolean());
+            Assert.Equal(0.1, root.GetProperty("Snapshot").GetProperty("OperationalGates")
+                .GetProperty("NoseGearImpact").GetProperty("WorstEvent")
+                .GetProperty("DeltaG").GetDouble(), 3);
             Assert.Contains(root.GetProperty("Metrics").EnumerateArray(), metric =>
                 metric.GetProperty("Id").GetString() == "pause_usage"
                 && metric.GetProperty("Status").GetString() == nameof(MetricStatus.GateFailed));
+            Assert.Contains(root.GetProperty("Metrics").EnumerateArray(), metric =>
+                metric.GetProperty("Id").GetString() == "nose_gear_impact");
         }
         finally
         {
@@ -424,6 +554,49 @@ public sealed class OperationalLandingGateTests
         SimulationRate = 1
     };
 
+    private static TelemetrySample GearSample(
+        double time,
+        bool leftMain,
+        bool rightMain,
+        bool nose) => new()
+    {
+        Timestamp = DateTimeOffset.UnixEpoch.AddSeconds(time),
+        SimulationTimeSeconds = time,
+        Latitude = 41.3,
+        Longitude = 2.1,
+        AglFeet = leftMain || rightMain ? 0 : 100,
+        RadioHeightFeet = leftMain || rightMain ? 0 : 100,
+        RadioHeightAvailable = true,
+        AirspeedKts = 120,
+        GroundSpeedKts = 100,
+        VerticalSpeedFpm = 0,
+        GForce = 1,
+        GForceAvailable = true,
+        SimOnGround = leftMain || rightMain,
+        IsGearWheels = true,
+        GearHandlePosition = 1,
+        FlapsHandleIndex = 3,
+        GearOnGroundByIndex = new Dictionary<int, bool>
+        {
+            [0] = nose,
+            [1] = leftMain,
+            [2] = rightMain
+        },
+        ManualBrakeLeftPosition = 0,
+        ManualBrakeRightPosition = 0,
+        SpoilersLeftPosition = 0,
+        SpoilersRightPosition = 0,
+        AutopilotHeadingHoldActive = false,
+        AutopilotAltitudeHoldActive = false,
+        AutopilotMasterActive = false,
+        AutopilotChannel1Active = false,
+        AutopilotChannel2Active = false,
+        AutothrustActive = false,
+        AutothrustArmed = false,
+        PauseStateAvailable = true,
+        SimulationRate = 1
+    };
+
     private static LandingSnapshot PassingSnapshot(bool includeOperationalCoverage = true)
     {
         var snapshot = new LandingSnapshot
@@ -494,7 +667,37 @@ public sealed class OperationalLandingGateTests
         obs.ManualBrakeTelemetryCoverageAvailable = true;
         obs.NoseGearTouchdownTimeSeconds = 10.5;
         obs.FirstSimultaneousBrakingTimeSeconds = 11;
+        obs.NoseGearImpact = ImpactAnalysis(NoseGearImpactSeverity.Pass, 1, 0.1, 1.1);
         return snapshot;
+    }
+
+    private static NoseGearImpactAnalysis ImpactAnalysis(
+        NoseGearImpactSeverity severity,
+        double multiplier,
+        double deltaG,
+        double peakG)
+    {
+        var impact = new NoseGearImpactEvent
+        {
+            ContactTimeSeconds = 10.5,
+            MedianPreContactG = peakG - deltaG,
+            RawPeakG = peakG,
+            RobustPeakG = peakG,
+            DeltaG = deltaG,
+            ValidPostContactSamples = 8,
+            CompressionFallbackUsed = true,
+            Severity = severity,
+            AppliedMultiplier = multiplier
+        };
+        return new NoseGearImpactAnalysis
+        {
+            CoverageSufficient = true,
+            NoseGearContactCoverageAvailable = true,
+            GForceCoverageAvailable = true,
+            CompressionFallbackUsed = true,
+            Events = { impact },
+            WorstEvent = impact
+        };
     }
 
     private static (LandingEvaluationKey Key, ChallengeConfig Challenge) LoadChallengeProfile()

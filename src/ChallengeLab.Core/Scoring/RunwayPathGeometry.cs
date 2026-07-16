@@ -5,19 +5,23 @@ namespace ChallengeLab.Core.Scoring;
 
 /// <summary>
 /// Runway-local approach geometry used by approach metrics and live HUD feedback.
-/// Nominal path: 3° glideslope that reaches runway elevation at the aim point
-/// (threshold + <see cref="GlideslopeAimPointOffsetFeet"/> along runway heading),
-/// i.e. elevation + path_distance_nm × 318 ft.
+/// Nominal path: glideslope of <see cref="RunwayConfig.GlideslopeDeg"/> (default 3°)
+/// that reaches runway elevation at the aim point
+/// (threshold + <see cref="GlideslopeAimPointOffsetFeet"/> along runway heading).
 /// </summary>
 public static class RunwayPathGeometry
 {
     public const double EarthRadiusMeters = 6_371_000.0;
     public const double MetersPerNauticalMile = 1_852.0;
     public const double MetersPerFoot = 0.3048;
-    public const double NominalPathFeetPerNauticalMile = 318.0;
+    public const double DefaultGlideslopeDeg = 3.0;
+
+    /// <summary>Legacy constant for a 3° path (~ tan(3°) × NM in feet).</summary>
+    public static double NominalPathFeetPerNauticalMile =>
+        FeetPerNauticalMileForAngle(DefaultGlideslopeDeg);
 
     /// <summary>
-    /// Aim point past the threshold where the nominal 3° path meets field elevation.
+    /// Aim point past the threshold where the nominal path meets field elevation.
     /// Distance windows and HUD range stay threshold-based; only altitude path uses this.
     /// </summary>
     public const double GlideslopeAimPointOffsetFeet = 1_200.0;
@@ -27,6 +31,21 @@ public static class RunwayPathGeometry
 
     public static double GlideslopeAimPointOffsetNm =>
         GlideslopeAimPointOffsetMeters / MetersPerNauticalMile;
+
+    /// <summary>Feet of altitude per NM of ground distance for a given path angle.</summary>
+    public static double FeetPerNauticalMileForAngle(double glideslopeDeg)
+    {
+        var deg = SanitizeGlideslopeDeg(glideslopeDeg);
+        return Math.Tan(deg * Math.PI / 180.0) * (MetersPerNauticalMile / MetersPerFoot);
+    }
+
+    /// <summary>Clamp invalid angles to the standard 3° default.</summary>
+    public static double SanitizeGlideslopeDeg(double glideslopeDeg)
+    {
+        if (!double.IsFinite(glideslopeDeg) || glideslopeDeg < 1.5 || glideslopeDeg > 10.0)
+            return DefaultGlideslopeDeg;
+        return glideslopeDeg;
+    }
 
     public readonly record struct PathState(
         double ApproachDistanceMeters,
@@ -49,8 +68,9 @@ public static class RunwayPathGeometry
     /// <summary>
     /// Project aircraft position onto the extended runway centerline.
     /// Positive approach distance = before threshold (on final).
-    /// Expected altitude uses the aim point 1,200 ft past threshold, not the threshold itself.
-    /// Positive altitude error = above the nominal 3° path.
+    /// Expected altitude uses the aim point 1,200 ft past threshold and
+    /// <see cref="RunwayConfig.GlideslopeDeg"/>.
+    /// Positive altitude error = above the nominal path.
     /// Positive lateral = right of centerline when looking along runway heading.
     /// </summary>
     public static bool TryGetState(
@@ -86,11 +106,10 @@ public static class RunwayPathGeometry
         var lateralMeters =
             eastMeters * Math.Cos(headingRadians) - northMeters * Math.Sin(headingRadians);
 
-        // 3° path meets elevation at threshold + 1,200 ft (aim / typical TDZ markers).
         var pathDistanceMeters = approachDistanceMeters + GlideslopeAimPointOffsetMeters;
+        var feetPerNm = FeetPerNauticalMileForAngle(runway.GlideslopeDeg);
         var expectedAltitudeFeet = runway.ElevationFeet
-                                   + pathDistanceMeters / MetersPerNauticalMile
-                                   * NominalPathFeetPerNauticalMile;
+                                   + pathDistanceMeters / MetersPerNauticalMile * feetPerNm;
 
         state = new PathState(
             approachDistanceMeters,
@@ -105,7 +124,11 @@ public static class RunwayPathGeometry
         => TryGetState(sample.Latitude, sample.Longitude, sample.AltitudeFeet, runway, out state);
 
     /// <summary>Nominal path altitude at a signed approach distance from the threshold (NM).</summary>
-    public static double ExpectedAltitudeFeet(double approachDistanceNm, double elevationFeet) =>
+    public static double ExpectedAltitudeFeet(
+        double approachDistanceNm,
+        double elevationFeet,
+        double glideslopeDeg = DefaultGlideslopeDeg) =>
         elevationFeet
-        + (approachDistanceNm + GlideslopeAimPointOffsetNm) * NominalPathFeetPerNauticalMile;
+        + (approachDistanceNm + GlideslopeAimPointOffsetNm)
+        * FeetPerNauticalMileForAngle(glideslopeDeg);
 }

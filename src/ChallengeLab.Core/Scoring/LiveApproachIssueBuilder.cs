@@ -217,7 +217,7 @@ public static class LiveApproachIssueBuilder
             issues.Add(new Issue("stall-warning penalty", 1.2));
         foreach (var criterion in preview.Criteria.Where(c =>
                      c.Status == MetricStatus.GateFailed
-                     && c.Id is "spoiler_deployment" or "manual_braking" or "automation" or "pause_usage" or "simulation_rate"))
+                     && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate"))
             issues.Add(new Issue(
                 ScoreBreakdownFormatter.ShortName(criterion.Id, criterion.DisplayName) + " penalty",
                 1.1));
@@ -229,7 +229,7 @@ public static class LiveApproachIssueBuilder
         return c.Id switch
         {
             "approach_glideslope" => new Issue(
-                "path off 3°",
+                "path off target",
                 0,
                 snapshot.ApproachGlideslopeMeanAbsFt > 0
                     ? $"avg ±{snapshot.ApproachGlideslopeMeanAbsFt:0} ft"

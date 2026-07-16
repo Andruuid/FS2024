@@ -31,6 +31,7 @@ public static class EvaluationKeyValidator
         ValidateOptionalMultiplier(key.Gates?.PauseUsage?.MultiplierOnFail,
             "gates.pauseUsage.multiplierOnFail", errors);
         ValidateSimulationRateGate(key.Gates?.SimulationRate, errors);
+        ValidateNoseGearImpactGate(key.Gates?.NoseGearImpact, errors);
         ValidateContactMapping(key.ContactMapping, errors);
 
         if (key.Phases.Count == 0)
@@ -411,6 +412,45 @@ public static class EvaluationKeyValidator
             errors.Add("gates.simulationRate.minimumAllowedRate must be greater than 0 and at most 1.");
         ValidateOptionalMultiplier(gate.MultiplierOnFail,
             "gates.simulationRate.multiplierOnFail", errors);
+    }
+
+    private static void ValidateNoseGearImpactGate(
+        NoseGearImpactGateConfig? gate,
+        List<string> errors)
+    {
+        if (gate is null) return;
+
+        if (!double.IsFinite(gate.PreContactWindowSeconds) || gate.PreContactWindowSeconds < 0)
+            errors.Add("gates.noseGearImpact.preContactWindowSeconds must be at least zero.");
+        if (!IsPositiveFinite(gate.PostContactWindowSeconds))
+            errors.Add("gates.noseGearImpact.postContactWindowSeconds must be greater than zero.");
+        if (!IsPositiveFinite(gate.FilterCutoffHz))
+            errors.Add("gates.noseGearImpact.filterCutoffHz must be greater than zero.");
+        if (!double.IsFinite(gate.PeakQuantile) || gate.PeakQuantile is < 0 or > 1)
+            errors.Add("gates.noseGearImpact.peakQuantile must be between zero and one.");
+        if (gate.MinimumPostContactSamples < 1)
+            errors.Add("gates.noseGearImpact.minimumPostContactSamples must be at least one.");
+        if (!double.IsFinite(gate.ModerateDeltaG) || gate.ModerateDeltaG < 0)
+            errors.Add("gates.noseGearImpact.moderateDeltaG must be at least zero.");
+        if (!double.IsFinite(gate.ModeratePeakG) || gate.ModeratePeakG < 0)
+            errors.Add("gates.noseGearImpact.moderatePeakG must be at least zero.");
+        if (!double.IsFinite(gate.SevereDeltaG) || gate.SevereDeltaG < gate.ModerateDeltaG)
+            errors.Add("gates.noseGearImpact.severeDeltaG must be at least moderateDeltaG.");
+        if (!double.IsFinite(gate.SeverePeakG) || gate.SeverePeakG < gate.ModeratePeakG)
+            errors.Add("gates.noseGearImpact.severePeakG must be at least moderatePeakG.");
+        if (!IsPositiveFinite(gate.RecontactDebounceSeconds))
+            errors.Add("gates.noseGearImpact.recontactDebounceSeconds must be greater than zero.");
+        if (!double.IsFinite(gate.CompressionNoiseThreshold)
+            || gate.CompressionNoiseThreshold is < 0 or > 1)
+            errors.Add("gates.noseGearImpact.compressionNoiseThreshold must be between zero and one.");
+        ValidateOptionalMultiplier(gate.ModerateMultiplier,
+            "gates.noseGearImpact.moderateMultiplier", errors);
+        ValidateOptionalMultiplier(gate.SevereMultiplier,
+            "gates.noseGearImpact.severeMultiplier", errors);
+        if (double.IsFinite(gate.ModerateMultiplier)
+            && double.IsFinite(gate.SevereMultiplier)
+            && gate.SevereMultiplier > gate.ModerateMultiplier)
+            errors.Add("gates.noseGearImpact.severeMultiplier must not exceed moderateMultiplier.");
     }
 
     private static void ValidateOptionalMultiplier(

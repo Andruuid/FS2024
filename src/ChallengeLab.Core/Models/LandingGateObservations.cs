@@ -35,6 +35,8 @@ public sealed class LandingGateObservations
     public double? NoseGearTouchdownTimeSeconds { get; set; }
     public bool EarlyOrAirborneBrakeViolation { get; set; }
     public double? FirstSimultaneousBrakingTimeSeconds { get; set; }
+    public double? LastNoseGearImpactContactTimeSeconds { get; set; }
+    public NoseGearImpactAnalysis? NoseGearImpact { get; set; }
 
     public void Reset()
     {
@@ -62,5 +64,7 @@ public sealed class LandingGateObservations
         NoseGearTouchdownTimeSeconds = null;
         EarlyOrAirborneBrakeViolation = false;
         FirstSimultaneousBrakingTimeSeconds = null;
+        LastNoseGearImpactContactTimeSeconds = null;
+        NoseGearImpact = null;
     }
 }

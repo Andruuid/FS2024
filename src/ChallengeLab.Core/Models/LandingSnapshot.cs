@@ -9,13 +9,13 @@ public sealed class LandingSnapshot
     public double MaxLateralOffsetM { get; set; }
     public double TouchdownLateralOffsetM { get; set; }
     public double TouchdownHeadingErrorDeg { get; set; }
-    /// <summary>Diagnostic: time-weighted RMS altitude error vs the stabilized 3° path (ft).</summary>
+    /// <summary>Diagnostic: time-weighted RMS altitude error vs the stabilized path (ft).</summary>
     public double ApproachPathRms { get; set; }
     public int ApproachPathSampleCount { get; set; }
 
     /// <summary>
-    /// Time-weighted mean absolute altitude error vs the nominal 3° path: ∫|e(t)|dt / T (ft).
-    /// Path meets field elevation 1,200 ft past the threshold (aim point).
+    /// Time-weighted mean absolute altitude error vs the nominal glideslope path: ∫|e(t)|dt / T (ft).
+    /// Path meets field elevation 1,200 ft past the threshold (aim point); samples below flare AGL excluded.
     /// High and low deviations cannot cancel one another.
     /// </summary>
     public double ApproachGlideslopeMeanAbsFt { get; set; }

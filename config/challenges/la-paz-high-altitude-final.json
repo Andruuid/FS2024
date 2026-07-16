@@ -54,7 +54,9 @@
     "headingTrueDeg": 271.86,
     "elevationFeet": 13300,
     "lengthM": 4000,
-    "widthM": 46
+    "widthM": 46,
+    "glideslopeDeg": 3,
+    "glideslopeSource": "challenge"
   },
   "hudTips": [
     "Start free flight in A330-200 (RR) first — Challenge Lab will not hot-swap aircraft.",

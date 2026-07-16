@@ -24,6 +24,7 @@ public sealed class LandingSession
     private double? _preTouchdownNormalVelocityFps;
     private bool _touchdownVerticalSpeedDegraded;
     private string _touchdownVerticalSpeedSource = "instantaneous vertical speed";
+    private double? _noseImpactAirborneSince;
 
     public LandingPhase Phase { get; private set; } = LandingPhase.Idle;
     public LandingSnapshot Snapshot { get; } = new();
@@ -68,6 +69,7 @@ public sealed class LandingSession
         _preTouchdownNormalVelocityFps = null;
         _touchdownVerticalSpeedDegraded = false;
         _touchdownVerticalSpeedSource = "instantaneous vertical speed";
+        _noseImpactAirborneSince = null;
         // Re-open post-arm grace and seed ground so a mid-clean on the runway
         // does not instantly re-fire touchdown on the next frame.
         _armedAt = DateTimeOffset.UtcNow;
@@ -93,6 +95,7 @@ public sealed class LandingSession
         _preTouchdownNormalVelocityFps = null;
         _touchdownVerticalSpeedDegraded = false;
         _touchdownVerticalSpeedSource = "instantaneous vertical speed";
+        _noseImpactAirborneSince = null;
     }
 
     private void ClearCapturedMetrics()
@@ -313,6 +316,7 @@ public sealed class LandingSession
 
         // The touchdown frame itself is inside the inclusive spoiler window.
         UpdateSpoilerDeploymentGate(sample, logical.TimeSeconds);
+        UpdateNoseGearImpactObservation(logical, logical.TimeSeconds);
     }
 
     private void UpdateOperationalGates(
@@ -352,7 +356,10 @@ public sealed class LandingSession
         }
 
         if (_touchdownCaptured)
+        {
             UpdateSpoilerDeploymentGate(sample, timeSeconds);
+            UpdateNoseGearImpactObservation(logical, timeSeconds);
+        }
     }
 
     private void UpdatePauseGate(TelemetrySample sample)
@@ -500,6 +507,44 @@ public sealed class LandingSession
             observations.FirstSpoilerDeploymentTimeSeconds = timeSeconds;
     }
 
+    private void UpdateNoseGearImpactObservation(
+        LandingTelemetrySample logical,
+        double timeSeconds)
+    {
+        var gate = _settings.OperationalGates.NoseGearImpact;
+        if (gate is null || !_touchdownCaptured)
+            return;
+
+        var observations = Snapshot.GateObservations;
+        observations.NoseGearContactCoverageAvailable |= logical.NoseGearContactAvailable;
+        if (!logical.NoseGearContactAvailable)
+            return;
+
+        if (!logical.NoseOnGround)
+        {
+            if (_wasNoseOnGround || _noseImpactAirborneSince is null)
+                _noseImpactAirborneSince = timeSeconds;
+            return;
+        }
+
+        if (_wasNoseOnGround)
+        {
+            _noseImpactAirborneSince = null;
+            return;
+        }
+
+        var initial = observations.LastNoseGearImpactContactTimeSeconds is null;
+        var airborneLongEnough = _noseImpactAirborneSince is { } airborneSince
+                                 && timeSeconds - airborneSince + 1e-9
+                                 >= gate.RecontactDebounceSeconds;
+        if (initial || airborneLongEnough)
+        {
+            observations.NoseGearTouchdownTimeSeconds ??= timeSeconds;
+            observations.LastNoseGearImpactContactTimeSeconds = timeSeconds;
+        }
+        _noseImpactAirborneSince = null;
+    }
+
     private bool OperationalGateWindowsComplete(double timeSeconds)
     {
         var gates = _settings.OperationalGates;
@@ -515,6 +560,15 @@ public sealed class LandingSession
         {
             var brakeWindowStart = observations.NoseGearTouchdownTimeSeconds ?? _touchdownTimeSeconds;
             if (timeSeconds < brakeWindowStart + brakes.DeadlineSecondsAfterNoseTouchdown)
+                return false;
+        }
+
+        if (gates.NoseGearImpact is { } noseImpact)
+        {
+            var impactWindowStart = observations.LastNoseGearImpactContactTimeSeconds
+                                    ?? observations.NoseGearTouchdownTimeSeconds
+                                    ?? _touchdownTimeSeconds;
+            if (timeSeconds < impactWindowStart + noseImpact.PostContactWindowSeconds)
                 return false;
         }
 
@@ -568,6 +622,10 @@ public sealed class LandingSession
                 events, _touchdownTimeSeconds, _settings, windowComplete: true);
             Snapshot.TouchdownAnalysisComplete = true;
         }
+
+        if (_settings.OperationalGates.NoseGearImpact is { } noseImpact)
+            Snapshot.GateObservations.NoseGearImpact = NoseGearImpactCalculator.Analyze(
+                events, _touchdownTimeSeconds, noseImpact);
     }
 
     private void TryCaptureOfficialTouchdownVelocity(TelemetrySample sample, double timeSeconds)
@@ -619,14 +677,19 @@ public sealed class LandingSession
         var agl = sample.RadioHeightFeet > 0 ? sample.RadioHeightFeet : sample.AglFeet;
         return new LandingTelemetrySample(
             timeSeconds, agl, sample.GroundSpeedKts, sample.VerticalSpeedFpm, sample.GForce,
-            left, right, nose, available, noseAvailable);
+            left, right, nose, available, noseAvailable,
+            sample.GForceAvailable,
+            sample.ContactPointOnGroundByIndex,
+            sample.ContactPointCompressionByIndex,
+            sample.ContactPointTelemetryAvailable);
     }
 
     /// <summary>
     /// Short-final approach metrics (same distance window as config):
-    /// 1) time-weighted mean absolute altitude error vs the nominal 3° path,
+    /// 1) time-weighted mean absolute altitude error vs the nominal glideslope path,
     /// 2) total vertical path variation per second,
     /// 3) total lateral path variation per metre flown.
+    /// Samples at or below flare AGL are excluded (retard/flare is not path-matching).
     /// Raw visual-frame telemetry is stabilized by <see cref="ApproachMetricCalculator"/>.
     /// </summary>
     private void ComputeApproachPathMetrics()
@@ -635,7 +698,8 @@ public sealed class LandingSession
             Snapshot.ApproachSamples,
             _challenge.Runway,
             _settings.ApproachPathMinDistNm,
-            _settings.ApproachPathMaxDistNm);
+            _settings.ApproachPathMaxDistNm,
+            _settings.FlareAglFeet);
 
         // Always assign every field so live preview cannot retain stale values.
         Snapshot.ApproachPathSampleCount = result.RawSampleCount;

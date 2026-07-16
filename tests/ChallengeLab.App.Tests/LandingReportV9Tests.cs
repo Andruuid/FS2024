@@ -133,14 +133,14 @@ public sealed class LandingReportV9Tests
     {
         var ids = new[]
         {
-            "spoiler_deployment", "manual_braking", "automation", "pause_usage", "simulation_rate"
+            "spoiler_deployment", "manual_braking", "nose_gear_impact", "automation", "pause_usage", "simulation_rate"
         };
         var entry = new HighscoreEntry
         {
             ChallengeTitle = "Operational gates",
-            EvaluationKeyVersion = 15,
+            EvaluationKeyVersion = 16,
             ScoringProfileHash = "gates",
-            RankedBucketId = "test|landing-evaluation-key|v15|gates",
+            RankedBucketId = "test|landing-evaluation-key|v16|gates",
             Criteria = ids.Select(id => new HighscoreCriterionDetail
             {
                 Id = id,
@@ -153,7 +153,7 @@ public sealed class LandingReportV9Tests
 
         var report = new LandingReportViewModel(entry);
 
-        Assert.Equal(5, report.Metrics.Count);
+        Assert.Equal(6, report.Metrics.Count);
         Assert.All(ids, id => Assert.Single(report.Metrics, metric => metric.Id == id));
         Assert.All(report.Metrics, metric => Assert.Equal("FAILED GATE", metric.Verdict));
         Assert.All(report.Metrics, metric => Assert.Contains("multiplied", metric.Note));

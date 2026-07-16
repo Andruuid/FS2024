@@ -37,6 +37,7 @@ public sealed class TelemetrySample
     public double VerticalSpeedFpm { get; init; }
 
     public double GForce { get; init; }
+    public bool GForceAvailable { get; init; } = true;
     public bool SimOnGround { get; init; }
 
     /// <summary>Last touchdown velocity along the ground normal, in feet/second.</summary>
@@ -44,6 +45,14 @@ public sealed class TelemetrySample
 
     /// <summary>Indexed GEAR IS ON GROUND values (0-15). Null means not sampled.</summary>
     public IReadOnlyDictionary<int, bool>? GearOnGroundByIndex { get; init; }
+
+    /// <summary>
+    /// Bounded raw contact-point probes used to correlate suspension compression with
+    /// logical nose-gear contact. Landing traces intentionally omit these collections.
+    /// </summary>
+    public IReadOnlyDictionary<int, bool>? ContactPointOnGroundByIndex { get; init; }
+    public IReadOnlyDictionary<int, double>? ContactPointCompressionByIndex { get; init; }
+    public bool ContactPointTelemetryAvailable { get; init; }
 
     public double GearHandlePosition { get; init; }
     public bool IsGearRetractable { get; init; }

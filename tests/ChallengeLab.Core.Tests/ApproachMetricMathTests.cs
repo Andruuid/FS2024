@@ -101,6 +101,46 @@ public sealed class ApproachMetricMathTests
     }
 
     [Fact]
+    public void SamplesBelowFlareAgl_AreExcludedFromGlideslopeMae()
+    {
+        var (challenge, settings) = Load();
+        var session = new LandingSession(challenge, settings with
+        {
+            OperationalGates = new OperationalGateSessionSettings(),
+            FlareAglFeet = 50
+        });
+        var start = DateTimeOffset.UtcNow;
+
+        // Perfect path well above flare.
+        for (var i = 0; i < 10; i++)
+        {
+            session.Snapshot.ApproachSamples.Add(CreateApproachSample(
+                challenge,
+                start.AddSeconds(i * 0.2),
+                approachDistanceNm: 1.5 - i * 0.05,
+                lateralMeters: 0,
+                altitudeErrorFeet: 0));
+        }
+
+        // Huge path error but only 30 ft AGL — must not pollute MAE.
+        for (var i = 0; i < 10; i++)
+        {
+            session.Snapshot.ApproachSamples.Add(CreateApproachSample(
+                challenge,
+                start.AddSeconds(3 + i * 0.2),
+                approachDistanceNm: 0.8,
+                lateralMeters: 0,
+                altitudeErrorFeet: 400,
+                heightFeetOverride: 30));
+        }
+
+        session.RefreshDerivedMetrics();
+
+        Assert.True(session.Snapshot.ApproachPathSampleCount >= 8);
+        Assert.InRange(session.Snapshot.ApproachGlideslopeMeanAbsFt, 0, 5);
+    }
+
+    [Fact]
     public void SignedApproachDistance_ExcludesPostThresholdAirborneSamples()
     {
         var (challenge, settings) = Load();
@@ -285,7 +325,8 @@ public sealed class ApproachMetricMathTests
         DateTimeOffset timestamp,
         double approachDistanceNm,
         double lateralMeters,
-        double altitudeErrorFeet)
+        double altitudeErrorFeet,
+        double? heightFeetOverride = null)
     {
         var runway = challenge.Runway;
         var headingRadians = runway.HeadingTrueDeg * Math.PI / 180.0;
@@ -300,8 +341,10 @@ public sealed class ApproachMetricMathTests
         var longitude = runway.ThresholdLongitude
                         + eastMeters / (EarthRadiusMeters * Math.Cos(referenceLatitudeRadians))
                         * 180.0 / Math.PI;
-        var altitudeFeet = RunwayPathGeometry.ExpectedAltitudeFeet(approachDistanceNm, runway.ElevationFeet)
+        var altitudeFeet = RunwayPathGeometry.ExpectedAltitudeFeet(
+                               approachDistanceNm, runway.ElevationFeet, runway.GlideslopeDeg)
                            + altitudeErrorFeet;
+        var height = heightFeetOverride ?? (altitudeFeet - runway.ElevationFeet);
 
         return new TelemetrySample
         {
@@ -310,8 +353,8 @@ public sealed class ApproachMetricMathTests
             Latitude = latitude,
             Longitude = longitude,
             AltitudeFeet = altitudeFeet,
-            AglFeet = altitudeFeet - runway.ElevationFeet,
-            RadioHeightFeet = altitudeFeet - runway.ElevationFeet,
+            AglFeet = height,
+            RadioHeightFeet = height,
             HeadingTrueDeg = runway.HeadingTrueDeg,
             GroundTrackTrueDeg = runway.HeadingTrueDeg,
             GroundSpeedKts = 140,

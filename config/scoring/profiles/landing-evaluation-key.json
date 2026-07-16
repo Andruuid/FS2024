@@ -1,7 +1,7 @@
 {
   "id": "landing-evaluation-key",
-  "version": 15,
-  "description": "Single authoritative Challenge/Career landing score. Metric phases are followed by multiplicative safety and operational gates for bounce, stall warning, gear, flaps, spoilers, manual braking, automation, pause usage, and reduced simulation rate.",
+  "version": 16,
+  "description": "Single authoritative Challenge/Career landing score. Metric phases are followed by multiplicative safety and operational gates for bounce, stall warning, gear, flaps, spoilers, manual braking, nose-gear impact, automation, pause usage, and reduced simulation rate.",
   "formula": "raw = sum(phaseScore * phaseWeightPercent / 100); final = round(raw * each applicable safety/operational gate multiplier, 1)",
   "settle": {
     "groundSpeedKts": 50,
@@ -67,6 +67,22 @@
       "deadlineSecondsAfterNoseTouchdown": 4.0,
       "multiplierOnFail": 0.9,
       "penaltyDescription": "Manual brake pedals must remain released while the nose gear is airborne, then both must be applied within four seconds of nose-gear touchdown. Autobrake does not satisfy this gate."
+    },
+    "noseGearImpact": {
+      "preContactWindowSeconds": 0.25,
+      "postContactWindowSeconds": 0.75,
+      "filterCutoffHz": 10.0,
+      "peakQuantile": 0.99,
+      "minimumPostContactSamples": 8,
+      "moderateDeltaG": 0.25,
+      "moderatePeakG": 1.30,
+      "moderateMultiplier": 0.95,
+      "severeDeltaG": 0.50,
+      "severePeakG": 1.70,
+      "severeMultiplier": 0.90,
+      "recontactDebounceSeconds": 0.08,
+      "compressionNoiseThreshold": 0.02,
+      "penaltyDescription": "A moderate nose-gear impact multiplies the complete ranked score by 0.95; a severe impact multiplies it by 0.9. The worst verified nose contact or recontact applies once."
     },
     "automation": {
       "headingAltitudeOffRadioHeightFeet": 2000,
@@ -206,7 +222,7 @@
           "unit": "ft",
           "evaluator": "target",
           "metric": "approachGlideslopeMeanAbsFt",
-          "note": "Time-weighted mean absolute altitude error vs the nominal 3° path to the aim point 1,200 ft past the threshold (∫|e(t)| dt / T). High and low deviations cannot cancel.",
+          "note": "Time-weighted mean absolute altitude error vs the runway glideslope path (default 3°; challenge-set or free-flight VASI). Aim point is 1,200 ft past threshold. Samples at/below flare AGL are excluded. High and low deviations cannot cancel.",
           "params": { "ideal": 0, "tolerance": 40, "maxError": 350 }
         },
         {
