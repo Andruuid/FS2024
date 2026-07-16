@@ -235,6 +235,145 @@ public sealed class LandingReportV9Tests
     }
 
     [Fact]
+    public void Report_ShowsRunwayLengthInHeaderWhenStored()
+    {
+        var entry = new HighscoreEntry
+        {
+            Utc = new DateTimeOffset(2026, 7, 16, 18, 48, 0, TimeSpan.Zero),
+            ChallengeId = "free-mynn-28",
+            ChallengeTitle = "Free · MYNN RWY 28",
+            ScorePercent = 75.3,
+            Grade = "B",
+            RankedBucketId = "free-mynn-28|landing-evaluation-key|v9|hash",
+            RunwayLengthMeters = 3353,
+            Phases =
+            {
+                new HighscorePhaseDetail
+                {
+                    PhaseId = "touchdown", DisplayName = "Touchdown",
+                    WeightPercent = 70, ScorePercent = 71.8, Used = true
+                }
+            },
+            Criteria =
+            {
+                new HighscoreCriterionDetail
+                {
+                    Id = "touchdown_impact", DisplayName = "Touchdown impact",
+                    ScorePercent = 80, RawValue = -421, Unit = "fpm",
+                    Status = MetricStatus.Scored, PhaseId = "touchdown",
+                    PhaseDisplayName = "Touchdown", PhaseImportancePercent = 55,
+                    PhaseWeightPercent = 70, MaxOverallPoints = 38.5
+                }
+            }
+        };
+
+        var report = new LandingReportViewModel(entry);
+
+        Assert.True(report.HasRunwayLength);
+        Assert.Equal(3353, report.RunwayLengthMeters);
+        Assert.Equal("3,353 m · 11,001 ft", report.RunwayLengthDisplay);
+
+        var missing = new LandingReportViewModel(new HighscoreEntry
+        {
+            Utc = DateTimeOffset.UtcNow,
+            ChallengeId = "x",
+            ChallengeTitle = "No length",
+            ScorePercent = 50,
+            Grade = "C",
+            RankedBucketId = "x|k|v9|h"
+        });
+        Assert.False(missing.HasRunwayLength);
+        Assert.Equal("", missing.RunwayLengthDisplay);
+    }
+
+    [Fact]
+    public void Report_RecoversRunwayLengthFromGateDiagnostics()
+    {
+        var entry = new HighscoreEntry
+        {
+            Utc = DateTimeOffset.UtcNow,
+            ChallengeId = "test",
+            ChallengeTitle = "Test",
+            ScorePercent = 90,
+            Grade = "A",
+            RankedBucketId = "test|key|v9|h",
+            Diagnostics = new LandingResultDiagnostics
+            {
+                OperationalGates = new LandingGateObservations { RunwayLengthMeters = 1628 }
+            },
+            Phases =
+            {
+                new HighscorePhaseDetail
+                {
+                    PhaseId = "touchdown", DisplayName = "Touchdown",
+                    WeightPercent = 70, ScorePercent = 90, Used = true
+                }
+            }
+        };
+
+        var report = new LandingReportViewModel(entry);
+        Assert.True(report.HasRunwayLength);
+        Assert.Equal(1628, report.RunwayLengthMeters);
+        Assert.Contains("1,628 m", report.RunwayLengthDisplay, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Report_DistinguishesAssumedAdjustmentsAndNotApplicableGates()
+    {
+        var entry = new HighscoreEntry
+        {
+            Utc = DateTimeOffset.UtcNow,
+            ChallengeId = "free-test-01",
+            ChallengeTitle = "Free test",
+            ScorePercent = 61.2,
+            Grade = "C",
+            RankedBucketId = "free-test-01|free-flight-evaluation-key|v8|hash",
+            Phases =
+            {
+                new HighscorePhaseDetail
+                {
+                    PhaseId = "touchdown", DisplayName = "Touchdown",
+                    WeightPercent = 70, ScorePercent = 60, Used = true
+                }
+            },
+            Criteria =
+            {
+                new HighscoreCriterionDetail
+                {
+                    Id = "spoiler_deployment", DisplayName = "Ground spoilers deployed",
+                    Status = MetricStatus.Assumed, AppliedMultiplier = 0.95,
+                    PhaseId = "touchdown", PhaseDisplayName = "Touchdown"
+                },
+                new HighscoreCriterionDetail
+                {
+                    Id = "touchdown_impact", DisplayName = "Touchdown impact",
+                    Status = MetricStatus.Assumed, ScorePercent = 50,
+                    PhaseId = "touchdown", PhaseDisplayName = "Touchdown",
+                    PhaseImportancePercent = 54.4, PhaseWeightPercent = 70,
+                    MaxOverallPoints = 38.08
+                },
+                new HighscoreCriterionDetail
+                {
+                    Id = "gear", DisplayName = "Gear - not applicable",
+                    Status = MetricStatus.NotApplicable, AppliedMultiplier = 1,
+                    PhaseId = "touchdown", PhaseDisplayName = "Touchdown"
+                }
+            }
+        };
+
+        var report = new LandingReportViewModel(entry);
+
+        var adjustment = Assert.Single(report.Penalties);
+        Assert.Equal("x 0.95", adjustment.MultiplierDisplay);
+        Assert.Contains(report.Metrics, metric =>
+            metric.Id == "touchdown_impact" && metric.Status == MetricStatus.Assumed
+            && metric.Verdict == "ASSUMED" && metric.ScorePercent == 50);
+        Assert.Contains(report.Metrics, metric =>
+            metric.Id == "gear" && metric.Status == MetricStatus.NotApplicable
+            && metric.Verdict == "N/A");
+    }
+
+    [Fact]
     public void ReportXaml_KeepsReadOnlyProgressBindingsOneWayAndCodePaintedCards()
     {
         var root = FindRepositoryRoot();
@@ -247,6 +386,8 @@ public sealed class LandingReportV9Tests
         Assert.Contains("x:Name=\"PenaltiesHost\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"PhaseSummaryHost\"", xaml, StringComparison.Ordinal);
         Assert.Contains("LandingReport.ProjectedScoreHistory, Mode=OneWay", xaml, StringComparison.Ordinal);
+        Assert.Contains("LandingReport.RunwayLengthDisplay", xaml, StringComparison.Ordinal);
+        Assert.Contains("LandingReport.HasRunwayLength", xaml, StringComparison.Ordinal);
         Assert.Contains("MetricsHost.Children.Add(CreateMetricCard", codeBehind, StringComparison.Ordinal);
         Assert.Contains("PenaltiesHost.Children.Add(CreatePenaltyCard", codeBehind, StringComparison.Ordinal);
         Assert.DoesNotContain("Text=\"{Binding LandingReport.Notes}\"", xaml, StringComparison.Ordinal);

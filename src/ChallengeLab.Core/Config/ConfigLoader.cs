@@ -77,12 +77,7 @@ public sealed class ConfigLoader
             if (!File.Exists(path))
                 return EvaluationKeyLoadResult.Failure(path, $"Evaluation key not found: {path}");
 
-            var json = File.ReadAllText(path);
-            var corruption = FindCorruption(json);
-            if (corruption is not null)
-                return EvaluationKeyLoadResult.Failure(path, $"Evaluation key contains text-encoding corruption sequence '{corruption}'.");
-            var key = JsonSerializer.Deserialize<LandingEvaluationKey>(json, StrictKeyJsonOptions)
-                      ?? throw new InvalidOperationException($"Failed to deserialize {path}");
+            var key = LoadEvaluationKeyDocument(path, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             var errors = EvaluationKeyValidator.Validate(key);
             return errors.Count == 0
                 ? EvaluationKeyLoadResult.Success(key, path)
@@ -91,6 +86,66 @@ public sealed class ConfigLoader
         catch (Exception ex)
         {
             return EvaluationKeyLoadResult.Failure(path, ex.Message);
+        }
+    }
+
+    private static LandingEvaluationKey LoadEvaluationKeyDocument(
+        string path,
+        HashSet<string> inheritanceChain)
+    {
+        path = Path.GetFullPath(path);
+        if (!inheritanceChain.Add(path))
+            throw new InvalidOperationException($"Evaluation-key inheritance cycle detected at {path}.");
+
+        try
+        {
+            var json = File.ReadAllText(path);
+            var corruption = FindCorruption(json);
+            if (corruption is not null)
+                throw new InvalidOperationException(
+                    $"Evaluation key contains text-encoding corruption sequence '{corruption}'.");
+
+            using var document = JsonDocument.Parse(json, new JsonDocumentOptions
+            {
+                CommentHandling = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true
+            });
+            var isOverlay = document.RootElement.EnumerateObject().Any(property =>
+                property.Name.Equals("inherits", StringComparison.OrdinalIgnoreCase));
+            if (!isOverlay)
+                return JsonSerializer.Deserialize<LandingEvaluationKey>(json, StrictKeyJsonOptions)
+                       ?? throw new InvalidOperationException($"Failed to deserialize {path}");
+
+            var overlay = JsonSerializer.Deserialize<FreeFlightEvaluationOverlay>(json, StrictKeyJsonOptions)
+                          ?? throw new InvalidOperationException($"Failed to deserialize overlay {path}");
+            if (string.IsNullOrWhiteSpace(overlay.Inherits))
+                throw new InvalidOperationException("Evaluation-key overlay must define inherits.");
+            if (string.IsNullOrWhiteSpace(overlay.Id))
+                throw new InvalidOperationException("Evaluation-key overlay must define id.");
+            if (overlay.Version < 1)
+                throw new InvalidOperationException("Evaluation-key overlay version must be at least 1.");
+            if (overlay.FreeMode is null)
+                throw new InvalidOperationException("A Free Flight evaluation-key overlay must define freeMode.");
+
+            var basePath = Path.IsPathRooted(overlay.Inherits)
+                ? overlay.Inherits
+                : Path.Combine(Path.GetDirectoryName(path)!, overlay.Inherits);
+            if (!File.Exists(basePath))
+                throw new FileNotFoundException($"Inherited evaluation key not found: {basePath}", basePath);
+
+            var key = LoadEvaluationKeyDocument(basePath, inheritanceChain);
+            key.Id = overlay.Id.Trim();
+            key.Version = overlay.Version;
+            if (!string.IsNullOrWhiteSpace(overlay.Description))
+                key.Description = overlay.Description.Trim();
+            if (overlay.SpeedTarget?.DefaultVappKts is { } defaultVapp)
+                key.SpeedTarget!.DefaultVappKts = defaultVapp;
+            key.FreeMode = overlay.FreeMode;
+            return key;
+        }
+        finally
+        {
+            inheritanceChain.Remove(path);
         }
     }
 
@@ -167,6 +222,25 @@ public sealed class ConfigLoader
             if (text.Contains(sequence, StringComparison.Ordinal)) return sequence;
         return null;
     }
+}
+
+/// <summary>
+/// Deliberately narrow Free Flight overlay. Strict deserialization rejects phase,
+/// metric, timing, gate, contact-mapping, or other structural overrides.
+/// </summary>
+internal sealed class FreeFlightEvaluationOverlay
+{
+    public string Id { get; set; } = "";
+    public int Version { get; set; }
+    public string Description { get; set; } = "";
+    public string Inherits { get; set; } = "";
+    public FreeFlightSpeedTargetOverlay? SpeedTarget { get; set; }
+    public FreeModeScoringPolicy? FreeMode { get; set; }
+}
+
+internal sealed class FreeFlightSpeedTargetOverlay
+{
+    public double? DefaultVappKts { get; set; }
 }
 
 public sealed class EvaluationKeyLoadResult

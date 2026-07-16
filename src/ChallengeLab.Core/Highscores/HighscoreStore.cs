@@ -26,6 +26,7 @@ public sealed class HighscoreCriterionDetail
 
     public MetricStatus? Status { get; set; }
     public string? UnavailableReason { get; set; }
+    public double? AppliedMultiplier { get; set; }
     public string? PhaseId { get; set; }
     public string? PhaseDisplayName { get; set; }
     public double PhaseImportancePercent { get; set; }
@@ -41,7 +42,7 @@ public sealed class HighscoreCriterionDetail
     });
 
     [JsonIgnore]
-    public bool Applied => EffectiveStatus is MetricStatus.Scored or MetricStatus.Degraded;
+    public bool Applied => EffectiveStatus is MetricStatus.Scored or MetricStatus.Degraded or MetricStatus.Assumed;
 }
 
 public sealed class HighscoreEntry
@@ -68,6 +69,10 @@ public sealed class HighscoreEntry
     public string? ScoringProfileHash { get; set; }
     public string? RankedBucketId { get; set; }
     public LandingResultDiagnostics? Diagnostics { get; set; }
+
+    /// <summary>Runway length used for scoring (metres). Stored so the report can show it without re-resolving facilities.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? RunwayLengthMeters { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<ScoreHistoryPoint>? ProjectedScoreHistory { get; set; }
@@ -122,6 +127,7 @@ public sealed class HighscoreEntry
                     PhaseImportancePercent = c.PhaseImportancePercent,
                     PhaseWeightPercent = c.PhaseWeightPercent,
                     MaxOverallPoints = c.MaxOverallPoints,
+                    AppliedMultiplier = c.AppliedMultiplier,
                     Note = c.Note,
                     UnavailableReason = c.UnavailableReason
                 }));
@@ -241,6 +247,7 @@ public sealed class HighscoreStore
             Note = criterion.Note,
             Status = criterion.Status,
             UnavailableReason = criterion.UnavailableReason,
+            AppliedMultiplier = criterion.AppliedMultiplier,
             PhaseId = criterion.PhaseId,
             PhaseDisplayName = criterion.PhaseDisplayName,
             PhaseImportancePercent = criterion.PhaseImportancePercent,
@@ -284,6 +291,7 @@ public sealed class HighscoreStore
             ScoringProfileHash = result.ScoringProfileHash,
             RankedBucketId = result.RankedBucketId,
             Diagnostics = result.Diagnostics,
+            RunwayLengthMeters = ResolveRunwayLengthMeters(result),
             ProjectedScoreHistory = NormalizeScoreHistory(projectedScoreHistory),
             CareerStageNumber = careerStageNumber,
             CareerRankId = careerRankId,
@@ -339,12 +347,24 @@ public sealed class HighscoreStore
                         Note = "Historical recovery: vertical speed was stored, but its score and phase breakdown are unavailable."
                     });
                 }
+
+                // Prefer explicit field; recover from gate diagnostics when older saves only latched length there.
+                entry.RunwayLengthMeters ??= ResolveRunwayLengthMetersFromDiagnostics(entry.Diagnostics);
             }
         }
         catch
         {
             _entries = new();
         }
+    }
+
+    private static double? ResolveRunwayLengthMeters(ScoreResult result)
+        => ResolveRunwayLengthMetersFromDiagnostics(result.Diagnostics);
+
+    private static double? ResolveRunwayLengthMetersFromDiagnostics(LandingResultDiagnostics? diagnostics)
+    {
+        var length = diagnostics?.OperationalGates?.RunwayLengthMeters;
+        return length is > 0 && double.IsFinite(length.Value) ? length : null;
     }
 
     private void Save()

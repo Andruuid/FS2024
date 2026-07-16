@@ -26,6 +26,7 @@ public static class EvaluationKeyValidator
         ValidateSimulationRateGate(key.GeneralPenalties?.SimulationRate,
             "generalPenalties.simulationRate", errors);
         ValidateContactMapping(key.ContactMapping, errors);
+        ValidateFreeMode(key.FreeMode, errors);
 
         if (key.Phases.Count == 0)
             errors.Add("phases must contain at least one phase.");
@@ -64,6 +65,17 @@ public static class EvaluationKeyValidator
             errors.Add("phase 'touchdown'.penalties.gear is required.");
 
         return errors;
+    }
+
+    private static void ValidateFreeMode(FreeModeScoringPolicy? policy, List<string> errors)
+    {
+        if (policy is null) return;
+        if (!double.IsFinite(policy.UnavailableMetricScorePercent)
+            || policy.UnavailableMetricScorePercent is < 0 or > 100)
+            errors.Add("freeMode.unavailableMetricScorePercent must be between 0 and 100.");
+        if (!double.IsFinite(policy.MissingGatePenaltyFraction)
+            || policy.MissingGatePenaltyFraction is < 0 or > 1)
+            errors.Add("freeMode.missingGatePenaltyFraction must be between 0 and 1.");
     }
 
     private static void ValidatePhasePenalties(

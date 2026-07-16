@@ -64,6 +64,17 @@ public sealed class FlightTapeStore
             OriginalScorePercent = result.ScorePercent,
             OriginalGrade = result.Grade,
             OriginalIsRanked = result.IsRanked,
+            FreeFlightCapabilities = challenge.FreeFlightCapabilities,
+            OriginalCriteria = result.Criteria.Select(criterion => new FlightTapeCriterion
+            {
+                Id = criterion.Id,
+                DisplayName = criterion.DisplayName,
+                Status = criterion.Status,
+                ScorePercent = criterion.ScorePercent,
+                AppliedMultiplier = criterion.AppliedMultiplier,
+                Note = criterion.Note,
+                UnavailableReason = criterion.UnavailableReason
+            }).ToList(),
             SampleCount = samples.Count,
             Challenge = CloneChallenge(challenge),
             Samples = samples.ToList()
@@ -86,6 +97,8 @@ public sealed class FlightTapeStore
             throw new InvalidOperationException("Flight tape is missing embedded challenge config.");
         if (doc.Samples is null)
             doc.Samples = new List<TelemetrySample>();
+        doc.OriginalCriteria ??= new List<FlightTapeCriterion>();
+        doc.Challenge.FreeFlightCapabilities ??= doc.FreeFlightCapabilities;
 
         doc.SourcePath = path;
         if (doc.SampleCount <= 0)
@@ -138,12 +151,25 @@ public sealed class FlightTapeDocument
     public double? OriginalScorePercent { get; set; }
     public string OriginalGrade { get; set; } = "";
     public bool OriginalIsRanked { get; set; }
+    public FreeFlightCapabilityContext? FreeFlightCapabilities { get; set; }
+    public List<FlightTapeCriterion> OriginalCriteria { get; set; } = new();
     public int SampleCount { get; set; }
     public ChallengeConfig? Challenge { get; set; }
     public List<TelemetrySample> Samples { get; set; } = new();
 
     [JsonIgnore]
     public string? SourcePath { get; set; }
+}
+
+public sealed class FlightTapeCriterion
+{
+    public string Id { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public MetricStatus Status { get; set; }
+    public double? ScorePercent { get; set; }
+    public double? AppliedMultiplier { get; set; }
+    public string? Note { get; set; }
+    public string? UnavailableReason { get; set; }
 }
 
 public sealed class FlightTapeListItem

@@ -458,8 +458,17 @@
                                     <TextBlock Text="LANDING REPORT" FontSize="11" FontWeight="Bold"
                                                Foreground="#FF2DE2E6" VerticalAlignment="Center"/>
                                 </DockPanel>
-                                <TextBlock Text="{Binding LandingReport.Title}" FontSize="22" FontWeight="SemiBold"
-                                           TextWrapping="Wrap" Margin="0,8,0,0" Foreground="#FFF2F6FF"/>
+                                <DockPanel Margin="0,8,0,0" LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Right"
+                                               Text="{Binding LandingReport.RunwayLengthDisplay}"
+                                               FontSize="14" FontWeight="SemiBold"
+                                               Foreground="#FF8B9BB8" VerticalAlignment="Center"
+                                               Margin="16,0,0,0"
+                                               Visibility="{Binding LandingReport.HasRunwayLength, Converter={StaticResource BoolToVis}}"/>
+                                    <TextBlock Text="{Binding LandingReport.Title}" FontSize="22" FontWeight="SemiBold"
+                                               TextWrapping="Wrap" Foreground="#FFF2F6FF"
+                                               VerticalAlignment="Center"/>
+                                </DockPanel>
                                 <TextBlock Text="{Binding LandingReport.Subtitle}" Foreground="#FFC5D0E6"
                                            Margin="0,4,0,0" FontSize="12"/>
                                 <TextBlock Text="{Binding SelectedHighscore.CareerDisplay, Mode=OneWay}"

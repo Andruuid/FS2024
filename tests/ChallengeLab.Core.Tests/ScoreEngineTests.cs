@@ -410,7 +410,7 @@ public sealed class ScoreEngineTests
     }
 
     [Fact]
-    public void FreeFlightEvaluationKey_LoadsWithoutFlapGate()
+    public void FreeFlightEvaluationKey_InheritsAuthoritativeFlapGate()
     {
         var loader = new ConfigLoader(FindConfig());
         var catalog = loader.LoadCatalog();
@@ -418,9 +418,10 @@ public sealed class ScoreEngineTests
 
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("free-flight-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(7, loaded.Key.Version);
+        Assert.Equal(8, loaded.Key.Version);
         Assert.Equal(70, loaded.Key.SpeedTarget!.DefaultVappKts);
-        Assert.Null(loaded.Key.Phases.Single(p => p.Id == "touchdown").Penalties!.Flaps);
+        Assert.NotNull(loaded.Key.FreeMode);
+        Assert.NotNull(loaded.Key.Phases.Single(p => p.Id == "touchdown").Penalties!.Flaps);
     }
 
     [Fact]

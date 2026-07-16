@@ -127,8 +127,9 @@ public sealed class LandingSnapshot
 
     /// <summary>Latched true if any telemetry sample warned of a stall while armed.</summary>
     public bool StallWarningOccurred { get; set; }
+    public bool StallWarningCoverageAvailable { get; set; } = true;
 
-    /// <summary>Operational Challenge/Career gate observations. Free Flight leaves this unused.</summary>
+    /// <summary>Operational gate observations for Challenge, Career, and Free Flight.</summary>
     public LandingGateObservations GateObservations { get; } = new();
 
     public List<TelemetrySample> ApproachSamples { get; } = new();

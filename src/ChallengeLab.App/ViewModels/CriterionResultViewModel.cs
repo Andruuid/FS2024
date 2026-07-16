@@ -10,7 +10,9 @@ public sealed class CriterionResultViewModel
         {
             MetricStatus.Informational => " (informational)",
             MetricStatus.Unavailable => " (telemetry unavailable)",
-            MetricStatus.Degraded => " (degraded · unranked)",
+            MetricStatus.Assumed => " (assumed fallback)",
+            MetricStatus.NotApplicable => " (not applicable)",
+            MetricStatus.Degraded => " (degraded telemetry)",
             _ => ""
         };
         ScorePercent = score.ScorePercent;
@@ -30,7 +32,11 @@ public sealed class CriterionResultViewModel
                 MetricStatus.Informational => "Informational · no score credit",
                 MetricStatus.GateFailed => "Safety gate · applied to complete total",
                 MetricStatus.Unavailable => "Required telemetry unavailable",
-                MetricStatus.Degraded => "Fallback score · run is unranked",
+                MetricStatus.Assumed => score.AppliedMultiplier is { } assumedMultiplier
+                    ? $"Assumed telemetry adjustment x {assumedMultiplier:0.###}"
+                    : "Assumed 50% metric credit",
+                MetricStatus.NotApplicable => "Not applicable - neutral",
+                MetricStatus.Degraded => "Calculated proxy retained",
                 _ => ""
             };
         Verdict = score.Status switch
@@ -39,6 +45,8 @@ public sealed class CriterionResultViewModel
             MetricStatus.Informational => "INFO",
             MetricStatus.GateFailed => "FAILED GATE",
             MetricStatus.Degraded => "DEGRADED",
+            MetricStatus.Assumed => "ASSUMED",
+            MetricStatus.NotApplicable => "N/A",
             _ => score.ScorePercent switch
             {
                 >= 95 => "Excellent",
@@ -61,6 +69,7 @@ public sealed class CriterionResultViewModel
     public string Verdict { get; }
     public string InfluenceDisplay { get; }
     public bool IsPrimary { get; }
-    public bool IsScored => Status is MetricStatus.Scored or MetricStatus.Degraded;
+    public bool IsScored => Status is MetricStatus.Scored or MetricStatus.Degraded
+                            || Status == MetricStatus.Assumed && ScorePercent is not null;
     public double BarValue => ScorePercent ?? 0;
 }

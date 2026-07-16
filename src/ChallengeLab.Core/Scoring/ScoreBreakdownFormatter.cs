@@ -34,8 +34,10 @@ public static class ScoreBreakdownFormatter
             && c.Status == MetricStatus.GateFailed);
         var operationalPenalties = criteria.Where(c =>
                 c.Status == MetricStatus.GateFailed
-                && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "rollout_distance")
+                && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "rollout_distance" or "reverse_thrust")
             .ToList();
+        var assumedAdjustments = criteria.Where(c =>
+            c.Status == MetricStatus.Assumed && c.AppliedMultiplier is < 1).ToList();
         if (scorePercent is not null)
             sb.Append("Total Grade ").Append(grade).Append("  ").Append(Pct(scorePercent));
         else
@@ -43,7 +45,8 @@ public static class ScoreBreakdownFormatter
         sb.AppendLine();
 
         if (contactPenaltyApplied || stallWarningPenaltyApplied
-            || gearUpPenaltyApplied || flapsPenaltyApplied || operationalPenalties.Count > 0)
+            || gearUpPenaltyApplied || flapsPenaltyApplied || operationalPenalties.Count > 0
+            || assumedAdjustments.Count > 0)
         {
             sb.Append("(pre-penalty metric total ").Append(Pct(scoreBeforeGatesPercent));
             if (contactPenaltyApplied) sb.Append(" · bounce penalty");
@@ -52,6 +55,9 @@ public static class ScoreBreakdownFormatter
             if (flapsPenaltyApplied) sb.Append(" · flaps penalty");
             foreach (var penalty in operationalPenalties)
                 sb.Append(" · ").Append(ShortName(penalty.Id, penalty.DisplayName)).Append(" penalty");
+            foreach (var assumed in assumedAdjustments)
+                sb.Append(" · ").Append(ShortName(assumed.Id, assumed.DisplayName))
+                    .Append(" assumed x").Append(assumed.AppliedMultiplier!.Value.ToString("0.###"));
             sb.Append(')');
             sb.AppendLine();
         }
@@ -77,7 +83,8 @@ public static class ScoreBreakdownFormatter
 
         if (contactPenaltyApplied || stallWarningPenaltyApplied
             || gearUpPenaltyApplied || flapsPenaltyApplied
-            || criteria.Any(c => c.Status == MetricStatus.GateFailed))
+            || criteria.Any(c => c.Status == MetricStatus.GateFailed)
+            || assumedAdjustments.Count > 0)
         {
             sb.AppendLine();
             if (contactPenaltyApplied)
@@ -90,6 +97,8 @@ public static class ScoreBreakdownFormatter
                 sb.AppendLine("FLAPS NOT SET (penalty)");
             foreach (var penalty in operationalPenalties)
                 sb.AppendLine($"{penalty.DisplayName.ToUpperInvariant()} (penalty)");
+            foreach (var assumed in assumedAdjustments)
+                sb.AppendLine($"{assumed.DisplayName.ToUpperInvariant()} (assumed x{assumed.AppliedMultiplier:0.###})");
         }
 
         return sb.ToString().TrimEnd() + Environment.NewLine;
@@ -141,6 +150,7 @@ public static class ScoreBreakdownFormatter
             PhaseImportancePercent = m.PhaseImportancePercent,
             PhaseWeightPercent = m.PhaseWeightPercent,
             MaxOverallPoints = m.MaxOverallPoints,
+            AppliedMultiplier = m.AppliedMultiplier,
             Note = m.Note,
             UnavailableReason = m.UnavailableReason
         }).ToList();
@@ -237,6 +247,7 @@ public static class ScoreBreakdownFormatter
         public double PhaseImportancePercent { get; init; }
         public double PhaseWeightPercent { get; init; }
         public double MaxOverallPoints { get; init; }
+        public double? AppliedMultiplier { get; init; }
         public string? Note { get; init; }
         public string? UnavailableReason { get; init; }
     }

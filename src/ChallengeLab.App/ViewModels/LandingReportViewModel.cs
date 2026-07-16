@@ -15,6 +15,9 @@ public sealed class LandingReportViewModel : ViewModelBase
         Title = entry.ChallengeTitle;
         Subtitle = $"{entry.Utc:yyyy-MM-dd HH:mm} UTC" +
                    (entry.IsLegacy ? "  ·  LEGACY RECORD" : "");
+        RunwayLengthMeters = ResolveRunwayLengthMeters(entry);
+        RunwayLengthDisplay = FormatRunwayLength(RunwayLengthMeters);
+        HasRunwayLength = !string.IsNullOrEmpty(RunwayLengthDisplay);
         ScorePercent = entry.ScorePercent;
         Grade = entry.Grade;
         Notes = entry.Breakdown;
@@ -64,7 +67,9 @@ public sealed class LandingReportViewModel : ViewModelBase
         if (source.Count == 0 && entry.Criteria is { Count: > 0 }) source = entry.Criteria;
         foreach (var criterion in source)
         {
-            if (criterion.EffectiveStatus == MetricStatus.GateFailed)
+            if (criterion.EffectiveStatus == MetricStatus.GateFailed
+                || criterion.EffectiveStatus == MetricStatus.Assumed
+                && criterion.AppliedMultiplier is < 1)
             {
                 Penalties.Add(new PenaltyViewModel(criterion));
                 continue;
@@ -91,6 +96,9 @@ public sealed class LandingReportViewModel : ViewModelBase
     public HighscoreEntry Entry { get; }
     public string Title { get; }
     public string Subtitle { get; }
+    public double? RunwayLengthMeters { get; }
+    public string RunwayLengthDisplay { get; }
+    public bool HasRunwayLength { get; }
     public double ScorePercent { get; }
     public string Grade { get; }
     public string Notes { get; }
@@ -222,8 +230,9 @@ public sealed class LandingReportViewModel : ViewModelBase
 
     private static bool ShouldShowAsMetric(HighscoreCriterionDetail criterion)
     {
-        if (string.Equals(criterion.Id, "gear", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(criterion.Id, "flaps", StringComparison.OrdinalIgnoreCase))
+        if ((string.Equals(criterion.Id, "gear", StringComparison.OrdinalIgnoreCase)
+             || string.Equals(criterion.Id, "flaps", StringComparison.OrdinalIgnoreCase))
+            && criterion.EffectiveStatus == MetricStatus.Informational)
             return false;
         return criterion.EffectiveStatus != MetricStatus.Informational;
     }
@@ -244,6 +253,26 @@ public sealed class LandingReportViewModel : ViewModelBase
         "rollout" => 2,
         _ => 3
     };
+
+    private static double? ResolveRunwayLengthMeters(HighscoreEntry entry)
+    {
+        if (entry.RunwayLengthMeters is { } stored && stored > 0 && double.IsFinite(stored))
+            return stored;
+        var fromGates = entry.Diagnostics?.OperationalGates?.RunwayLengthMeters;
+        if (fromGates is { } gates && gates > 0 && double.IsFinite(gates))
+            return gates;
+        return null;
+    }
+
+    /// <summary>e.g. "3,353 m · 11,001 ft" for the report header badge.</summary>
+    internal static string FormatRunwayLength(double? lengthMeters)
+    {
+        if (lengthMeters is not { } meters || meters <= 0 || !double.IsFinite(meters))
+            return "";
+        var feet = meters / RunwayPathGeometry.MetersPerFoot;
+        return string.Create(CultureInfo.InvariantCulture,
+            $"{meters:#,##0} m · {feet:#,##0} ft");
+    }
 }
 
 public sealed class ReportPhaseViewModel
@@ -274,6 +303,9 @@ public sealed class PenaltyViewModel
         ScopeDisplay = string.IsNullOrWhiteSpace(criterion.PhaseDisplayName)
             ? "Overall score penalty"
             : $"{criterion.PhaseDisplayName} penalty";
+        MultiplierDisplay = criterion.AppliedMultiplier is { } multiplier
+            ? $"x {multiplier:0.###}"
+            : "";
     }
 
     public string Id { get; }
@@ -281,6 +313,7 @@ public sealed class PenaltyViewModel
     public string RawDisplay { get; }
     public string Note { get; }
     public string ScopeDisplay { get; }
+    public string MultiplierDisplay { get; }
 }
 
 public sealed class ReportMetricViewModel
@@ -293,7 +326,9 @@ public sealed class ReportMetricViewModel
         {
             MetricStatus.Informational => " (informational)",
             MetricStatus.Unavailable => " (score unavailable)",
-            MetricStatus.Degraded => " (degraded · unranked)",
+            MetricStatus.Assumed => " (assumed fallback)",
+            MetricStatus.NotApplicable => " (not applicable)",
+            MetricStatus.Degraded => " (degraded telemetry)",
             _ => ""
         });
         ScorePercent = criterion.ScorePercent;
@@ -309,6 +344,11 @@ public sealed class ReportMetricViewModel
                     MetricStatus.Informational => "Informational · no score credit",
                     MetricStatus.GateFailed => "Safety gate",
                     MetricStatus.Unavailable => "Score unavailable",
+                    MetricStatus.Assumed => criterion.AppliedMultiplier is { } assumedMultiplier
+                        ? $"Assumed telemetry adjustment x {assumedMultiplier:0.###}"
+                        : "Assumed 50% metric credit",
+                    MetricStatus.NotApplicable => "Not applicable - neutral",
+                    MetricStatus.Degraded => "Calculated proxy retained",
                     _ => ""
                 };
 
@@ -323,6 +363,8 @@ public sealed class ReportMetricViewModel
             MetricStatus.Unavailable => "N/A",
             MetricStatus.Informational => "INFO",
             MetricStatus.GateFailed => "FAILED GATE",
+            MetricStatus.Assumed => "ASSUMED",
+            MetricStatus.NotApplicable => "N/A",
             MetricStatus.Degraded => "DEGRADED",
             _ => ScorePercent switch
             {
@@ -347,7 +389,8 @@ public sealed class ReportMetricViewModel
     public string InfluenceDisplay { get; }
     public bool IsPrimary { get; }
     public MetricStatus Status { get; }
-    public bool IsScored => Status is MetricStatus.Scored or MetricStatus.Degraded;
+    public bool IsScored => Status is MetricStatus.Scored or MetricStatus.Degraded
+                            || Status == MetricStatus.Assumed && ScorePercent is not null;
     public double BarValue => ScorePercent ?? 0;
 
     private static string FormatRawDisplay(HighscoreCriterionDetail criterion)

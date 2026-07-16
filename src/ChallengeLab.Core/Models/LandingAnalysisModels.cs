@@ -1,3 +1,5 @@
+using ChallengeLab.Core.Config;
+
 namespace ChallengeLab.Core.Models;
 
 /// <summary>Small logical sample used exclusively by touchdown-event analysis.</summary>
@@ -59,6 +61,7 @@ public sealed record ContactStabilityAnalysis(
 public sealed class LandingResultDiagnostics
 {
     public LandingGateObservations OperationalGates { get; set; } = new();
+    public FreeFlightCapabilityContext? FreeFlightCapabilities { get; set; }
 
     public double TouchdownVerticalSpeedFpm { get; set; }
     public double TouchdownVerticalSpeedSubscore { get; set; }

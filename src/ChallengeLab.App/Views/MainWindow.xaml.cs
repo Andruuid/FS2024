@@ -198,7 +198,7 @@ public partial class MainWindow : Window
         });
         stack.Children.Add(new TextBlock
         {
-            Text = $"{penalty.ScopeDisplay}  ·  Value: {penalty.RawDisplay}",
+            Text = $"{penalty.ScopeDisplay}  ·  {penalty.MultiplierDisplay}  ·  Value: {penalty.RawDisplay}",
             FontSize = 11,
             FontFamily = new MediaFontFamily("Consolas"),
             Foreground = MediaBrushes.LightPink,

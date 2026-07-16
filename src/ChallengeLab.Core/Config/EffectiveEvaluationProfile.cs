@@ -40,8 +40,13 @@ public static class EffectiveEvaluationProfileBuilder
             };
         }
 
-        ApplyMetricOverrides(key, challenge?.ScoringOverrides);
-        ApplyReverseThrustOverride(key, challenge?.ScoringOverrides?.ReverseThrust);
+        // Free Flight is an authoritative-base overlay. Authored challenge-specific
+        // scoring exceptions (for example Arctic idle-only reverse) never transfer.
+        if (key.FreeMode is null)
+        {
+            ApplyMetricOverrides(key, challenge?.ScoringOverrides);
+            ApplyReverseThrustOverride(key, challenge?.ScoringOverrides?.ReverseThrust);
+        }
         var errors = EvaluationKeyValidator.Validate(key);
         if (errors.Count > 0)
             throw new ArgumentException("Effective evaluation key is invalid: " + string.Join(" | ", errors));

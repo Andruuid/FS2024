@@ -14,6 +14,7 @@ public sealed class LandingEvaluationKey
     public List<EvaluationPhase> Phases { get; set; } = new();
     public GeneralPenaltyConfig? GeneralPenalties { get; set; }
     public LandingContactMapping ContactMapping { get; set; } = new();
+    public FreeModeScoringPolicy? FreeMode { get; set; }
 
     public LandingSessionSettings ToSessionSettings()
     {
@@ -62,6 +63,19 @@ public sealed class LandingEvaluationKey
         where T : class => Phases
             .Select(phase => phase.Penalties is null ? null : selector(phase.Penalties))
             .FirstOrDefault(penalty => penalty is not null);
+}
+
+/// <summary>
+/// Free Flight keeps the authoritative landing key's structure and changes only how
+/// unavailable data and aircraft-specific applicability are handled.
+/// </summary>
+public sealed class FreeModeScoringPolicy
+{
+    public double UnavailableMetricScorePercent { get; set; } = 50;
+    public double MissingGatePenaltyFraction { get; set; } = 0.5;
+
+    public double MissingGateMultiplier(double configuredFailureMultiplier) =>
+        1 - MissingGatePenaltyFraction * (1 - configuredFailureMultiplier);
 }
 
 public sealed record LandingSessionSettings(

@@ -281,6 +281,8 @@ public sealed class FreeFlightRunwayInferenceTests
         Assert.Equal("free-test-09l", challenge.Id);
         Assert.Equal("Free · TEST RWY 09L", challenge.Title);
         Assert.Equal(ChallengeMode.FreeFlight, challenge.ModeEnum);
+        // Facility length is known at lock time and must flow into the scoring identity.
+        Assert.Equal(2000, challenge.Runway.LengthM);
     }
 
     [Fact]

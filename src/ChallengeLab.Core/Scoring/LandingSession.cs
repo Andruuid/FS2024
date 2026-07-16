@@ -39,6 +39,8 @@ public sealed class LandingSession
         _challenge = challenge;
         _settings = settings;
         _geo = new GeoUtil(challenge.Runway);
+        // Free-flight lock already copied facility LengthMeters into challenge.Runway.
+        SeedRunwayLengthObservation();
     }
 
     public void Arm()
@@ -149,10 +151,23 @@ public sealed class LandingSession
         Snapshot.TouchdownAnalysisComplete = false;
         Snapshot.ContactMappingDegraded = false;
         Snapshot.StallWarningOccurred = false;
+        Snapshot.StallWarningCoverageAvailable = false;
         Snapshot.GateObservations.Reset();
+        SeedRunwayLengthObservation();
         Snapshot.ApproachSamples.Clear();
         Snapshot.RolloutSamples.Clear();
         Snapshot.LandingEventSamples.Clear();
+    }
+
+    /// <summary>
+    /// Always latch runway length from the challenge identity (not only when the
+    /// rollout settle gate fires) so highscore reports can show it.
+    /// </summary>
+    private void SeedRunwayLengthObservation()
+    {
+        var length = _challenge.Runway.LengthM;
+        if (double.IsFinite(length) && length > 0)
+            Snapshot.GateObservations.RunwayLengthMeters = length;
     }
 
     public void Ingest(TelemetrySample sample)
@@ -162,6 +177,7 @@ public sealed class LandingSession
 
         var timeSeconds = ResolveTimeSeconds(sample);
         Snapshot.StallWarningOccurred |= sample.StallWarningActive;
+        Snapshot.StallWarningCoverageAvailable |= sample.StallWarningAvailable;
         var logical = ToLandingSample(sample, timeSeconds);
         Snapshot.LandingEventSamples.Add(logical);
         var anyMainOnGround = logical.MainGearContactsAvailable
@@ -378,7 +394,7 @@ public sealed class LandingSession
         bool acceptedTouchdownSample = false)
     {
         var gate = _settings.OperationalGates.ReverseThrust;
-        if (gate is null)
+        if (gate is null || !ShouldMonitorGate(FreeFlightGateIds.ReverseThrust))
             return;
 
         var observations = Snapshot.GateObservations;
@@ -534,7 +550,7 @@ public sealed class LandingSession
     private void UpdateRolloutDistanceGate(TelemetrySample sample)
     {
         var gate = _settings.OperationalGates.Rollout;
-        if (gate is null || !_touchdownCaptured)
+        if (gate is null || !ShouldMonitorGate(FreeFlightGateIds.RolloutDistance) || !_touchdownCaptured)
             return;
 
         var observations = Snapshot.GateObservations;
@@ -598,7 +614,8 @@ public sealed class LandingSession
     private void UpdateAutomationGate(TelemetrySample sample)
     {
         var gate = _settings.OperationalGates.Automation;
-        if (gate is null || !sample.RadioHeightAvailable || !double.IsFinite(sample.RadioHeightFeet))
+        if (gate is null || !ShouldMonitorGate(FreeFlightGateIds.Automation)
+            || !sample.RadioHeightAvailable || !double.IsFinite(sample.RadioHeightFeet))
             return;
 
         var observations = Snapshot.GateObservations;
@@ -656,7 +673,7 @@ public sealed class LandingSession
         double timeSeconds)
     {
         var gate = _settings.OperationalGates.ManualBraking;
-        if (gate is null)
+        if (gate is null || !ShouldMonitorGate(FreeFlightGateIds.ManualBraking))
             return;
 
         var observations = Snapshot.GateObservations;
@@ -692,7 +709,7 @@ public sealed class LandingSession
     private void UpdateSpoilerDeploymentGate(TelemetrySample sample, double timeSeconds)
     {
         var gate = _settings.OperationalGates.SpoilerDeployment;
-        if (gate is null || !_touchdownCaptured)
+        if (gate is null || !ShouldMonitorGate(FreeFlightGateIds.Spoilers) || !_touchdownCaptured)
             return;
 
         var observations = Snapshot.GateObservations;
@@ -714,7 +731,7 @@ public sealed class LandingSession
         double timeSeconds)
     {
         var gate = _settings.OperationalGates.NoseGearImpact;
-        if (gate is null || !_touchdownCaptured)
+        if (gate is null || !ShouldMonitorGate(FreeFlightGateIds.NoseGearImpact) || !_touchdownCaptured)
             return;
 
         var observations = Snapshot.GateObservations;
@@ -754,18 +771,21 @@ public sealed class LandingSession
             return true;
 
         var observations = Snapshot.GateObservations;
-        if (gates.SpoilerDeployment is { } spoiler
+        if (ShouldMonitorGate(FreeFlightGateIds.Spoilers)
+            && gates.SpoilerDeployment is { } spoiler
             && timeSeconds < _touchdownTimeSeconds + spoiler.DeadlineSecondsAfterTouchdown)
             return false;
 
-        if (gates.ManualBraking is { } brakes)
+        if (ShouldMonitorGate(FreeFlightGateIds.ManualBraking)
+            && gates.ManualBraking is { } brakes)
         {
             var brakeWindowStart = observations.NoseGearTouchdownTimeSeconds ?? _touchdownTimeSeconds;
             if (timeSeconds < brakeWindowStart + brakes.DeadlineSecondsAfterNoseTouchdown)
                 return false;
         }
 
-        if (gates.NoseGearImpact is { } noseImpact)
+        if (ShouldMonitorGate(FreeFlightGateIds.NoseGearImpact)
+            && gates.NoseGearImpact is { } noseImpact)
         {
             var impactWindowStart = observations.LastNoseGearImpactContactTimeSeconds
                                     ?? observations.NoseGearTouchdownTimeSeconds
@@ -774,7 +794,8 @@ public sealed class LandingSession
                 return false;
         }
 
-        if (gates.ReverseThrust is { } reverse
+        if (ShouldMonitorGate(FreeFlightGateIds.ReverseThrust)
+            && gates.ReverseThrust is { } reverse
             && reverse.Policy.Equals(ReverseThrustPolicies.Required, StringComparison.OrdinalIgnoreCase)
             && !observations.ReverseApplicationWaivedByLowSpeed
             && !AllOperatingEnginesSelected(observations)
@@ -832,9 +853,19 @@ public sealed class LandingSession
             Snapshot.TouchdownAnalysisComplete = true;
         }
 
-        if (_settings.OperationalGates.NoseGearImpact is { } noseImpact)
+        if (ShouldMonitorGate(FreeFlightGateIds.NoseGearImpact)
+            && _settings.OperationalGates.NoseGearImpact is { } noseImpact)
             Snapshot.GateObservations.NoseGearImpact = NoseGearImpactCalculator.Analyze(
                 events, _touchdownTimeSeconds, noseImpact);
+    }
+
+    private bool ShouldMonitorGate(string gateId)
+    {
+        if (_challenge.ModeEnum != ChallengeMode.FreeFlight)
+            return true;
+        return FreeFlightCapabilityResolver.ResolveDecision(
+                _challenge.FreeFlightCapabilities, gateId).Applicability
+            != FreeFlightGateApplicability.NotApplicable;
     }
 
     private void TryCaptureOfficialTouchdownVelocity(TelemetrySample sample, double timeSeconds)

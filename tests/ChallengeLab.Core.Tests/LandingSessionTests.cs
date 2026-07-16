@@ -60,6 +60,22 @@ public sealed class LandingSessionTests
         };
 
     [Fact]
+    public void RunwayLength_IsLatchedFromChallengeAtConstructionAndSurvivesArm()
+    {
+        var (challenge, settings) = Load();
+        Assert.True(challenge.Runway.LengthM > 0);
+
+        var session = new LandingSession(challenge, settings);
+        Assert.Equal(challenge.Runway.LengthM, session.Snapshot.GateObservations.RunwayLengthMeters);
+
+        session.Arm();
+        Assert.Equal(challenge.Runway.LengthM, session.Snapshot.GateObservations.RunwayLengthMeters);
+
+        session.CleanMetrics();
+        Assert.Equal(challenge.Runway.LengthM, session.Snapshot.GateObservations.RunwayLengthMeters);
+    }
+
+    [Fact]
     public void StallWarning_IsLatchedForTheAttemptAndClearedWithMetrics()
     {
         var (challenge, settings) = Load();

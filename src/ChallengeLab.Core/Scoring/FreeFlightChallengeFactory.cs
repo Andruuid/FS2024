@@ -10,6 +10,7 @@ public static class FreeFlightChallengeFactory
     {
         var airport = target.Runway.Airport.Icao.Trim().ToUpperInvariant();
         var runway = target.Runway.RunwayId.Trim().ToUpperInvariant();
+        var capabilities = FreeFlightCapabilityResolver.Freeze(sample, target.Runway.IsWater);
         return new ChallengeConfig
         {
             Id = $"free-{SanitizeIdPart(airport)}-{SanitizeIdPart(runway)}",
@@ -19,9 +20,9 @@ public static class FreeFlightChallengeFactory
             Description = "Aircraft-generic landing evaluation inferred from simulator facilities.",
             Available = true,
             Runway = target.Runway.ToRunwayConfig(),
-            RequireGearDown = !target.Runway.IsWater
-                              && sample.IsGearRetractable
-                              && sample.IsGearWheels,
+            RequireGearDown = capabilities.DecisionFor(FreeFlightGateIds.Gear)?.Applicability
+                              != FreeFlightGateApplicability.NotApplicable,
+            FreeFlightCapabilities = capabilities,
             AircraftSetup = new AircraftSetupConfig
             {
                 Unpause = true,

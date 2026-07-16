@@ -139,6 +139,48 @@ public sealed class FlightTapeTests
     }
 
     [Fact]
+    public void Replayer_FreeV8_PreservesFrozenCapabilitiesAndNumericFallbacksDeterministically()
+    {
+        var (challenge, _, _) = Load();
+        var loader = new ConfigLoader(FindConfig());
+        var freeKey = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey).Key!;
+        challenge.Mode = ChallengeMode.FreeFlight.ToConfigKey();
+        challenge.FreeFlightCapabilities = FreeFlightCapabilityResolver.Freeze(
+            new TelemetrySample
+            {
+                IsGearWheels = true,
+                IsGearRetractable = true,
+                FlapsHandlePositionCount = 6,
+                SpoilersAvailable = true,
+                AutopilotAvailable = true,
+                ThrottleLowerLimitPercent = -20
+            }, false);
+        var t0 = new DateTimeOffset(2026, 3, 1, 12, 0, 0, TimeSpan.Zero);
+        var samples = BuildSettlingLanding(challenge, t0, includeReverseTelemetry: false);
+        var tape = new FlightTapeDocument
+        {
+            Challenge = challenge,
+            FreeFlightCapabilities = challenge.FreeFlightCapabilities,
+            Samples = samples,
+            SampleCount = samples.Count,
+            Utc = t0
+        };
+
+        var first = FlightTapeReplayer.Replay(tape, freeKey);
+        var second = FlightTapeReplayer.Replay(tape, freeKey);
+
+        Assert.True(first.Result.IsRanked, string.Join("; ", first.Result.IncompleteReasons));
+        Assert.NotNull(first.Result.ScorePercent);
+        Assert.Equal(first.Result.ScorePercent, second.Result.ScorePercent);
+        Assert.Equal(
+            first.Result.Criteria.Select(item => (item.Id, item.Status, item.AppliedMultiplier)),
+            second.Result.Criteria.Select(item => (item.Id, item.Status, item.AppliedMultiplier)));
+        Assert.NotNull(first.Result.Diagnostics.FreeFlightCapabilities);
+        Assert.Equal(MetricStatus.Assumed,
+            first.Result.Criteria.Single(item => item.Id == FreeFlightGateIds.ReverseThrust).Status);
+    }
+
+    [Fact]
     public void SaveThenReplay_MatchesDirectReplay()
     {
         var (challenge, key, _) = Load();

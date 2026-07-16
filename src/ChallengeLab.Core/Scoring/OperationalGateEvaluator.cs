@@ -11,7 +11,8 @@ internal static class OperationalGateEvaluator
         LandingSnapshot snapshot,
         List<CriterionScore> criteria,
         List<string> incompleteReasons,
-        bool preview)
+        bool preview,
+        FreeGateEvaluationContext context)
     {
         if (penalties is null) return 1;
 
@@ -20,17 +21,17 @@ internal static class OperationalGateEvaluator
         var scoreTarget = $"{phaseDisplayName} phase";
 
         if (penalties.SpoilerDeployment is { } spoiler)
-            multiplier *= AppendSpoilers(spoiler, snapshot, observations, criteria, incompleteReasons, preview, scoreTarget);
+            multiplier *= AppendSpoilers(spoiler, snapshot, observations, criteria, incompleteReasons, preview, scoreTarget, context);
         if (penalties.ManualBraking is { } brakes)
-            multiplier *= AppendBrakes(brakes, observations, criteria, incompleteReasons, preview, scoreTarget);
+            multiplier *= AppendBrakes(brakes, observations, criteria, incompleteReasons, preview, scoreTarget, context);
         if (penalties.NoseGearImpact is { } noseImpact)
-            multiplier *= AppendNoseGearImpact(noseImpact, observations, criteria, incompleteReasons, preview, scoreTarget);
+            multiplier *= AppendNoseGearImpact(noseImpact, observations, criteria, incompleteReasons, preview, scoreTarget, context);
         if (penalties.Automation is { } automation)
-            multiplier *= AppendAutomation(automation, observations, criteria, incompleteReasons, preview, scoreTarget);
+            multiplier *= AppendAutomation(automation, observations, criteria, incompleteReasons, preview, scoreTarget, context);
         if (penalties.Rollout is { } rollout)
-            multiplier *= AppendRollout(rollout, observations, criteria, incompleteReasons, preview, scoreTarget);
+            multiplier *= AppendRollout(rollout, observations, criteria, incompleteReasons, preview, scoreTarget, context);
         if (penalties.ReverseThrust is { } reverseThrust)
-            multiplier *= AppendReverseThrust(reverseThrust, snapshot, observations, criteria, incompleteReasons, preview, scoreTarget);
+            multiplier *= AppendReverseThrust(reverseThrust, snapshot, observations, criteria, incompleteReasons, preview, scoreTarget, context);
 
         return multiplier;
     }
@@ -40,7 +41,8 @@ internal static class OperationalGateEvaluator
         LandingSnapshot snapshot,
         List<CriterionScore> criteria,
         List<string> incompleteReasons,
-        bool preview)
+        bool preview,
+        FreeGateEvaluationContext context)
     {
         if (penalties is null) return 1;
 
@@ -49,9 +51,9 @@ internal static class OperationalGateEvaluator
         const string scoreTarget = "combined ranked score";
 
         if (penalties.PauseUsage is { } pause)
-            multiplier *= AppendPause(pause, observations, criteria, incompleteReasons, preview, scoreTarget);
+            multiplier *= AppendPause(pause, observations, criteria, incompleteReasons, preview, scoreTarget, context);
         if (penalties.SimulationRate is { } rate)
-            multiplier *= AppendSimulationRate(rate, observations, criteria, incompleteReasons, preview, scoreTarget);
+            multiplier *= AppendSimulationRate(rate, observations, criteria, incompleteReasons, preview, scoreTarget, context);
 
         return multiplier;
     }
@@ -63,16 +65,20 @@ internal static class OperationalGateEvaluator
         List<CriterionScore> criteria,
         List<string> incomplete,
         bool preview,
-        string scoreTarget)
+        string scoreTarget,
+        FreeGateEvaluationContext context)
     {
         const string id = "spoiler_deployment";
         const string name = "Ground spoilers deployed";
-        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview))
+        if (AppendNotApplicableIfNeeded(context, id, name, criteria))
             return 1;
+        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview, cfg.MultiplierOnFail, context,
+                out var monitoringMultiplier))
+            return monitoringMultiplier;
         if (obs.MainGearTouchdownTimeSeconds is null)
-            return PendingOrUnavailable(id, name, "Accepted main-gear touchdown timing is unavailable.", criteria, incomplete, preview);
+            return PendingOrUnavailable(id, name, "Accepted main-gear touchdown timing is unavailable.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
         if (!obs.SpoilerTelemetryCoverageAvailable)
-            return PendingOrUnavailable(id, name, "Independent left/right spoiler-surface telemetry is unavailable.", criteria, incomplete, preview);
+            return PendingOrUnavailable(id, name, "Independent left/right spoiler-surface telemetry is unavailable.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
 
         var elapsed = obs.FirstSpoilerDeploymentTimeSeconds - obs.MainGearTouchdownTimeSeconds;
         if (elapsed is { } seconds && seconds <= cfg.DeadlineSecondsAfterTouchdown + 1e-9)
@@ -100,24 +106,28 @@ internal static class OperationalGateEvaluator
         List<CriterionScore> criteria,
         List<string> incomplete,
         bool preview,
-        string scoreTarget)
+        string scoreTarget,
+        FreeGateEvaluationContext context)
     {
         const string id = "nose_gear_impact";
         const string name = "Nose-gear impact";
-        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview))
+        if (AppendNotApplicableIfNeeded(context, id, name, criteria))
             return 1;
+        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview, cfg.ModerateMultiplier, context,
+                out var monitoringMultiplier))
+            return monitoringMultiplier;
 
         var analysis = obs.NoseGearImpact;
         if (analysis is null)
             return PendingOrUnavailable(id, name,
-                "Nose-gear impact analysis has not completed.", criteria, incomplete, preview);
+                "Nose-gear impact analysis has not completed.", criteria, incomplete, preview, cfg.ModerateMultiplier, context);
         if (!analysis.CoverageSufficient)
             return PendingOrUnavailable(id, name,
                 analysis.DegradedReason ?? "Nose-gear contact or aircraft-G coverage is unavailable.",
-                criteria, incomplete, preview);
+                criteria, incomplete, preview, cfg.ModerateMultiplier, context);
         if (analysis.WorstEvent is not { } impact)
             return PendingOrUnavailable(id, name,
-                "A verified nose-gear touchdown was not observed.", criteria, incomplete, preview);
+                "A verified nose-gear touchdown was not observed.", criteria, incomplete, preview, cfg.ModerateMultiplier, context);
 
         var afterMain = obs.MainGearTouchdownTimeSeconds is { } main
             ? impact.ContactTimeSeconds - main
@@ -152,18 +162,22 @@ internal static class OperationalGateEvaluator
         List<CriterionScore> criteria,
         List<string> incomplete,
         bool preview,
-        string scoreTarget)
+        string scoreTarget,
+        FreeGateEvaluationContext context)
     {
         const string id = "manual_braking";
         const string name = "Manual braking after nose touchdown";
-        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview))
+        if (AppendNotApplicableIfNeeded(context, id, name, criteria))
             return 1;
+        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview, cfg.MultiplierOnFail, context,
+                out var monitoringMultiplier))
+            return monitoringMultiplier;
         if (!obs.NoseGearContactCoverageAvailable)
-            return PendingOrUnavailable(id, name, "Nose-gear contact mapping is unavailable.", criteria, incomplete, preview);
+            return PendingOrUnavailable(id, name, "Nose-gear contact mapping is unavailable.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
         if (!obs.ManualBrakeTelemetryCoverageAvailable)
-            return PendingOrUnavailable(id, name, "Independent manual brake-pedal telemetry is unavailable.", criteria, incomplete, preview);
+            return PendingOrUnavailable(id, name, "Independent manual brake-pedal telemetry is unavailable.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
         if (obs.NoseGearTouchdownTimeSeconds is null)
-            return PendingOrUnavailable(id, name, "A verified nose-gear touchdown was not observed.", criteria, incomplete, preview);
+            return PendingOrUnavailable(id, name, "A verified nose-gear touchdown was not observed.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
 
         var elapsed = obs.FirstSimultaneousBrakingTimeSeconds - obs.NoseGearTouchdownTimeSeconds;
         var failed = obs.EarlyOrAirborneBrakeViolation
@@ -197,22 +211,26 @@ internal static class OperationalGateEvaluator
         List<CriterionScore> criteria,
         List<string> incomplete,
         bool preview,
-        string scoreTarget)
+        string scoreTarget,
+        FreeGateEvaluationContext context)
     {
         const string id = "automation";
         const string name = "Automation disconnected by radio altitude";
-        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview))
+        if (AppendNotApplicableIfNeeded(context, id, name, criteria))
             return 1;
+        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview, cfg.MultiplierOnFail, context,
+                out var monitoringMultiplier))
+            return monitoringMultiplier;
         if (!obs.RadioHeightCoverageAvailable)
-            return PendingOrUnavailable(id, name, "Radio-altitude telemetry is unavailable.", criteria, incomplete, preview);
+            return PendingOrUnavailable(id, name, "Radio-altitude telemetry is unavailable.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
         if (!obs.HeadingAltitudeThresholdObserved || !obs.HeadingAltitudeAutomationCoverageAvailable)
             return PendingOrUnavailable(id, name,
                 $"Heading/altitude-hold state was not covered at or below {cfg.HeadingAltitudeOffRadioHeightFeet:0} ft RA.",
-                criteria, incomplete, preview);
+                criteria, incomplete, preview, cfg.MultiplierOnFail, context);
         if (!obs.FullAutomationThresholdObserved || !obs.FullAutomationCoverageAvailable)
             return PendingOrUnavailable(id, name,
                 $"AP/AP1/AP2/autothrust state was not covered at or below {cfg.AllAutomationOffRadioHeightFeet:0} ft RA.",
-                criteria, incomplete, preview);
+                criteria, incomplete, preview, cfg.MultiplierOnFail, context);
 
         if (!obs.AutomationViolation)
         {
@@ -233,14 +251,16 @@ internal static class OperationalGateEvaluator
         List<CriterionScore> criteria,
         List<string> incomplete,
         bool preview,
-        string scoreTarget)
+        string scoreTarget,
+        FreeGateEvaluationContext context)
     {
         const string id = "pause_usage";
         const string name = "No pause before touchdown";
-        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview))
-            return 1;
+        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview, cfg.MultiplierOnFail, context,
+                out var monitoringMultiplier))
+            return monitoringMultiplier;
         if (!obs.PauseCoverageAvailable)
-            return PendingOrUnavailable(id, name, "Pause_EX1 state coverage is unavailable.", criteria, incomplete, preview);
+            return PendingOrUnavailable(id, name, "Pause_EX1 state coverage is unavailable.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
         if (!obs.PauseViolation)
         {
             AddPassed(criteria, id, name, 0, "pause events",
@@ -259,14 +279,16 @@ internal static class OperationalGateEvaluator
         List<CriterionScore> criteria,
         List<string> incomplete,
         bool preview,
-        string scoreTarget)
+        string scoreTarget,
+        FreeGateEvaluationContext context)
     {
         const string id = "simulation_rate";
         const string name = "Simulation rate not reduced";
-        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview))
-            return 1;
+        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview, cfg.MultiplierOnFail, context,
+                out var monitoringMultiplier))
+            return monitoringMultiplier;
         if (!obs.SimulationRateCoverageAvailable)
-            return PendingOrUnavailable(id, name, "Simulation-rate telemetry is unavailable.", criteria, incomplete, preview);
+            return PendingOrUnavailable(id, name, "Simulation-rate telemetry is unavailable.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
         if (!obs.ReducedSimulationRateViolation)
         {
             AddPassed(criteria, id, name, obs.MinimumSimulationRate, "x",
@@ -285,26 +307,28 @@ internal static class OperationalGateEvaluator
         List<CriterionScore> criteria,
         List<string> incomplete,
         bool preview,
-        string scoreTarget)
+        string scoreTarget,
+        FreeGateEvaluationContext context)
     {
         const string id = "rollout_distance";
         const string name = "Rollout remaining runway";
-        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview))
-            return 1;
+        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview, cfg.MultiplierOnFail, context,
+                out var monitoringMultiplier))
+            return monitoringMultiplier;
         if (obs.MainGearTouchdownTimeSeconds is null)
-            return PendingOrUnavailable(id, name, "Accepted main-gear touchdown timing is unavailable.", criteria, incomplete, preview);
+            return PendingOrUnavailable(id, name, "Accepted main-gear touchdown timing is unavailable.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
         if (!obs.RolloutDistanceEvaluated)
         {
             return PendingOrUnavailable(id, name,
                 "Groundspeed has not yet fallen below the settle threshold for remaining-runway evaluation.",
-                criteria, incomplete, preview);
+                criteria, incomplete, preview, cfg.MultiplierOnFail, context);
         }
 
         if (obs.RemainingRunwayMetersAtSettleSpeed is not { } remaining
             || obs.RequiredRemainingRunwayMeters is not { } required)
             return PendingOrUnavailable(id, name,
                 "Remaining runway could not be measured at the settle groundspeed threshold.",
-                criteria, incomplete, preview);
+                criteria, incomplete, preview, cfg.MultiplierOnFail, context);
 
         var lengthNote = obs.RunwayLengthMeters is { } length
             ? $"Runway length {length:0} m; required remaining max(400 m, 15% of length) = {required:0} m. "
@@ -332,19 +356,23 @@ internal static class OperationalGateEvaluator
         List<CriterionScore> criteria,
         List<string> incomplete,
         bool preview,
-        string scoreTarget)
+        string scoreTarget,
+        FreeGateEvaluationContext context)
     {
         const string id = "reverse_thrust";
         const string name = "Reverse-thrust procedure";
-        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview))
+        if (AppendNotApplicableIfNeeded(context, id, name, criteria))
             return 1;
+        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview, cfg.MultiplierOnFail, context,
+                out var monitoringMultiplier))
+            return monitoringMultiplier;
         if (obs.MainGearTouchdownTimeSeconds is not { } touchdownTime)
-            return PendingOrUnavailable(id, name, "Accepted main-gear touchdown timing is unavailable.", criteria, incomplete, preview);
+            return PendingOrUnavailable(id, name, "Accepted main-gear touchdown timing is unavailable.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
         if (!obs.ReverseThrustTelemetryCoverageAvailable
             || !obs.OperatingEnginesCapturedAtTouchdown)
             return PendingOrUnavailable(id, name,
                 "Per-engine count, combustion, reverse engagement, nozzle, and throttle telemetry is unavailable.",
-                criteria, incomplete, preview);
+                criteria, incomplete, preview, cfg.MultiplierOnFail, context);
 
         var policy = ReverseThrustPolicies.Normalize(cfg.Policy);
         var operating = obs.OperatingEngineIndicesAtTouchdown;
@@ -372,7 +400,7 @@ internal static class OperationalGateEvaluator
         if (!obs.ReverseThrustStowEvaluated || !obs.ReverseThrustStowCoverageAvailable)
             return PendingOrUnavailable(id, name,
                 $"Complete per-engine reverse state was not observed at or below {cfg.StowGroundSpeedKts:0.##} kt groundspeed.",
-                criteria, incomplete, preview);
+                criteria, incomplete, preview, cfg.MultiplierOnFail, context);
 
         var failures = new List<string>();
         if (obs.AirborneReverseViolation && policy != ReverseThrustPolicies.Prohibited)
@@ -462,12 +490,19 @@ internal static class OperationalGateEvaluator
         LandingGateObservations obs,
         List<CriterionScore> criteria,
         List<string> incomplete,
-        bool preview)
+        bool preview,
+        double configuredFailureMultiplier,
+        FreeGateEvaluationContext context,
+        out double multiplier)
     {
         if (obs.MonitoringStarted)
+        {
+            multiplier = 1;
             return true;
-        PendingOrUnavailable(id, name,
-            "The first unpaused challenge-flight sample was not observed.", criteria, incomplete, preview);
+        }
+        multiplier = PendingOrUnavailable(id, name,
+            "The first unpaused challenge-flight sample was not observed.", criteria, incomplete, preview,
+            configuredFailureMultiplier, context);
         return false;
     }
 
@@ -477,12 +512,32 @@ internal static class OperationalGateEvaluator
         string reason,
         List<CriterionScore> criteria,
         List<string> incomplete,
-        bool preview)
+        bool preview,
+        double configuredFailureMultiplier,
+        FreeGateEvaluationContext context)
     {
         if (preview)
         {
             AddPending(criteria, id, name, reason);
             return 1;
+        }
+
+        if (context.IsFree)
+        {
+            var multiplier = context.MissingGateMultiplier(configuredFailureMultiplier);
+            var capability = context.DecisionFor(id);
+            criteria.Add(new CriterionScore
+            {
+                Id = id,
+                DisplayName = name + " â€” assumed telemetry adjustment",
+                Status = MetricStatus.Assumed,
+                AppliedMultiplier = multiplier,
+                UnavailableReason = reason,
+                Note = $"Telemetry was unavailable, so Free Flight applied half of the configured gate loss: " +
+                       $"multiplier {multiplier:0.###} (normal failure {configuredFailureMultiplier:0.###}). " +
+                       $"{reason} {capability.Reason}"
+            });
+            return multiplier;
         }
 
         incomplete.Add($"{name}: {reason}");
@@ -495,6 +550,28 @@ internal static class OperationalGateEvaluator
             Note = reason
         });
         return 1;
+    }
+
+    private static bool AppendNotApplicableIfNeeded(
+        FreeGateEvaluationContext context,
+        string id,
+        string name,
+        List<CriterionScore> criteria)
+    {
+        if (!context.IsFree)
+            return false;
+        var decision = context.DecisionFor(id);
+        if (decision.Applicability != FreeFlightGateApplicability.NotApplicable)
+            return false;
+        criteria.Add(new CriterionScore
+        {
+            Id = id,
+            DisplayName = name + " â€” not applicable",
+            Status = MetricStatus.NotApplicable,
+            AppliedMultiplier = 1,
+            Note = decision.Reason
+        });
+        return true;
     }
 
     private static void AddPending(List<CriterionScore> criteria, string id, string name, string note) =>
@@ -520,6 +597,7 @@ internal static class OperationalGateEvaluator
             RawValue = raw,
             Unit = unit,
             Status = MetricStatus.Informational,
+            AppliedMultiplier = 1,
             Note = note + " Required baseline met; no points awarded."
         });
 
@@ -539,6 +617,7 @@ internal static class OperationalGateEvaluator
             RawValue = raw,
             Unit = unit,
             Status = MetricStatus.GateFailed,
+            AppliedMultiplier = multiplier,
             Note = $"{note} {scoreTarget} × {multiplier:0.##}."
         });
 
@@ -550,4 +629,22 @@ internal static class OperationalGateEvaluator
             ? sample.SimulationTimeSeconds
             : sample.Timestamp.ToUnixTimeMilliseconds() / 1000.0;
     }
+}
+
+internal sealed record FreeGateEvaluationContext(
+    FreeModeScoringPolicy? Policy,
+    FreeFlightCapabilityContext? Capabilities)
+{
+    public bool IsFree => Policy is not null;
+
+    public FreeFlightGateDecision DecisionFor(string gateId) => IsFree
+        ? FreeFlightCapabilityResolver.ResolveDecision(Capabilities, gateId)
+        : new FreeFlightGateDecision
+        {
+            Applicability = FreeFlightGateApplicability.Applicable,
+            Reason = "Authored Challenge/Career gate."
+        };
+
+    public double MissingGateMultiplier(double configuredFailureMultiplier) =>
+        Policy?.MissingGateMultiplier(configuredFailureMultiplier) ?? 1;
 }

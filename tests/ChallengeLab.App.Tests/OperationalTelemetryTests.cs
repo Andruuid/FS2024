@@ -23,7 +23,7 @@ public sealed class OperationalTelemetryTests
     }
 
     [Fact]
-    public void SimConnectDefinition_ProbesContactStateAndCompressionWithoutTraceFields()
+    public void SimConnectDefinition_ProbesCapabilitiesAndEnablesApplicableFreeNoseTelemetry()
     {
         var root = FindRepositoryRoot();
         var client = File.ReadAllText(Path.Combine(
@@ -37,7 +37,11 @@ public sealed class OperationalTelemetryTests
         Assert.Contains("CONTACT POINT COMPRESSION:", client, StringComparison.Ordinal);
         Assert.Contains("ContactPointTelemetryAvailable", client, StringComparison.Ordinal);
         Assert.Contains("SIMCONNECT_PERIOD.NEVER", client, StringComparison.Ordinal);
-        Assert.Contains("SetNoseGearImpactTelemetryEnabled(false)", viewModel, StringComparison.Ordinal);
+        Assert.Contains("FLAPS NUM HANDLE POSITIONS", client, StringComparison.Ordinal);
+        Assert.Contains("SPOILER AVAILABLE", client, StringComparison.Ordinal);
+        Assert.Contains("AUTOPILOT AVAILABLE", client, StringComparison.Ordinal);
+        Assert.Contains("THROTTLE LOWER LIMIT", client, StringComparison.Ordinal);
+        Assert.Contains("noseImpactApplicable", viewModel, StringComparison.Ordinal);
         Assert.Contains("OperationalGates.NoseGearImpact is not null", viewModel, StringComparison.Ordinal);
         Assert.DoesNotContain("ContactPointCompressionByIndex", trace, StringComparison.Ordinal);
         Assert.DoesNotContain("ContactPointOnGroundByIndex", trace, StringComparison.Ordinal);

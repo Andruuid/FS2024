@@ -50,7 +50,7 @@ public sealed class TouchdownEvaluationV9Tests
         foreach (var (path, version) in new[]
                  {
                      (catalog.EvaluationKey, 21),
-                     (catalog.FreeFlightEvaluationKey, 7)
+                     (catalog.FreeFlightEvaluationKey, 8)
                  })
         {
             var loaded = loader.LoadEvaluationKey(path);
@@ -59,18 +59,12 @@ public sealed class TouchdownEvaluationV9Tests
             Assert.Equal(100, loaded.Key.Phases.Sum(p => p.WeightPercent), 6);
             var touchdown = loaded.Key.Phases.Single(p => p.Id == "touchdown");
             Assert.Equal(100, touchdown.Metrics.Sum(m => m.ImportancePercent), 6);
-            var isNormal = path == catalog.EvaluationKey;
-            Assert.Equal(isNormal ? 54.4 : 44,
+            Assert.Equal(54.4,
                 touchdown.Metrics.Single(m => m.Id == "touchdown_impact").ImportancePercent);
             Assert.Equal(20, touchdown.Metrics.Single(m => m.Id == "touchdown_point").ImportancePercent);
             Assert.Equal(8, touchdown.Metrics.Single(m => m.Id == "flare_efficiency").ImportancePercent);
-            if (isNormal)
-            {
-                Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "contact_stability");
-                Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "ground_track");
-            }
-            else
-                Assert.Equal(8, touchdown.Metrics.Single(m => m.Id == "contact_stability").ImportancePercent);
+            Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "contact_stability");
+            Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "ground_track");
             Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "touchdown_vs");
             Assert.Equal(70, touchdown.WeightPercent);
             Assert.Equal(25, loaded.Key.Phases.Single(p => p.Id == "approach").WeightPercent);
@@ -90,7 +84,7 @@ public sealed class TouchdownEvaluationV9Tests
         var free = loader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey).Key!;
         var freeTouchdownPenalties = free.Phases.Single(p => p.Id == "touchdown").Penalties!;
         Assert.Equal(0.1, freeTouchdownPenalties.Gear!.MultiplierOnFail, 6);
-        Assert.Null(freeTouchdownPenalties.Flaps);
+        Assert.NotNull(freeTouchdownPenalties.Flaps);
     }
 
     [Fact]
@@ -465,7 +459,7 @@ public sealed class TouchdownEvaluationV9Tests
     }
 
     [Fact]
-    public void ContactStability_TwoOrHarderBouncesScoreWorseAndDoNotMutateInitialImpact()
+    public void FreeContactStability_IsInheritedPenaltyGate_NotDuplicatedMetric()
     {
         var root = FindRepositoryRoot();
         var loader = new ConfigLoader(Path.Combine(root, "config"));
@@ -473,29 +467,11 @@ public sealed class TouchdownEvaluationV9Tests
         var loaded = loader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey);
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         var key = loaded.Key!;
-        var metric = key.Phases.SelectMany(p => p.Metrics).Single(m => m.Id == "contact_stability");
-        var initial = Impact(-100, 1.2);
-        var soft = new BounceEvent(1, 1.2, 0.2, -100, 1.2, 1.2, false);
-        var hard = new BounceEvent(2, 2.3, 0.3, -800, 1.7, 1.7, false);
-        double Score(params BounceEvent[] events)
-        {
-            var snapshot = new LandingSnapshot
-            {
-                InitialImpact = initial,
-                ContactStability = new ContactStabilityAnalysis(
-                    true, events, events.Length,
-                    events.Length == 0 ? 0 : events.Max(x => x.AirborneDurationSeconds), null)
-            };
-            var score = CompositeMetricEvaluator.Evaluate(
-                metric, key, snapshot, new LandingResultDiagnostics()).ScorePercent;
-            Assert.Same(initial, snapshot.InitialImpact);
-            Assert.Equal(-100, snapshot.InitialImpact.VerticalSpeedFpm);
-            return score;
-        }
-
-        Assert.Equal(100, Score(), 6);
-        Assert.True(Score(soft, hard) < Score(soft));
-        Assert.True(Score(hard) < Score(soft));
+        Assert.DoesNotContain(key.Phases.SelectMany(p => p.Metrics), m => m.Id == "contact_stability");
+        var gate = key.Phases.Single(p => p.Id == "touchdown").Penalties!.ContactStability;
+        Assert.NotNull(gate);
+        Assert.Equal(0.9, gate!.OneBounceMultiplier, 6);
+        Assert.Equal(0.8, gate.TwoOrMoreBouncesMultiplier, 6);
     }
 
     [Fact]

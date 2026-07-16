@@ -38,6 +38,9 @@ public sealed class ScoreEngine
         var phaseScores01 = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
         var incompleteReasons = new List<string>();
         var diagnostics = new LandingResultDiagnostics();
+        diagnostics.FreeFlightCapabilities = challenge.FreeFlightCapabilities;
+        var freeGateContext = new FreeGateEvaluationContext(
+            _key.FreeMode, challenge.FreeFlightCapabilities);
         double totalBeforeGate = 0;
 
         foreach (var phase in _key.Phases)
@@ -69,6 +72,27 @@ public sealed class ScoreEngine
                             continue;
                         }
 
+                        if (_key.FreeMode is { } freeMode)
+                        {
+                            var assumedScore01 = freeMode.UnavailableMetricScorePercent / 100.0;
+                            phaseScore01 += assumedScore01 * metric.ImportancePercent / 100.0;
+                            var assumedReason = composite.DegradedReason
+                                                ?? "Required touchdown analysis is unavailable.";
+                            criteria.Add(new CriterionScore
+                            {
+                                Id = metric.Id, DisplayName = metric.DisplayName,
+                                Score01 = assumedScore01, Unit = metric.Unit,
+                                Status = MetricStatus.Assumed, UnavailableReason = assumedReason,
+                                Note = $"[FREE Â· assumed {freeMode.UnavailableMetricScorePercent:0.#}%] " +
+                                       $"Telemetry unavailable: {assumedReason}",
+                                PhaseId = phase.Id, PhaseDisplayName = phase.DisplayName,
+                                PhaseImportancePercent = metric.ImportancePercent,
+                                PhaseWeightPercent = phase.WeightPercent,
+                                MaxOverallPoints = compositeMaxOverallPoints
+                            });
+                            continue;
+                        }
+
                         phaseComplete = false;
                         var reason = composite.DegradedReason ?? "Required touchdown analysis is unavailable.";
                         incompleteReasons.Add($"{phase.DisplayName} / {metric.DisplayName}: {reason}");
@@ -85,7 +109,7 @@ public sealed class ScoreEngine
 
                     var compositeScore01 = Math.Clamp(composite.ScorePercent / 100.0, 0, 1);
                     phaseScore01 += compositeScore01 * metric.ImportancePercent / 100.0;
-                    if (composite.IsDegraded)
+                    if (composite.IsDegraded && _key.FreeMode is null)
                     {
                         phaseComplete = false;
                         incompleteReasons.Add(
@@ -128,6 +152,33 @@ public sealed class ScoreEngine
                             Note =
                                 $"[PREVIEW · assumed 100%] {MetricExplanations.DefaultCatalog(metric.Id, metric.DisplayName)} " +
                                 $"Not measured yet: {observation.UnavailableReason ?? "pending"}",
+                            PhaseId = phase.Id,
+                            PhaseDisplayName = phase.DisplayName,
+                            PhaseImportancePercent = metric.ImportancePercent,
+                            PhaseWeightPercent = phase.WeightPercent,
+                            MaxOverallPoints = maxOverallPoints
+                        });
+                        continue;
+                    }
+
+
+                    if (_key.FreeMode is { } freeMode)
+                    {
+                        var assumedScore01 = freeMode.UnavailableMetricScorePercent / 100.0;
+                        phaseScore01 += assumedScore01 * metric.ImportancePercent / 100.0;
+                        var assumedReason = observation.UnavailableReason ?? "Required telemetry is unavailable.";
+                        criteria.Add(new CriterionScore
+                        {
+                            Id = metric.Id,
+                            DisplayName = metric.DisplayName,
+                            Score01 = assumedScore01,
+                            RawValue = null,
+                            Unit = metric.Unit,
+                            Status = MetricStatus.Assumed,
+                            UnavailableReason = assumedReason,
+                            Note = $"[FREE Â· assumed {freeMode.UnavailableMetricScorePercent:0.#}%] " +
+                                   $"{MetricExplanations.DefaultCatalog(metric.Id, metric.DisplayName)} " +
+                                   $"Telemetry unavailable: {assumedReason}",
                             PhaseId = phase.Id,
                             PhaseDisplayName = phase.DisplayName,
                             PhaseImportancePercent = metric.ImportancePercent,
@@ -230,48 +281,50 @@ public sealed class ScoreEngine
             if (penalties?.ContactStability is { } contactStability)
             {
                 phaseMultiplier *= preview
-                    ? AppendContactStabilityGatePreview(contactStability, phase, snapshot, criteria, diagnostics)
+                    ? AppendContactStabilityGatePreview(contactStability, phase, snapshot, criteria, diagnostics, freeGateContext)
                     : AppendContactStabilityGate(
-                        contactStability, phase, snapshot, criteria, incompleteReasons, diagnostics);
+                        contactStability, phase, snapshot, criteria, incompleteReasons, diagnostics, freeGateContext);
             }
 
             if (penalties?.StallWarning is { } stallWarning)
-                phaseMultiplier *= AppendStallWarningGate(stallWarning, phase, snapshot, criteria);
+                phaseMultiplier *= AppendStallWarningGate(
+                    stallWarning, phase, snapshot, criteria, incompleteReasons, preview, freeGateContext);
 
             if (penalties?.Gear is { } gear)
             {
-                var failed = preview
-                    ? AppendGearGatePreview(gear, phase, challenge, snapshot, criteria)
-                    : AppendGearGate(gear, phase, challenge, snapshot, criteria, incompleteReasons);
-                if (failed)
-                {
-                    phaseMultiplier *= gear.MultiplierOnFail;
+                var gateMultiplier = preview
+                    ? AppendGearGatePreview(gear, phase, challenge, snapshot, criteria, freeGateContext)
+                    : AppendGearGate(gear, phase, challenge, snapshot, criteria, incompleteReasons, freeGateContext);
+                phaseMultiplier *= gateMultiplier;
+                if (gateMultiplier < 1 && criteria.Any(item =>
+                        item.Id == FreeFlightGateIds.Gear && item.Status == MetricStatus.GateFailed))
                     gearPenaltyApplied = true;
-                }
             }
 
             if (penalties?.Flaps is { } flaps)
             {
-                var failed = preview
-                    ? AppendFlapsGatePreview(flaps, phase, snapshot, criteria)
-                    : AppendFlapsGate(flaps, phase, snapshot, criteria, incompleteReasons);
-                if (failed)
-                {
-                    phaseMultiplier *= flaps.MultiplierOnFail;
+                var gateMultiplier = preview
+                    ? AppendFlapsGatePreview(flaps, phase, snapshot, criteria, freeGateContext)
+                    : AppendFlapsGate(flaps, phase, snapshot, criteria, incompleteReasons, freeGateContext);
+                phaseMultiplier *= gateMultiplier;
+                if (gateMultiplier < 1 && criteria.Any(item =>
+                        item.Id == FreeFlightGateIds.Flaps && item.Status == MetricStatus.GateFailed))
                     flapsPenaltyApplied = true;
-                }
             }
 
             phaseMultiplier *= OperationalGateEvaluator.AppendPhase(
-                penalties, phase.DisplayName, snapshot, criteria, incompleteReasons, preview);
+                penalties, phase.DisplayName, snapshot, criteria, incompleteReasons, preview, freeGateContext);
             TagPhaseCriteria(criteria, firstPhaseCriterion, phase);
             phaseMultipliers[phase.Id] = phaseMultiplier;
         }
 
         var generalPenaltyMultiplier = OperationalGateEvaluator.AppendGeneral(
-            _key.GeneralPenalties, snapshot, criteria, incompleteReasons, preview);
+            _key.GeneralPenalties, snapshot, criteria, incompleteReasons, preview, freeGateContext);
         diagnostics.OperationalGates = snapshot.GateObservations;
-        var ranked = preview || incompleteReasons.Count == 0;
+        // Free-flight lock (and catalog challenges) already know LengthM from facilities/config.
+        // Always latch it on the result so highscores do not depend on rollout-gate evaluation.
+        EnsureRunwayLengthLatched(diagnostics, challenge);
+        var ranked = preview || _key.FreeMode is not null || incompleteReasons.Count == 0;
         double? scoreBeforeGates = null;
         double? scorePercent = null;
         var grade = "UNRANKED";
@@ -347,8 +400,12 @@ public sealed class ScoreEngine
         EvaluationPhase phase,
         LandingSnapshot snapshot,
         List<CriterionScore> criteria,
-        LandingResultDiagnostics diagnostics)
+        LandingResultDiagnostics diagnostics,
+        FreeGateEvaluationContext context)
     {
+        if (AppendNotApplicable(context, FreeFlightGateIds.ContactStability,
+                "Contact stability (bounce gate)", criteria))
+            return 1;
         if (snapshot.ContactStability is null)
         {
             criteria.Add(new CriterionScore
@@ -362,7 +419,7 @@ public sealed class ScoreEngine
         }
 
         var incomplete = new List<string>();
-        return AppendContactStabilityGate(cfg, phase, snapshot, criteria, incomplete, diagnostics);
+        return AppendContactStabilityGate(cfg, phase, snapshot, criteria, incomplete, diagnostics, context);
     }
 
     private double AppendContactStabilityGate(
@@ -371,11 +428,19 @@ public sealed class ScoreEngine
         LandingSnapshot snapshot,
         List<CriterionScore> criteria,
         List<string> incompleteReasons,
-        LandingResultDiagnostics diagnostics)
+        LandingResultDiagnostics diagnostics,
+        FreeGateEvaluationContext context)
     {
+        const string gateId = FreeFlightGateIds.ContactStability;
+        const string gateName = "Contact stability (bounce gate)";
+        if (AppendNotApplicable(context, gateId, gateName, criteria))
+            return 1;
         if (snapshot.ContactStability is not { } analysis)
         {
             const string reason = "Contact-stability analysis is not complete.";
+            if (context.IsFree)
+                return AppendUnavailableGate(gateId, gateName, reason, cfg.OneBounceMultiplier,
+                    criteria, incompleteReasons, context);
             incompleteReasons.Add("Contact-stability gate: " + reason);
             criteria.Add(new CriterionScore
             {
@@ -392,6 +457,12 @@ public sealed class ScoreEngine
         {
             var reason = analysis.DegradedReason
                          ?? "Independent main-gear coverage was insufficient.";
+            if (context.IsFree)
+            {
+                diagnostics.ContactTelemetryDegraded = true;
+                return AppendUnavailableGate(gateId, gateName, reason, cfg.OneBounceMultiplier,
+                    criteria, incompleteReasons, context, analysis.BounceCount, "bounces");
+            }
             incompleteReasons.Add("Contact-stability gate: " + reason);
             diagnostics.ContactTelemetryDegraded = true;
             criteria.Add(new CriterionScore
@@ -419,6 +490,7 @@ public sealed class ScoreEngine
                 RawValue = 0,
                 Unit = "bounces",
                 Status = MetricStatus.Informational,
+                AppliedMultiplier = 1,
                 Note = "No bounce detected. The initial landing is the expected baseline and awards no points."
             });
             return 1;
@@ -440,6 +512,7 @@ public sealed class ScoreEngine
             RawValue = analysis.BounceCount,
             Unit = "bounces",
             Status = MetricStatus.GateFailed,
+            AppliedMultiplier = multiplier,
             Note =
                 $"{analysis.BounceCount} valid bounce{(analysis.BounceCount == 1 ? "" : "s")} " +
                 $"({touchdownLabel}). {phase.DisplayName} phase × {multiplier:0.##}. " +
@@ -452,8 +525,30 @@ public sealed class ScoreEngine
         StallWarningGateConfig cfg,
         EvaluationPhase phase,
         LandingSnapshot snapshot,
-        List<CriterionScore> criteria)
+        List<CriterionScore> criteria,
+        List<string> incompleteReasons,
+        bool preview,
+        FreeGateEvaluationContext context)
     {
+        if (!snapshot.StallWarningCoverageAvailable)
+        {
+            if (preview)
+            {
+                criteria.Add(new CriterionScore
+                {
+                    Id = FreeFlightGateIds.StallWarning,
+                    DisplayName = "Stall warning (safety gate)",
+                    Status = MetricStatus.Informational,
+                    Note = "[PREVIEW - pending] Stall-warning telemetry is not covered yet."
+                });
+                return 1;
+            }
+            return AppendUnavailableGate(
+                FreeFlightGateIds.StallWarning, "Stall warning (safety gate)",
+                "Stall-warning telemetry is unavailable.", cfg.MultiplierOnWarning,
+                criteria, incompleteReasons, context);
+        }
+
         if (!snapshot.StallWarningOccurred)
         {
             criteria.Add(new CriterionScore
@@ -462,6 +557,7 @@ public sealed class ScoreEngine
                 DisplayName = "Stall warning (safety gate)",
                 RawValue = 0,
                 Status = MetricStatus.Informational,
+                AppliedMultiplier = 1,
                 Note = "No stall warning occurred. This is the required baseline and awards no points."
             });
             return 1;
@@ -473,6 +569,7 @@ public sealed class ScoreEngine
             DisplayName = "STALL WARNING — hard penalty",
             RawValue = 1,
             Status = MetricStatus.GateFailed,
+            AppliedMultiplier = cfg.MultiplierOnWarning,
             Note =
                 $"A stall warning occurred during the armed attempt. {phase.DisplayName} phase × " +
                 $"{cfg.MultiplierOnWarning:0.##}. {cfg.PenaltyDescription}"
@@ -481,13 +578,16 @@ public sealed class ScoreEngine
     }
 
     /// <summary>Before touchdown, preview assumes the required gear state.</summary>
-    private bool AppendGearGatePreview(
+    private double AppendGearGatePreview(
         GearGateConfig cfg,
         EvaluationPhase phase,
         ChallengeConfig challenge,
         LandingSnapshot snapshot,
-        List<CriterionScore> criteria)
+        List<CriterionScore> criteria,
+        FreeGateEvaluationContext context)
     {
+        if (AppendNotApplicable(context, FreeFlightGateIds.Gear, "Gear (safety gate)", criteria))
+            return 1;
         if (snapshot.Touchdown is null)
         {
             criteria.Add(new CriterionScore
@@ -497,25 +597,31 @@ public sealed class ScoreEngine
                 Status = MetricStatus.Informational,
                 Note = "[PREVIEW · assumed OK] Gear not yet assessed (no touchdown)."
             });
-            return false;
+            return 1;
         }
 
         // After TD, same gate semantics as final (informational / fail).
         var incomplete = new List<string>();
-        return AppendGearGate(cfg, phase, challenge, snapshot, criteria, incomplete);
+        return AppendGearGate(cfg, phase, challenge, snapshot, criteria, incomplete, context);
     }
 
-    private bool AppendGearGate(
+    private double AppendGearGate(
         GearGateConfig cfg,
         EvaluationPhase phase,
         ChallengeConfig challenge,
         LandingSnapshot snapshot,
         List<CriterionScore> criteria,
-        List<string> incompleteReasons)
+        List<string> incompleteReasons,
+        FreeGateEvaluationContext context)
     {
+        if (AppendNotApplicable(context, FreeFlightGateIds.Gear, "Gear (safety gate)", criteria))
+            return 1;
         if (snapshot.Touchdown is null)
         {
             const string reason = "Touchdown telemetry was not captured.";
+            if (context.IsFree)
+                return AppendUnavailableGate(FreeFlightGateIds.Gear, "Gear (safety gate)", reason,
+                    cfg.MultiplierOnFail, criteria, incompleteReasons, context);
             incompleteReasons.Add("Gear gate: " + reason);
             criteria.Add(new CriterionScore
             {
@@ -525,7 +631,7 @@ public sealed class ScoreEngine
                 UnavailableReason = reason,
                 Note = reason
             });
-            return false;
+            return 1;
         }
 
         if (!challenge.RequireGearDown)
@@ -536,9 +642,10 @@ public sealed class ScoreEngine
                 DisplayName = "Gear (not required)",
                 RawValue = snapshot.GearDownAtTouchdown ? 1 : 0,
                 Status = MetricStatus.Informational,
+                AppliedMultiplier = 1,
                 Note = "Challenge allows gear-up landings. Gear position is informational and awards no points."
             });
-            return false;
+            return 1;
         }
 
         if (snapshot.GearDownAtTouchdown)
@@ -549,9 +656,10 @@ public sealed class ScoreEngine
                 DisplayName = "Gear (safety gate)",
                 RawValue = 1,
                 Status = MetricStatus.Informational,
+                AppliedMultiplier = 1,
                 Note = "Gear down is the required baseline and awards no score credit."
             });
-            return false;
+            return 1;
         }
 
         var multiplier = cfg.MultiplierOnFail;
@@ -561,20 +669,24 @@ public sealed class ScoreEngine
             DisplayName = "Gear UP — hard penalty",
             RawValue = 0,
             Status = MetricStatus.GateFailed,
+            AppliedMultiplier = multiplier,
             Note =
                 $"Gear up at touchdown. {phase.DisplayName} phase × {multiplier:0.##} " +
                 $"(~{(1 - multiplier) * 100:0}% phase cut). {cfg.PenaltyDescription}"
         });
-        return true;
+        return multiplier;
     }
 
     /// <summary>Preview flaps: no TD yet → assume OK; after TD use real flaps index.</summary>
-    private bool AppendFlapsGatePreview(
+    private double AppendFlapsGatePreview(
         FlapsGateConfig cfg,
         EvaluationPhase phase,
         LandingSnapshot snapshot,
-        List<CriterionScore> criteria)
+        List<CriterionScore> criteria,
+        FreeGateEvaluationContext context)
     {
+        if (AppendNotApplicable(context, FreeFlightGateIds.Flaps, "Flaps (safety gate)", criteria))
+            return 1;
         if (snapshot.Touchdown is null)
         {
             criteria.Add(new CriterionScore
@@ -584,27 +696,33 @@ public sealed class ScoreEngine
                 Status = MetricStatus.Informational,
                 Note = "[PREVIEW · assumed OK] Flaps not yet assessed (no touchdown)."
             });
-            return false;
+            return 1;
         }
 
         var incomplete = new List<string>();
-        return AppendFlapsGate(cfg, phase, snapshot, criteria, incomplete);
+        return AppendFlapsGate(cfg, phase, snapshot, criteria, incomplete, context);
     }
 
     /// <summary>
     /// Flaps gate like gear: correct landing flaps award no points;
     /// flaps not set (out of min/max index) multiplies the owning phase score.
     /// </summary>
-    private bool AppendFlapsGate(
+    private double AppendFlapsGate(
         FlapsGateConfig cfg,
         EvaluationPhase phase,
         LandingSnapshot snapshot,
         List<CriterionScore> criteria,
-        List<string> incompleteReasons)
+        List<string> incompleteReasons,
+        FreeGateEvaluationContext context)
     {
+        if (AppendNotApplicable(context, FreeFlightGateIds.Flaps, "Flaps (safety gate)", criteria))
+            return 1;
         if (snapshot.Touchdown is null)
         {
             const string reason = "Touchdown telemetry was not captured.";
+            if (context.IsFree)
+                return AppendUnavailableGate(FreeFlightGateIds.Flaps, "Flaps (safety gate)", reason,
+                    cfg.MultiplierOnFail, criteria, incompleteReasons, context);
             incompleteReasons.Add("Flaps gate: " + reason);
             criteria.Add(new CriterionScore
             {
@@ -614,12 +732,17 @@ public sealed class ScoreEngine
                 UnavailableReason = reason,
                 Note = reason
             });
-            return false;
+            return 1;
         }
 
         var index = snapshot.FlapsIndexAtTouchdown;
         var min = cfg.MinIndex;
         var max = cfg.MaxIndex;
+        if (context.IsFree && context.Capabilities?.FlapHandlePositionCount is { } positions and >= 2)
+        {
+            min = Math.Min(2, positions - 1);
+            max = positions - 1;
+        }
         if (index >= min && index <= max)
         {
             criteria.Add(new CriterionScore
@@ -629,11 +752,12 @@ public sealed class ScoreEngine
                 RawValue = index,
                 Unit = "index",
                 Status = MetricStatus.Informational,
+                AppliedMultiplier = 1,
                 Note =
                     $"Flaps index {index} in required landing band [{min:0}…{max:0}]. " +
                     "Baseline only — awards no score credit."
             });
-            return false;
+            return 1;
         }
 
         var multiplier = cfg.MultiplierOnFail;
@@ -644,12 +768,77 @@ public sealed class ScoreEngine
             RawValue = index,
             Unit = "index",
             Status = MetricStatus.GateFailed,
+            AppliedMultiplier = multiplier,
             Note =
                 $"Flaps index {index} outside landing band [{min:0}…{max:0}]. " +
                 $"{phase.DisplayName} phase × {multiplier:0.##} " +
                 $"(~{(1 - multiplier) * 100:0}% phase cut). {cfg.PenaltyDescription}"
         });
+        return multiplier;
+    }
+
+    private static bool AppendNotApplicable(
+        FreeGateEvaluationContext context,
+        string id,
+        string name,
+        List<CriterionScore> criteria)
+    {
+        if (!context.IsFree) return false;
+        var decision = context.DecisionFor(id);
+        if (decision.Applicability != FreeFlightGateApplicability.NotApplicable) return false;
+        criteria.Add(new CriterionScore
+        {
+            Id = id,
+            DisplayName = name + " - not applicable",
+            Status = MetricStatus.NotApplicable,
+            AppliedMultiplier = 1,
+            Note = decision.Reason
+        });
         return true;
+    }
+
+    private static double AppendUnavailableGate(
+        string id,
+        string name,
+        string reason,
+        double configuredFailureMultiplier,
+        List<CriterionScore> criteria,
+        List<string> incompleteReasons,
+        FreeGateEvaluationContext context,
+        double? raw = null,
+        string? unit = null)
+    {
+        if (context.IsFree)
+        {
+            var multiplier = context.MissingGateMultiplier(configuredFailureMultiplier);
+            criteria.Add(new CriterionScore
+            {
+                Id = id,
+                DisplayName = name + " - assumed telemetry adjustment",
+                RawValue = raw,
+                Unit = unit,
+                Status = MetricStatus.Assumed,
+                AppliedMultiplier = multiplier,
+                UnavailableReason = reason,
+                Note = $"Telemetry was unavailable, so Free Flight applied half of the configured gate loss: " +
+                       $"multiplier {multiplier:0.###} (normal failure {configuredFailureMultiplier:0.###}). " +
+                       $"{reason} {context.DecisionFor(id).Reason}"
+            });
+            return multiplier;
+        }
+
+        incompleteReasons.Add($"{name}: {reason}");
+        criteria.Add(new CriterionScore
+        {
+            Id = id,
+            DisplayName = name,
+            RawValue = raw,
+            Unit = unit,
+            Status = MetricStatus.Unavailable,
+            UnavailableReason = reason,
+            Note = reason
+        });
+        return 1;
     }
 
     private static void TagPhaseCriteria(
@@ -663,5 +852,21 @@ public sealed class ScoreEngine
             criteria[index].PhaseDisplayName = phase.DisplayName;
             criteria[index].PhaseWeightPercent = phase.WeightPercent;
         }
+    }
+
+    /// <summary>
+    /// Facility/catalog runway length is known as soon as free-flight locks (or a catalog
+    /// challenge is selected). Persist it on diagnostics for highscore reports even when
+    /// the rollout settle gate never evaluated remaining distance.
+    /// </summary>
+    private static void EnsureRunwayLengthLatched(
+        LandingResultDiagnostics diagnostics,
+        ChallengeConfig challenge)
+    {
+        if (diagnostics.OperationalGates.RunwayLengthMeters is > 0)
+            return;
+        var length = challenge.Runway.LengthM;
+        if (double.IsFinite(length) && length > 0)
+            diagnostics.OperationalGates.RunwayLengthMeters = length;
     }
 }

@@ -146,6 +146,10 @@ public sealed class SimConnectClient : ISimBridge
         public double IsGearFloats;
         public double IsTailDragger;
         public double FlapsIndex;
+        public double FlapsHandlePositionCount;
+        public double SpoilersAvailable;
+        public double AutopilotAvailable;
+        public double ThrottleLowerLimit;
         public double WindDir;
         public double WindVel;
         public double RadioHeight;
@@ -1867,6 +1871,19 @@ public sealed class SimConnectClient : ISimBridge
                 IsGearFloats = t.IsGearFloats > 0.5,
                 IsTailDragger = t.IsTailDragger > 0.5,
                 FlapsHandleIndex = (int)Math.Round(t.FlapsIndex),
+                FlapsHandlePositionCount = double.IsFinite(t.FlapsHandlePositionCount)
+                    && t.FlapsHandlePositionCount >= 0
+                    ? (int)Math.Round(t.FlapsHandlePositionCount)
+                    : null,
+                SpoilersAvailable = double.IsFinite(t.SpoilersAvailable)
+                    ? t.SpoilersAvailable > 0.5
+                    : null,
+                AutopilotAvailable = double.IsFinite(t.AutopilotAvailable)
+                    ? t.AutopilotAvailable > 0.5
+                    : null,
+                ThrottleLowerLimitPercent = double.IsFinite(t.ThrottleLowerLimit)
+                    ? t.ThrottleLowerLimit
+                    : null,
                 SpoilersHandlePosition = t.SpoilersHandle,
                 // Max panel deflection is ground truth; handle alone mis-reports "armed" as out.
                 SpoilersSurfacePosition = Math.Max(t.SpoilersLeft, t.SpoilersRight),
@@ -2035,6 +2052,14 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.Telemetry, "IS TAIL DRAGGER", "bool",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "FLAPS HANDLE INDEX", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "FLAPS NUM HANDLE POSITIONS", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "SPOILER AVAILABLE", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "AUTOPILOT AVAILABLE", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "THROTTLE LOWER LIMIT", "percent",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "AMBIENT WIND DIRECTION", "degrees",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);

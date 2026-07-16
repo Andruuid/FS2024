@@ -97,8 +97,46 @@ public sealed class ChallengeConfig
     /// <summary>Optional aircraft-specific logical main/nose gear mapping.</summary>
     public LandingContactMapping? ContactMapping { get; set; }
 
+    /// <summary>
+    /// Frozen aircraft/runway capability decisions for a Free Flight attempt.
+    /// Null for authored Challenge/Career attempts and historical Free tapes.
+    /// </summary>
+    public FreeFlightCapabilityContext? FreeFlightCapabilities { get; set; }
+
     [JsonIgnore]
     public ChallengeMode ModeEnum => ChallengeModeExtensions.FromConfigKey(Mode);
+}
+
+public enum FreeFlightGateApplicability
+{
+    Applicable,
+    NotApplicable,
+    Unknown
+}
+
+public sealed class FreeFlightGateDecision
+{
+    public FreeFlightGateApplicability Applicability { get; set; }
+    public string Reason { get; set; } = "";
+}
+
+/// <summary>Raw capabilities and resolved gate decisions frozen when Free Flight arms.</summary>
+public sealed class FreeFlightCapabilityContext
+{
+    public int? FlapHandlePositionCount { get; set; }
+    public bool? SpoilersAvailable { get; set; }
+    public bool? AutopilotAvailable { get; set; }
+    public double? ThrottleLowerLimitPercent { get; set; }
+    public bool? IsGearRetractable { get; set; }
+    public bool? IsGearWheels { get; set; }
+    public bool? IsGearFloats { get; set; }
+    public bool? IsTailDragger { get; set; }
+    public bool IsWaterRunway { get; set; }
+    public Dictionary<string, FreeFlightGateDecision> GateDecisions { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public FreeFlightGateDecision? DecisionFor(string gateId) =>
+        GateDecisions.TryGetValue(gateId, out var decision) ? decision : null;
 }
 
 public sealed class ChallengeScoringOverrides

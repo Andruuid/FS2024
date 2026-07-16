@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Models;
 
 namespace ChallengeLab.Core.Highscores;
@@ -66,6 +67,7 @@ public sealed class LandingTraceStore
             RankedBucketId = result.RankedBucketId,
             Summary = result.Summary,
             Diagnostics = result.Diagnostics,
+            FreeFlightCapabilities = result.Diagnostics.FreeFlightCapabilities,
             Metrics = result.Criteria.Select(c => new LandingTraceMetric
             {
                 Id = c.Id,
@@ -76,7 +78,8 @@ public sealed class LandingTraceStore
                 Unit = c.Unit,
                 Status = c.Status.ToString(),
                 Note = c.Note,
-                UnavailableReason = c.UnavailableReason
+                UnavailableReason = c.UnavailableReason,
+                AppliedMultiplier = c.AppliedMultiplier
             }).ToList(),
             Snapshot = new LandingTraceSnapshot
             {
@@ -160,6 +163,7 @@ public sealed class LandingTraceDocument
     public string RankedBucketId { get; set; } = "";
     public string? Summary { get; set; }
     public LandingResultDiagnostics Diagnostics { get; set; } = new();
+    public FreeFlightCapabilityContext? FreeFlightCapabilities { get; set; }
     public double SampleRateHz { get; set; }
     public LandingTraceSnapshot Snapshot { get; set; } = new();
     public List<LandingTraceMetric> Metrics { get; set; } = new();
@@ -202,6 +206,7 @@ public sealed class LandingTraceMetric
     public string? Status { get; set; }
     public string? Note { get; set; }
     public string? UnavailableReason { get; set; }
+    public double? AppliedMultiplier { get; set; }
 }
 
 public sealed class LandingTraceSample

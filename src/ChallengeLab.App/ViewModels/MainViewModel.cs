@@ -504,6 +504,24 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             // Criteria null-safety
             value.Criteria ??= new List<HighscoreCriterionDetail>();
 
+            // Historical free-flight rows only latched length after rollout settle; catalog
+            // challenges can still recover length from config for the report header.
+            if (value.RunwayLengthMeters is null or <= 0)
+            {
+                var fromGates = value.Diagnostics?.OperationalGates?.RunwayLengthMeters;
+                if (fromGates is > 0)
+                    value.RunwayLengthMeters = fromGates;
+                else
+                {
+                    var catalogMatch = _allChallenges.FirstOrDefault(c =>
+                        string.Equals(c.Id, value.ChallengeId, StringComparison.OrdinalIgnoreCase));
+                    if (catalogMatch is not null
+                        && double.IsFinite(catalogMatch.Runway.LengthM)
+                        && catalogMatch.Runway.LengthM > 0)
+                        value.RunwayLengthMeters = catalogMatch.Runway.LengthM;
+                }
+            }
+
             var report = new LandingReportViewModel(value);
             LandingReport = report;
 
@@ -1116,7 +1134,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var effective = EffectiveEvaluationProfileBuilder.Build(_freeEvaluationKeyLoad.Key!, challenge);
         _activeScoreEngine = new ScoreEngine(effective.Key, effective.ProfileHash);
         _activeSessionSettings = effective.Key.ToSessionSettings();
-        _sim.SetNoseGearImpactTelemetryEnabled(false);
+        var noseImpactApplicable = FreeFlightCapabilityResolver.ResolveDecision(
+            challenge.FreeFlightCapabilities,
+            FreeFlightGateIds.NoseGearImpact).Applicability
+            != FreeFlightGateApplicability.NotApplicable;
+        _sim.SetNoseGearImpactTelemetryEnabled(
+            noseImpactApplicable && _activeSessionSettings.OperationalGates.NoseGearImpact is not null);
 
         SecondaryHud.ResetAttempt();
         _activeChallenge = challenge;
@@ -1136,7 +1159,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         AppendLog(
             $"Free armed: {airport} RWY {runway} · {target.ThresholdDistanceNm:0.0} NM · " +
             $"track error {target.TrackErrorDeg:0.0}° · cross-track {target.CrossTrackNm:0.00} NM · " +
-            $"gear gate={(challenge.RequireGearDown ? "on" : "not applicable")}.");
+            $"gear gate={(challenge.RequireGearDown ? "on" : "not applicable")} Â· " +
+            $"capabilities frozen ({challenge.FreeFlightCapabilities?.GateDecisions.Count ?? 0} gate decisions).");
     }
 
     private async Task StartChallengeAsync()

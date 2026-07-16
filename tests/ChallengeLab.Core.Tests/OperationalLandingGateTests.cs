@@ -9,7 +9,7 @@ namespace ChallengeLab.Core.Tests;
 public sealed class OperationalLandingGateTests
 {
     [Fact]
-    public void ShippedProfile_EnablesOperationalGatesOnlyForChallengeCareer()
+    public void ShippedFreeProfile_InheritsEveryOperationalGate()
     {
         var loader = new ConfigLoader(FindConfig());
         var challenge = loader.LoadEvaluationKey();
@@ -31,16 +31,16 @@ public sealed class OperationalLandingGateTests
         Assert.Equal(0.8, rollout.Rollout!.MultiplierOnFail, 6);
 
         Assert.True(free.IsValid, string.Join("; ", free.Errors));
-        Assert.Null(free.Key!.GeneralPenalties);
-        Assert.All(free.Key.Phases, phase =>
-        {
-            Assert.Null(phase.Penalties?.SpoilerDeployment);
-            Assert.Null(phase.Penalties?.ManualBraking);
-            Assert.Null(phase.Penalties?.Automation);
-            Assert.Null(phase.Penalties?.NoseGearImpact);
-            Assert.Null(phase.Penalties?.Rollout);
-            Assert.Null(phase.Penalties?.ReverseThrust);
-        });
+        Assert.Equal(8, free.Key!.Version);
+        Assert.NotNull(free.Key.FreeMode);
+        Assert.NotNull(free.Key.GeneralPenalties?.PauseUsage);
+        Assert.NotNull(free.Key.GeneralPenalties?.SimulationRate);
+        Assert.NotNull(free.Key.Phases.Single(p => p.Id == "touchdown").Penalties?.SpoilerDeployment);
+        Assert.NotNull(free.Key.Phases.Single(p => p.Id == "touchdown").Penalties?.NoseGearImpact);
+        Assert.NotNull(free.Key.Phases.Single(p => p.Id == "approach").Penalties?.Automation);
+        Assert.NotNull(free.Key.Phases.Single(p => p.Id == "rollout").Penalties?.ManualBraking);
+        Assert.NotNull(free.Key.Phases.Single(p => p.Id == "rollout").Penalties?.Rollout);
+        Assert.NotNull(free.Key.Phases.Single(p => p.Id == "rollout").Penalties?.ReverseThrust);
     }
 
     [Fact]
@@ -740,7 +740,7 @@ public sealed class OperationalLandingGateTests
     }
 
     [Fact]
-    public void MissingOperationalCoverageMakesChallengeUnranked_ButFreeFlightUnaffected()
+    public void MissingOperationalCoverageMakesChallengeUnranked_ButFreeFlightUsesAssumedMultipliers()
     {
         var (key, challenge) = LoadChallengeProfile();
         var missing = PassingSnapshot();
@@ -754,8 +754,10 @@ public sealed class OperationalLandingGateTests
         var freeKey = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey).Key!;
         var freeResult = new ScoreEngine(freeKey).Evaluate(challenge, PassingSnapshot(includeOperationalCoverage: false));
         Assert.True(freeResult.IsRanked, string.Join("; ", freeResult.IncompleteReasons));
-        Assert.DoesNotContain(freeResult.Criteria, c =>
-            c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "rollout_distance");
+        Assert.Contains(freeResult.Criteria, c =>
+            c.Id == "automation" && c.Status == MetricStatus.Assumed && c.AppliedMultiplier == 0.95);
+        Assert.Contains(freeResult.Criteria, c =>
+            c.Id == "simulation_rate" && c.Status == MetricStatus.Assumed && c.AppliedMultiplier == 0.90);
     }
 
     [Theory]

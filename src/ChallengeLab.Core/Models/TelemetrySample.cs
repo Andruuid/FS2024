@@ -61,6 +61,12 @@ public sealed class TelemetrySample
     public bool IsTailDragger { get; init; }
     public int FlapsHandleIndex { get; init; }
 
+    /// <summary>Aircraft capability values sampled by MSFS and frozen when Free Flight arms.</summary>
+    public int? FlapsHandlePositionCount { get; init; }
+    public bool? SpoilersAvailable { get; init; }
+    public bool? AutopilotAvailable { get; init; }
+    public double? ThrottleLowerLimitPercent { get; init; }
+
     /// <summary>
     /// Spoilers lever / handle (prefer 0–1 percent-over-100). May be non-zero when
     /// surfaces are still stowed (e.g. Airbus ground-spoiler arm). Prefer
@@ -132,6 +138,7 @@ public sealed class TelemetrySample
 
     /// <summary>True while the simulator's STALL WARNING SimVar is active.</summary>
     public bool StallWarningActive { get; init; }
+    public bool StallWarningAvailable { get; init; } = true;
 
     /// <summary>Total weight (lbs), if available.</summary>
     public double? TotalWeightLbs { get; init; }
