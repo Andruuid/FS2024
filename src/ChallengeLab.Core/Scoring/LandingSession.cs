@@ -689,7 +689,7 @@ public sealed class LandingSession
     /// 1) time-weighted mean absolute altitude error vs the nominal glideslope path,
     /// 2) total vertical path variation per second,
     /// 3) total lateral path variation per metre flown.
-    /// Samples at or below flare AGL are excluded (retard/flare is not path-matching).
+    /// The configured inner distance boundary ends collection before the flare.
     /// Raw visual-frame telemetry is stabilized by <see cref="ApproachMetricCalculator"/>.
     /// </summary>
     private void ComputeApproachPathMetrics()
@@ -698,8 +698,7 @@ public sealed class LandingSession
             Snapshot.ApproachSamples,
             _challenge.Runway,
             _settings.ApproachPathMinDistNm,
-            _settings.ApproachPathMaxDistNm,
-            _settings.FlareAglFeet);
+            _settings.ApproachPathMaxDistNm);
 
         // Always assign every field so live preview cannot retain stale values.
         Snapshot.ApproachPathSampleCount = result.RawSampleCount;

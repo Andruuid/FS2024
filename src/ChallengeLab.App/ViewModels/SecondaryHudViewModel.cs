@@ -91,8 +91,7 @@ public sealed class SecondaryHudViewModel : ViewModelBase
             challenge?.Runway,
             targetAirspeedKts,
             settings?.ApproachPathMinDistNm ?? .2,
-            settings?.ApproachPathMaxDistNm ?? 4.5,
-            settings?.FlareAglFeet ?? 50);
+            settings?.ApproachPathMaxDistNm ?? 4.5);
         ApplyIndicators(reading, challenge?.Runway);
 
         if (!isConnected)

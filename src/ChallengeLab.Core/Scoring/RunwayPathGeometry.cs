@@ -6,7 +6,7 @@ namespace ChallengeLab.Core.Scoring;
 /// <summary>
 /// Runway-local approach geometry used by approach metrics and live HUD feedback.
 /// Nominal path: glideslope of <see cref="RunwayConfig.GlideslopeDeg"/> (default 3°)
-/// that reaches runway elevation at the aim point
+/// that reaches runway elevation at the normalized unflared aim point
 /// (threshold + <see cref="GlideslopeAimPointOffsetFeet"/> along runway heading).
 /// </summary>
 public static class RunwayPathGeometry
@@ -21,10 +21,11 @@ public static class RunwayPathGeometry
         FeetPerNauticalMileForAngle(DefaultGlideslopeDeg);
 
     /// <summary>
-    /// Aim point past the threshold where the nominal path meets field elevation.
+    /// Normalized unflared aim point past the landing threshold where the nominal path
+    /// meets field elevation. The flare carries the actual touchdown beyond this point.
     /// Distance windows and HUD range stay threshold-based; only altitude path uses this.
     /// </summary>
-    public const double GlideslopeAimPointOffsetFeet = 1_200.0;
+    public const double GlideslopeAimPointOffsetFeet = 1_000.0;
 
     public static double GlideslopeAimPointOffsetMeters =>
         GlideslopeAimPointOffsetFeet * MetersPerFoot;
@@ -55,7 +56,7 @@ public static class RunwayPathGeometry
         double AltitudeErrorFeet)
     {
         /// <summary>
-        /// Along-track distance to the glideslope aim point (threshold + 1,200 ft).
+        /// Along-track distance to the normalized glideslope aim point (threshold + 1,000 ft).
         /// Positive = still before the aim point on final.
         /// </summary>
         public double GlideslopePathDistanceMeters =>
@@ -68,7 +69,7 @@ public static class RunwayPathGeometry
     /// <summary>
     /// Project aircraft position onto the extended runway centerline.
     /// Positive approach distance = before threshold (on final).
-    /// Expected altitude uses the aim point 1,200 ft past threshold and
+    /// Expected altitude uses the normalized unflared aim point 1,000 ft past the landing threshold and
     /// <see cref="RunwayConfig.GlideslopeDeg"/>.
     /// Positive altitude error = above the nominal path.
     /// Positive lateral = right of centerline when looking along runway heading.

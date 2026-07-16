@@ -87,7 +87,7 @@ public sealed class LandingMonitorCalculatorTests
     [Fact]
     public void PastAimPointAndOnGround_GlideslopeIsNeutral()
     {
-        // 0.25 NM past threshold is past the 1,200 ft aim point → no geometric path angle.
+        // 0.25 NM past threshold is past the 1,000 ft aim point → no geometric path angle.
         var pastAim = SampleAtDistance(-.25, 3);
         var ground = SampleAtDistance(1, 3, onGround: true);
 
@@ -108,7 +108,7 @@ public sealed class LandingMonitorCalculatorTests
         var atAim = RunwayPathGeometry.ExpectedAltitudeFeet(
             -RunwayPathGeometry.GlideslopeAimPointOffsetNm, Runway.ElevationFeet);
 
-        Assert.InRange(atThreshold - Runway.ElevationFeet, 60, 70); // ~1,200 ft × tan(3°)
+        Assert.InRange(atThreshold - Runway.ElevationFeet, 52.3, 52.5); // 1,000 ft × tan(3°)
         Assert.InRange(atAim, Runway.ElevationFeet - 0.01, Runway.ElevationFeet + 0.01);
     }
 

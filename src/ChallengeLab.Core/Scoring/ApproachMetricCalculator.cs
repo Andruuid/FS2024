@@ -26,8 +26,7 @@ internal static class ApproachMetricCalculator
         IReadOnlyList<TelemetrySample> samples,
         RunwayConfig runway,
         double minimumDistanceNm,
-        double maximumDistanceNm,
-        double minimumAglFeet = 50)
+        double maximumDistanceNm)
     {
         if (samples.Count == 0
             || !double.IsFinite(minimumDistanceNm)
@@ -39,11 +38,8 @@ internal static class ApproachMetricCalculator
 
         var minimumDistanceMeters = minimumDistanceNm * RunwayPathGeometry.MetersPerNauticalMile;
         var maximumDistanceMeters = maximumDistanceNm * RunwayPathGeometry.MetersPerNauticalMile;
-        var minAgl = double.IsFinite(minimumAglFeet) && minimumAglFeet > 0
-            ? minimumAglFeet
-            : 50;
         var segments = BuildSegments(
-            samples, runway, minimumDistanceMeters, maximumDistanceMeters, minAgl,
+            samples, runway, minimumDistanceMeters, maximumDistanceMeters,
             out var rawSampleCount);
 
         double durationSeconds = 0;
@@ -118,7 +114,6 @@ internal static class ApproachMetricCalculator
         RunwayConfig runway,
         double minimumDistanceMeters,
         double maximumDistanceMeters,
-        double minimumAglFeet,
         out int rawSampleCount)
     {
         var segments = new List<List<ApproachPoint>>();
@@ -128,7 +123,6 @@ internal static class ApproachMetricCalculator
         foreach (var sample in samples)
         {
             if (sample.SimOnGround
-                || !IsAboveFlareHeight(sample, minimumAglFeet)
                 || !TryCreatePoint(sample, runway, out var point)
                 || point.ApproachDistanceMeters < minimumDistanceMeters
                 || point.ApproachDistanceMeters > maximumDistanceMeters)
@@ -182,19 +176,6 @@ internal static class ApproachMetricCalculator
             path.ApproachDistanceMeters,
             path.LateralMeters,
             path.AltitudeErrorFeet);
-        return true;
-    }
-
-    /// <summary>
-    /// Prefer radio height when finite; else AGL. Excludes retard/flare band from path scoring.
-    /// </summary>
-    private static bool IsAboveFlareHeight(TelemetrySample sample, double minimumAglFeet)
-    {
-        if (double.IsFinite(sample.RadioHeightFeet) && sample.RadioHeightFeet > 0)
-            return sample.RadioHeightFeet >= minimumAglFeet;
-        if (double.IsFinite(sample.AglFeet))
-            return sample.AglFeet >= minimumAglFeet;
-        // Missing height: keep sample so sparse telemetry still scores the path.
         return true;
     }
 

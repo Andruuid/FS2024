@@ -15,7 +15,7 @@ public sealed class LandingSnapshot
 
     /// <summary>
     /// Time-weighted mean absolute altitude error vs the nominal glideslope path: ∫|e(t)|dt / T (ft).
-    /// Path meets field elevation 1,200 ft past the threshold (aim point); samples below flare AGL excluded.
+    /// Path meets field elevation at the normalized unflared aim point 1,000 ft past the landing threshold.
     /// High and low deviations cannot cancel one another.
     /// </summary>
     public double ApproachGlideslopeMeanAbsFt { get; set; }

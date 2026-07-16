@@ -152,7 +152,7 @@ public sealed class LandingSessionTests
             GForce = 1
         });
 
-        // Short final ~1.0 NM on a perfect 3° path to aim point (threshold + 1,200 ft).
+        // Short final ~1.0 NM on a perfect 3° path to the normalized aim point (threshold + 1,000 ft).
         var elev = challenge.Runway.ElevationFeet;
         var perfectAlt = RunwayPathGeometry.ExpectedAltitudeFeet(1.0, elev);
         // Point ~1 NM along runway heading from threshold

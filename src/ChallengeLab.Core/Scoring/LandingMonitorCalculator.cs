@@ -41,8 +41,7 @@ public static class LandingMonitorCalculator
         RunwayConfig? runway,
         double? targetAirspeedKts,
         double approachPathMinDistNm,
-        double approachPathMaxDistNm,
-        double approachPathMinAglFeet = 50)
+        double approachPathMaxDistNm)
     {
         var airspeed = FiniteOrNull(sample.AirspeedKts);
         var target = targetAirspeedKts is > 0 && double.IsFinite(targetAirspeedKts.Value)
@@ -112,9 +111,7 @@ public static class LandingMonitorCalculator
 
         var progress = (1.0 - Math.Clamp(path.ApproachDistanceNm, 0, approachPathMaxDistNm)
             / approachPathMaxDistNm) * 100.0;
-        var aboveFlare = IsAboveFlareHeight(sample, approachPathMinAglFeet);
         var insideCollectionWindow = !sample.SimOnGround
-                                     && aboveFlare
                                      && path.ApproachDistanceNm >= approachPathMinDistNm
                                      && path.ApproachDistanceNm <= approachPathMaxDistNm;
 
@@ -150,17 +147,6 @@ public static class LandingMonitorCalculator
         return Math.Abs(measuredDeg - target) <= GlideslopeGreenHalfBandDeg + 1e-9
             ? LandingMonitorStatus.Green
             : LandingMonitorStatus.Red;
-    }
-
-    private static bool IsAboveFlareHeight(TelemetrySample sample, double minimumAglFeet)
-    {
-        if (!double.IsFinite(minimumAglFeet) || minimumAglFeet <= 0)
-            return true;
-        if (double.IsFinite(sample.RadioHeightFeet) && sample.RadioHeightFeet > 0)
-            return sample.RadioHeightFeet >= minimumAglFeet;
-        if (double.IsFinite(sample.AglFeet))
-            return sample.AglFeet >= minimumAglFeet;
-        return true;
     }
 
     public static LandingMonitorStatus ClassifyVerticalSpeed(double verticalSpeedFpm)

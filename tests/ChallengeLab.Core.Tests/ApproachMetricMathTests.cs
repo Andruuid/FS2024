@@ -101,43 +101,39 @@ public sealed class ApproachMetricMathTests
     }
 
     [Fact]
-    public void SamplesBelowFlareAgl_AreExcludedFromGlideslopeMae()
+    public void LowAglSamplesInsideDistanceWindow_AreScoredAsPathErrors()
     {
         var (challenge, settings) = Load();
         var session = new LandingSession(challenge, settings with
         {
-            OperationalGates = new OperationalGateSessionSettings(),
-            FlareAglFeet = 50
+            OperationalGates = new OperationalGateSessionSettings()
         });
         var start = DateTimeOffset.UtcNow;
+        var runway = challenge.Runway;
 
-        // Perfect path well above flare.
+        // At roughly 1 NM the target path is above 340 ft. An aircraft at 40 ft AGL
+        // is dangerously low, not legitimately flaring, and must remain in the score.
         for (var i = 0; i < 10; i++)
         {
+            var distanceNm = 1.0 - i * 0.01;
+            var expectedHeightFeet = RunwayPathGeometry.ExpectedAltitudeFeet(
+                                         distanceNm,
+                                         runway.ElevationFeet,
+                                         runway.GlideslopeDeg)
+                                     - runway.ElevationFeet;
             session.Snapshot.ApproachSamples.Add(CreateApproachSample(
                 challenge,
                 start.AddSeconds(i * 0.2),
-                approachDistanceNm: 1.5 - i * 0.05,
+                approachDistanceNm: distanceNm,
                 lateralMeters: 0,
-                altitudeErrorFeet: 0));
-        }
-
-        // Huge path error but only 30 ft AGL — must not pollute MAE.
-        for (var i = 0; i < 10; i++)
-        {
-            session.Snapshot.ApproachSamples.Add(CreateApproachSample(
-                challenge,
-                start.AddSeconds(3 + i * 0.2),
-                approachDistanceNm: 0.8,
-                lateralMeters: 0,
-                altitudeErrorFeet: 400,
-                heightFeetOverride: 30));
+                altitudeErrorFeet: 40 - expectedHeightFeet,
+                heightFeetOverride: 40));
         }
 
         session.RefreshDerivedMetrics();
 
-        Assert.True(session.Snapshot.ApproachPathSampleCount >= 8);
-        Assert.InRange(session.Snapshot.ApproachGlideslopeMeanAbsFt, 0, 5);
+        Assert.Equal(10, session.Snapshot.ApproachPathSampleCount);
+        Assert.InRange(session.Snapshot.ApproachGlideslopeMeanAbsFt, 300, 350);
     }
 
     [Fact]
