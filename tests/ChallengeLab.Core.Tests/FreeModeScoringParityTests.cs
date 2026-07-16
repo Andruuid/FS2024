@@ -146,6 +146,64 @@ public sealed class FreeModeScoringParityTests
     }
 
     [Fact]
+    public void FreeFlightFlapsGate_AcceptsHandleIndexBeyondFrozenPositionCount()
+    {
+        // Regression: FLAPS NUM HANDLE POSITIONS can freeze low (e.g. 4 → band max 3)
+        // while FLAPS HANDLE INDEX at touchdown is a deeper detent (e.g. 4). That must
+        // count as landing flaps, not "Flaps not set".
+        var loader = new ConfigLoader(FindConfig());
+        var free = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey).Key!;
+        var challenge = MinimalFreeChallenge();
+        challenge.FreeFlightCapabilities = FreeFlightCapabilityResolver.Freeze(
+            new TelemetrySample
+            {
+                IsGearWheels = true,
+                IsGearRetractable = true,
+                FlapsHandlePositionCount = 4,
+                SpoilersAvailable = true,
+                AutopilotAvailable = true,
+                ThrottleLowerLimitPercent = -20
+            }, false);
+        var snapshot = FullyMeasuredSnapshot();
+        snapshot.FlapsIndexAtTouchdown = 4;
+
+        var result = new ScoreEngine(free).Evaluate(challenge, snapshot);
+        Assert.False(result.FlapsPenaltyApplied);
+        var flaps = result.Criteria.Single(c => c.Id == FreeFlightGateIds.Flaps);
+        Assert.Equal(MetricStatus.Informational, flaps.Status);
+        Assert.Equal(1, flaps.AppliedMultiplier);
+        Assert.Equal(4, flaps.RawValue);
+        Assert.Contains("[2…4]", flaps.Note, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FreeFlightFlapsGate_StillPenalizesBelowLandingMinIndex()
+    {
+        var loader = new ConfigLoader(FindConfig());
+        var free = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey).Key!;
+        var challenge = MinimalFreeChallenge();
+        challenge.FreeFlightCapabilities = FreeFlightCapabilityResolver.Freeze(
+            new TelemetrySample
+            {
+                IsGearWheels = true,
+                IsGearRetractable = true,
+                FlapsHandlePositionCount = 4,
+                SpoilersAvailable = true,
+                AutopilotAvailable = true,
+                ThrottleLowerLimitPercent = -20
+            }, false);
+        var snapshot = FullyMeasuredSnapshot();
+        snapshot.FlapsIndexAtTouchdown = 1;
+
+        var result = new ScoreEngine(free).Evaluate(challenge, snapshot);
+        Assert.True(result.FlapsPenaltyApplied);
+        var flaps = result.Criteria.Single(c => c.Id == FreeFlightGateIds.Flaps);
+        Assert.Equal(MetricStatus.GateFailed, flaps.Status);
+        Assert.Equal(0.8, flaps.AppliedMultiplier);
+        Assert.Contains("outside landing band [2…3]", flaps.Note, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FullyMeasuredCapableLanding_ScoresIdenticallyInChallengeAndFree()
     {
         var loader = new ConfigLoader(FindConfig());

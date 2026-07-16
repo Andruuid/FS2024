@@ -705,7 +705,9 @@ public sealed class ScoreEngine
 
     /// <summary>
     /// Flaps gate like gear: correct landing flaps award no points;
-    /// flaps not set (out of min/max index) multiplies the owning phase score.
+    /// flaps not set (below the landing band) multiplies the owning phase score.
+    /// Free Flight adapts the band from frozen handle-position count; if the measured
+    /// index exceeds that count (NUM HANDLE POSITIONS under-report), treat as full flaps.
     /// </summary>
     private double AppendFlapsGate(
         FlapsGateConfig cfg,
@@ -741,7 +743,13 @@ public sealed class ScoreEngine
         if (context.IsFree && context.Capabilities?.FlapHandlePositionCount is { } positions and >= 2)
         {
             min = Math.Min(2, positions - 1);
+            // Last detent from frozen FLAPS NUM HANDLE POSITIONS (indices 0…N-1).
             max = positions - 1;
+            // Some aircraft report HANDLE INDEX beyond the frozen position count
+            // (under-counted NUM HANDLE POSITIONS at arm). More flaps than the
+            // reported max is still a landing configuration — never "not set".
+            if (index > max)
+                max = index;
         }
         if (index >= min && index <= max)
         {
