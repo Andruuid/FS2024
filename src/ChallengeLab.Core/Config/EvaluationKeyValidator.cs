@@ -32,6 +32,7 @@ public static class EvaluationKeyValidator
             "gates.pauseUsage.multiplierOnFail", errors);
         ValidateSimulationRateGate(key.Gates?.SimulationRate, errors);
         ValidateNoseGearImpactGate(key.Gates?.NoseGearImpact, errors);
+        ValidateRolloutGate(key.Gates?.Rollout, errors);
         ValidateContactMapping(key.ContactMapping, errors);
 
         if (key.Phases.Count == 0)
@@ -451,6 +452,13 @@ public static class EvaluationKeyValidator
             && double.IsFinite(gate.SevereMultiplier)
             && gate.SevereMultiplier > gate.ModerateMultiplier)
             errors.Add("gates.noseGearImpact.severeMultiplier must not exceed moderateMultiplier.");
+    }
+
+    private static void ValidateRolloutGate(RolloutGateConfig? gate, List<string> errors)
+    {
+        if (gate is null) return;
+        ValidateOptionalMultiplier(gate.MultiplierOnFail,
+            "gates.rollout.multiplierOnFail", errors);
     }
 
     private static void ValidateOptionalMultiplier(

@@ -52,7 +52,8 @@ public sealed class LandingEvaluationKey
                 Gates?.Automation,
                 Gates?.PauseUsage,
                 Gates?.SimulationRate,
-                Gates?.NoseGearImpact)
+                Gates?.NoseGearImpact,
+                Gates?.Rollout)
         };
     }
 }
@@ -122,14 +123,16 @@ public sealed record OperationalGateSessionSettings(
     AutomationGateConfig? Automation = null,
     PauseUsageGateConfig? PauseUsage = null,
     SimulationRateGateConfig? SimulationRate = null,
-    NoseGearImpactGateConfig? NoseGearImpact = null)
+    NoseGearImpactGateConfig? NoseGearImpact = null,
+    RolloutGateConfig? Rollout = null)
 {
     public bool Enabled => SpoilerDeployment is not null
                            || ManualBraking is not null
                            || Automation is not null
                            || PauseUsage is not null
                            || SimulationRate is not null
-                           || NoseGearImpact is not null;
+                           || NoseGearImpact is not null
+                           || Rollout is not null;
 }
 
 public sealed class EvaluationSettle
@@ -241,6 +244,24 @@ public sealed class EvaluationGates
     public PauseUsageGateConfig? PauseUsage { get; set; }
     public SimulationRateGateConfig? SimulationRate { get; set; }
     public NoseGearImpactGateConfig? NoseGearImpact { get; set; }
+    public RolloutGateConfig? Rollout { get; set; }
+}
+
+/// <summary>
+/// Penalty-only gate latched when groundspeed first falls below the settle threshold.
+/// Remaining runway must be at least <c>max(400 m, 15% of runway length)</c>.
+/// </summary>
+public sealed class RolloutGateConfig
+{
+    public double MultiplierOnFail { get; set; } = 0.8;
+    public string? PenaltyDescription { get; set; }
+
+    /// <summary>
+    /// Minimum remaining runway required at the settle groundspeed threshold.
+    /// Floor of 400 m or 15% of runway length, whichever is greater.
+    /// </summary>
+    public static double RequiredRemainingAt50Knots(double runwayLengthMeters)
+        => Math.Max(400, runwayLengthMeters * 0.15);
 }
 
 /// <summary>

@@ -638,6 +638,115 @@
                     </Border>
                 </Grid>
             </TabItem>
+
+            <TabItem Header="TESTING">
+                <Grid Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1.1*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="1.1*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Border Style="{StaticResource CardBorder}" Padding="12">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                                <TextBlock Text="FLIGHT TAPES" FontSize="11" FontWeight="Bold"
+                                           Foreground="{StaticResource BrushTextMuted}"/>
+                                <TextBlock Text="Full-rate recordings saved when a landing settles."
+                                           Margin="0,6,0,0" TextWrapping="Wrap"
+                                           Foreground="{StaticResource BrushTextPrimary}"/>
+                                <TextBlock Text="{Binding FlightsFolderPath}" FontFamily="{StaticResource MonoFont}"
+                                           FontSize="11" Margin="0,6,0,0" TextWrapping="Wrap"
+                                           Foreground="{StaticResource BrushAccentCyan}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                    <Button Content="Refresh" Command="{Binding RefreshFlightTapesCommand}"
+                                            Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="Open folder" Command="{Binding OpenFlightsFolderCommand}"
+                                            Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="Browse…" Command="{Binding BrowseFlightTapeCommand}"
+                                            Padding="12,6"/>
+                                </StackPanel>
+                                <Button Content="Evaluate from file" Command="{Binding EvaluateSelectedFlightTapeCommand}"
+                                        Padding="14,8" Margin="0,10,0,0" HorizontalAlignment="Left"
+                                        FontWeight="SemiBold"/>
+                            </StackPanel>
+                            <ListBox ItemsSource="{Binding FlightTapes}"
+                                     SelectedItem="{Binding SelectedFlightTape}"
+                                     DisplayMemberPath="DisplayName"
+                                     Background="#FF0B1020"
+                                     Foreground="#FFF2F6FF"
+                                     BorderBrush="#22FFFFFF"/>
+                        </DockPanel>
+                    </Border>
+
+                    <Border Grid.Column="2" Style="{StaticResource CardBorder}" Padding="12">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                                <TextBlock Text="OFFLINE EVALUATION" FontSize="11" FontWeight="Bold"
+                                           Foreground="{StaticResource BrushTextMuted}"/>
+                                <TextBlock Text="{Binding TestingStatus}" TextWrapping="Wrap" Margin="0,8,0,0"
+                                           Foreground="{StaticResource BrushAccentAmber}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
+                                            Visibility="{Binding ResultVisible, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="{Binding LastScore.ScoreDisplay, Mode=OneWay}" FontSize="36" FontWeight="Bold"
+                                               Foreground="{StaticResource BrushAccentCyan}"/>
+                                    <TextBlock Text="{Binding LastScore.Grade}" FontSize="36" FontWeight="Bold" Margin="14,0,0,0"
+                                               Foreground="{StaticResource BrushAccentAmber}"/>
+                                </StackPanel>
+                                <TextBlock Text="{Binding LastScore.Summary, Mode=OneWay}" TextWrapping="Wrap" Margin="0,8,0,0"
+                                           FontFamily="{StaticResource MonoFont}" FontSize="12"
+                                           Foreground="{StaticResource BrushTextPrimary}"
+                                           Visibility="{Binding ResultVisible, Converter={StaticResource BoolToVis}}"
+                                           xml:space="preserve"/>
+                                <TextBlock Text="{Binding ReportStatus}" TextWrapping="Wrap" Margin="0,10,0,0"
+                                           FontWeight="SemiBold" Foreground="{StaticResource BrushTextPrimary}"/>
+                            </StackPanel>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding CriterionResults}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,0,0,10" Padding="12" CornerRadius="10"
+                                                    Background="#121A2540" BorderBrush="#22FFFFFF" BorderThickness="1">
+                                                <StackPanel>
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                                        <Border Grid.Column="1" CornerRadius="6" Padding="8,3" Margin="8,0"
+                                                                Background="#22000000">
+                                                            <TextBlock Text="{Binding Verdict}" FontSize="10" FontWeight="Bold"
+                                                                       Foreground="{StaticResource BrushAccentAmber}"/>
+                                                        </Border>
+                                                        <TextBlock Grid.Column="2" Text="{Binding ScoreDisplay, Mode=OneWay}"
+                                                                   FontWeight="Bold" Foreground="{StaticResource BrushAccentCyan}"/>
+                                                    </Grid>
+                                                    <TextBlock Margin="0,6,0,0" FontFamily="{StaticResource MonoFont}" FontSize="12">
+                                                        <Run Text="Value: " Foreground="{StaticResource BrushTextMuted}"/>
+                                                        <Run Text="{Binding RawDisplay, Mode=OneWay}"/>
+                                                        <Run Text="  ·  " Foreground="{StaticResource BrushTextMuted}"/>
+                                                        <Run Text="{Binding InfluenceDisplay, Mode=OneWay}"/>
+                                                    </TextBlock>
+                                                    <ProgressBar Height="8" Minimum="0" Maximum="100"
+                                                                 Value="{Binding BarValue, Mode=OneWay, TargetNullValue=0, FallbackValue=0}"
+                                                                 Margin="0,8,0,0"
+                                                                 Visibility="{Binding IsScored, Converter={StaticResource BoolToVis}}"/>
+                                                    <TextBlock Text="EXPLANATION" FontSize="10" FontWeight="Bold"
+                                                               Foreground="{StaticResource BrushAccentCyan}" Margin="0,10,0,4"/>
+                                                    <TextBlock Text="{Binding Note}" TextWrapping="Wrap" FontSize="12"
+                                                               LineHeight="18" Foreground="{StaticResource BrushTextPrimary}"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
         </TabControl>
 
         <Border Grid.Row="2" Background="{StaticResource BrushBgPanel}" Padding="20,10">

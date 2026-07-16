@@ -16,13 +16,15 @@ public sealed class OperationalLandingGateTests
         var free = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey);
 
         Assert.True(challenge.IsValid, string.Join("; ", challenge.Errors));
-        Assert.Equal(16, challenge.Key!.Version);
+        Assert.Equal(17, challenge.Key!.Version);
         Assert.NotNull(challenge.Key.Gates!.SpoilerDeployment);
         Assert.NotNull(challenge.Key.Gates.ManualBraking);
         Assert.NotNull(challenge.Key.Gates.Automation);
         Assert.NotNull(challenge.Key.Gates.PauseUsage);
         Assert.NotNull(challenge.Key.Gates.SimulationRate);
         Assert.NotNull(challenge.Key.Gates.NoseGearImpact);
+        Assert.NotNull(challenge.Key.Gates.Rollout);
+        Assert.Equal(0.8, challenge.Key.Gates.Rollout!.MultiplierOnFail, 6);
 
         Assert.True(free.IsValid, string.Join("; ", free.Errors));
         Assert.Null(free.Key!.Gates!.SpoilerDeployment);
@@ -31,6 +33,7 @@ public sealed class OperationalLandingGateTests
         Assert.Null(free.Key.Gates.PauseUsage);
         Assert.Null(free.Key.Gates.SimulationRate);
         Assert.Null(free.Key.Gates.NoseGearImpact);
+        Assert.Null(free.Key.Gates.Rollout);
     }
 
     [Fact]
@@ -347,13 +350,16 @@ public sealed class OperationalLandingGateTests
         obs.ReducedSimulationRateViolation = true;
         obs.MinimumSimulationRate = 0.5;
         obs.NoseGearImpact = ImpactAnalysis(NoseGearImpactSeverity.Severe, 0.9, 0.7, 1.8);
+        obs.RolloutEndOfRunwayViolation = true;
+        obs.RemainingRunwayMetersAtSettleSpeed = 200;
+        obs.RequiredRemainingRunwayMeters = 525;
 
         var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
         var expected = Math.Round(result.ScoreBeforeGatesPercent!.Value
-                                  * 0.9 * 0.9 * 0.9 * 0.9 * 0.95 * 0.8, 1);
+                                  * 0.9 * 0.9 * 0.9 * 0.9 * 0.95 * 0.8 * 0.8, 1);
         Assert.Equal(expected, result.ScorePercent);
-        Assert.Equal(6, result.Criteria.Count(c => c.Status == MetricStatus.GateFailed
-                                                   && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate"));
+        Assert.Equal(7, result.Criteria.Count(c => c.Status == MetricStatus.GateFailed
+                                                   && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "rollout_distance"));
     }
 
     [Fact]
@@ -372,7 +378,92 @@ public sealed class OperationalLandingGateTests
         var freeResult = new ScoreEngine(freeKey).Evaluate(challenge, PassingSnapshot(includeOperationalCoverage: false));
         Assert.True(freeResult.IsRanked, string.Join("; ", freeResult.IncompleteReasons));
         Assert.DoesNotContain(freeResult.Criteria, c =>
-            c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate");
+            c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "rollout_distance");
+    }
+
+    [Theory]
+    [InlineData(2000, 400)]
+    [InlineData(3500, 525)]
+    [InlineData(1000, 400)]
+    public void RequiredRemainingAt50Knots_UsesFloorOrFifteenPercent(double length, double expected)
+        => Assert.Equal(expected, RolloutGateConfig.RequiredRemainingAt50Knots(length), 6);
+
+    [Fact]
+    public void Rollout_TooCloseAtSettleSpeedAppliesZeroPointEight()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var clean = new ScoreEngine(key).Evaluate(challenge, PassingSnapshot());
+        var failedSnapshot = PassingSnapshot();
+        failedSnapshot.GateObservations.RolloutEndOfRunwayViolation = true;
+        failedSnapshot.GateObservations.RemainingRunwayMetersAtSettleSpeed = 100;
+        failedSnapshot.GateObservations.RequiredRemainingRunwayMeters = 525;
+        failedSnapshot.GateObservations.RunwayLengthMeters = 3500;
+        failedSnapshot.GateObservations.GroundSpeedKtsAtRolloutCheck = 49;
+
+        var failed = new ScoreEngine(key).Evaluate(challenge, failedSnapshot);
+        Assert.Equal(Math.Round(clean.ScorePercent!.Value * 0.8, 1), failed.ScorePercent);
+        Assert.Equal(MetricStatus.GateFailed,
+            failed.Criteria.Single(c => c.Id == "rollout_distance").Status);
+        Assert.Contains("100", failed.Criteria.Single(c => c.Id == "rollout_distance").Note);
+    }
+
+    [Fact]
+    public void Rollout_LatchesOnFirstSampleBelowSettleGroundspeed()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var settings = key.ToSessionSettings() with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false,
+            SettledHoldSeconds = 1
+        };
+        var session = new LandingSession(challenge, settings);
+        session.Arm();
+
+        // Approach then touchdown near threshold (plenty of runway remaining).
+        session.Ingest(PositionedSample(0, airborne: true, groundSpeed: 140, alongRunwayMeters: -100));
+        session.Ingest(PositionedSample(1, airborne: false, groundSpeed: 120, alongRunwayMeters: 200));
+        Assert.False(session.Snapshot.GateObservations.RolloutDistanceEvaluated);
+
+        // Still above settle threshold — no evaluation yet.
+        session.Ingest(PositionedSample(2, airborne: false, groundSpeed: 55, alongRunwayMeters: 2800));
+        Assert.False(session.Snapshot.GateObservations.RolloutDistanceEvaluated);
+
+        // First frame below settle GS near the far end → violation.
+        session.Ingest(PositionedSample(3, airborne: false, groundSpeed: 49, alongRunwayMeters: 3200));
+        var obs = session.Snapshot.GateObservations;
+        Assert.True(obs.RolloutDistanceEvaluated);
+        Assert.True(obs.RolloutEndOfRunwayViolation);
+        Assert.Equal(49, obs.GroundSpeedKtsAtRolloutCheck);
+        Assert.Equal(3500, obs.RunwayLengthMeters);
+        Assert.Equal(525, obs.RequiredRemainingRunwayMeters);
+        Assert.InRange(obs.RemainingRunwayMetersAtSettleSpeed!.Value, 295, 305);
+
+        // Later samples must not overwrite the latched evaluation.
+        session.Ingest(PositionedSample(4, airborne: false, groundSpeed: 40, alongRunwayMeters: 500));
+        Assert.True(session.Snapshot.GateObservations.RolloutEndOfRunwayViolation);
+        Assert.InRange(session.Snapshot.GateObservations.RemainingRunwayMetersAtSettleSpeed!.Value, 295, 305);
+    }
+
+    [Fact]
+    public void Rollout_PassesWhenEnoughRunwayRemainsAtSettleSpeed()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var settings = key.ToSessionSettings() with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false
+        };
+        var session = new LandingSession(challenge, settings);
+        session.Arm();
+        session.Ingest(PositionedSample(0, airborne: true, groundSpeed: 140, alongRunwayMeters: -100));
+        session.Ingest(PositionedSample(1, airborne: false, groundSpeed: 120, alongRunwayMeters: 400));
+        session.Ingest(PositionedSample(2, airborne: false, groundSpeed: 49, alongRunwayMeters: 1000));
+
+        var obs = session.Snapshot.GateObservations;
+        Assert.True(obs.RolloutDistanceEvaluated);
+        Assert.False(obs.RolloutEndOfRunwayViolation);
+        Assert.InRange(obs.RemainingRunwayMetersAtSettleSpeed!.Value, 2490, 2510);
     }
 
     [Theory]
@@ -668,7 +759,76 @@ public sealed class OperationalLandingGateTests
         obs.NoseGearTouchdownTimeSeconds = 10.5;
         obs.FirstSimultaneousBrakingTimeSeconds = 11;
         obs.NoseGearImpact = ImpactAnalysis(NoseGearImpactSeverity.Pass, 1, 0.1, 1.1);
+        obs.RolloutDistanceEvaluated = true;
+        obs.GroundSpeedKtsAtRolloutCheck = 45;
+        obs.RunwayLengthMeters = 3500;
+        obs.RemainingRunwayMetersAtSettleSpeed = 2000;
+        obs.RequiredRemainingRunwayMeters = 525;
+        obs.RolloutEndOfRunwayViolation = false;
         return snapshot;
+    }
+
+    /// <summary>
+    /// Places a sample along the Barcelona LFML 31R centerline at the given
+    /// distance past the threshold (negative = still on short final).
+    /// </summary>
+    private static TelemetrySample PositionedSample(
+        double time,
+        bool airborne,
+        double groundSpeed,
+        double alongRunwayMeters)
+    {
+        // Barcelona challenge runway: threshold 43.433483 / 5.219637, heading 313°.
+        const double thresholdLat = 43.433483;
+        const double thresholdLon = 5.219637;
+        const double headingDeg = 313.0;
+        const double earthRadius = 6_371_000.0;
+        var headingRad = headingDeg * Math.PI / 180.0;
+        var north = alongRunwayMeters * Math.Cos(headingRad);
+        var east = alongRunwayMeters * Math.Sin(headingRad);
+        var lat = thresholdLat + north / earthRadius * 180.0 / Math.PI;
+        var lon = thresholdLon + east / (earthRadius * Math.Cos(thresholdLat * Math.PI / 180.0)) * 180.0 / Math.PI;
+        var onGround = !airborne;
+
+        return new TelemetrySample
+        {
+            Timestamp = DateTimeOffset.UnixEpoch.AddSeconds(time),
+            SimulationTimeSeconds = time,
+            Latitude = lat,
+            Longitude = lon,
+            AglFeet = airborne ? 100 : 0,
+            RadioHeightFeet = airborne ? 100 : 0,
+            RadioHeightAvailable = true,
+            AirspeedKts = Math.Max(40, groundSpeed),
+            GroundSpeedKts = groundSpeed,
+            VerticalSpeedFpm = airborne ? -500 : 0,
+            TouchdownNormalVelocityFps = onGround ? 100.0 / 60.0 : null,
+            GForce = onGround ? 1.2 : 1.0,
+            SimOnGround = onGround,
+            IsGearWheels = true,
+            GearHandlePosition = 1,
+            FlapsHandleIndex = 3,
+            GearOnGroundByIndex = new Dictionary<int, bool>
+            {
+                [0] = onGround,
+                [1] = onGround,
+                [2] = onGround
+            },
+            ManualBrakeLeftPosition = onGround ? 0.1 : 0,
+            ManualBrakeRightPosition = onGround ? 0.1 : 0,
+            SpoilersLeftPosition = onGround ? 0.2 : 0,
+            SpoilersRightPosition = onGround ? 0.2 : 0,
+            AutopilotHeadingHoldActive = false,
+            AutopilotAltitudeHoldActive = false,
+            AutopilotMasterActive = false,
+            AutopilotChannel1Active = false,
+            AutopilotChannel2Active = false,
+            AutothrustActive = false,
+            AutothrustArmed = false,
+            PauseStateAvailable = true,
+            PauseGeneration = 0,
+            SimulationRate = 1
+        };
     }
 
     private static NoseGearImpactAnalysis ImpactAnalysis(

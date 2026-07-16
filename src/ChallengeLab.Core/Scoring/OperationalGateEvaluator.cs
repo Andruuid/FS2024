@@ -27,6 +27,8 @@ internal static class OperationalGateEvaluator
             multiplier *= AppendPause(pause, observations, criteria, incompleteReasons, preview);
         if (key.Gates?.SimulationRate is { } rate)
             multiplier *= AppendSimulationRate(rate, observations, criteria, incompleteReasons, preview);
+        if (key.Gates?.Rollout is { } rollout)
+            multiplier *= AppendRollout(rollout, observations, criteria, incompleteReasons, preview);
 
         return multiplier;
     }
@@ -245,6 +247,51 @@ internal static class OperationalGateEvaluator
 
         AddFailed(criteria, id, name, obs.MinimumSimulationRate, "x", cfg.MultiplierOnFail,
             $"Simulation rate fell below {cfg.MinimumAllowedRate:0.###}x before touchdown. {cfg.PenaltyDescription}");
+        return cfg.MultiplierOnFail;
+    }
+
+    private static double AppendRollout(
+        RolloutGateConfig cfg,
+        LandingGateObservations obs,
+        List<CriterionScore> criteria,
+        List<string> incomplete,
+        bool preview)
+    {
+        const string id = "rollout_distance";
+        const string name = "Rollout remaining runway";
+        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview))
+            return 1;
+        if (obs.MainGearTouchdownTimeSeconds is null)
+            return PendingOrUnavailable(id, name, "Accepted main-gear touchdown timing is unavailable.", criteria, incomplete, preview);
+        if (!obs.RolloutDistanceEvaluated)
+        {
+            return PendingOrUnavailable(id, name,
+                "Groundspeed has not yet fallen below the settle threshold for remaining-runway evaluation.",
+                criteria, incomplete, preview);
+        }
+
+        if (obs.RemainingRunwayMetersAtSettleSpeed is not { } remaining
+            || obs.RequiredRemainingRunwayMeters is not { } required)
+            return PendingOrUnavailable(id, name,
+                "Remaining runway could not be measured at the settle groundspeed threshold.",
+                criteria, incomplete, preview);
+
+        var lengthNote = obs.RunwayLengthMeters is { } length
+            ? $"Runway length {length:0} m; required remaining max(400 m, 15% of length) = {required:0} m. "
+            : $"Required remaining {required:0} m. ";
+        var speedNote = obs.GroundSpeedKtsAtRolloutCheck is { } gs
+            ? $"Measured at {gs:0.#} kt groundspeed. "
+            : "";
+
+        if (!obs.RolloutEndOfRunwayViolation)
+        {
+            AddPassed(criteria, id, name, remaining, "m remaining",
+                $"{lengthNote}{speedNote}Remaining runway was {remaining:0} m (≥ {required:0} m).");
+            return 1;
+        }
+
+        AddFailed(criteria, id, name, remaining, "m remaining", cfg.MultiplierOnFail,
+            $"{lengthNote}{speedNote}Remaining runway was only {remaining:0} m (< {required:0} m). {cfg.PenaltyDescription}");
         return cfg.MultiplierOnFail;
     }
 

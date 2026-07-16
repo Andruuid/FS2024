@@ -359,7 +359,41 @@ public sealed class LandingSession
         {
             UpdateSpoilerDeploymentGate(sample, timeSeconds);
             UpdateNoseGearImpactObservation(logical, timeSeconds);
+            UpdateRolloutDistanceGate(sample);
         }
+    }
+
+    private void UpdateRolloutDistanceGate(TelemetrySample sample)
+    {
+        var gate = _settings.OperationalGates.Rollout;
+        if (gate is null || !_touchdownCaptured)
+            return;
+
+        var observations = Snapshot.GateObservations;
+        if (observations.RolloutDistanceEvaluated)
+            return;
+        if (!sample.SimOnGround)
+            return;
+        if (!double.IsFinite(sample.GroundSpeedKts)
+            || sample.GroundSpeedKts >= _settings.SettledGroundSpeedKts)
+            return;
+
+        var length = _challenge.Runway.LengthM;
+        if (!double.IsFinite(length) || length <= 0)
+            return;
+
+        if (!double.IsFinite(sample.Latitude) || !double.IsFinite(sample.Longitude))
+            return;
+
+        var remaining = _geo.RemainingRunwayMeters(sample.Latitude, sample.Longitude);
+        var required = RolloutGateConfig.RequiredRemainingAt50Knots(length);
+
+        observations.RolloutDistanceEvaluated = true;
+        observations.GroundSpeedKtsAtRolloutCheck = sample.GroundSpeedKts;
+        observations.RunwayLengthMeters = length;
+        observations.RemainingRunwayMetersAtSettleSpeed = remaining;
+        observations.RequiredRemainingRunwayMeters = required;
+        observations.RolloutEndOfRunwayViolation = remaining + 1e-9 < required;
     }
 
     private void UpdatePauseGate(TelemetrySample sample)
@@ -936,6 +970,21 @@ public sealed class GeoUtil
         var h = _runway.HeadingTrueDeg * Math.PI / 180.0;
         return eastM * Math.Cos(h) - northM * Math.Sin(h);
     }
+
+    /// <summary>
+    /// Along-track distance from the landing threshold in the runway-heading direction (metres).
+    /// Positive = past the threshold toward the far end.
+    /// </summary>
+    public double DistanceAlongRunwayMeters(double lat, double lon)
+    {
+        var (northM, eastM) = LocalMeters(lat, lon, _runway.ThresholdLatitude, _runway.ThresholdLongitude);
+        var h = _runway.HeadingTrueDeg * Math.PI / 180.0;
+        return northM * Math.Cos(h) + eastM * Math.Sin(h);
+    }
+
+    /// <summary>Remaining paved distance to the far end of the runway (metres).</summary>
+    public double RemainingRunwayMeters(double lat, double lon)
+        => _runway.LengthM - DistanceAlongRunwayMeters(lat, lon);
 
     public static double BearingDegrees(double lat1, double lon1, double lat2, double lon2)
     {

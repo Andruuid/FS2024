@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
 using System.Text;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -6,6 +8,7 @@ using Application = System.Windows.Application;
 using MessageBox = System.Windows.MessageBox;
 using MessageBoxButton = System.Windows.MessageBoxButton;
 using MessageBoxImage = System.Windows.MessageBoxImage;
+using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 using ChallengeLab.Core.Career;
 using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Facilities;
@@ -24,10 +27,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public const int ChallengesTabIndex = 1;
     public const int HighscoresTabIndex = 2;
     public const int SessionTabIndex = 3;
+    public const int TestingTabIndex = 4;
 
     private readonly ConfigLoader _configLoader;
     private readonly HighscoreStore _highscores;
     private readonly LandingTraceStore _landingTraces;
+    private readonly FlightTapeStore _flightTapes;
+    private readonly FlightTapeRecorder _flightTapeRecorder = new();
     private readonly CareerProgressStore _careerStore;
     private readonly IRandomIndexProvider? _careerRandom;
     private readonly ScoreEngine? _scoreEngine;
@@ -83,6 +89,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private bool _resultVisible;
     private int _selectedTab;
     private HighscoreEntry? _selectedHighscore;
+    private FlightTapeListItem? _selectedFlightTape;
+    private string _testingStatus = "Select a recorded flight tape and evaluate offline.";
+    private bool _isEvaluatingFlightTape;
     private LandingReportViewModel? _landingReport;
     private string _reportStatus = "";
     private string _reportBodyText = "";
@@ -117,6 +126,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _configLoader = configLoader ?? new ConfigLoader();
         _highscores = highscores ?? new HighscoreStore();
         _landingTraces = new LandingTraceStore();
+        _flightTapes = new FlightTapeStore();
         _careerStore = careerStore ?? new CareerProgressStore();
         _careerRandom = careerRandom;
 
@@ -156,6 +166,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
         Challenges = new ObservableCollection<ChallengeCardViewModel>();
         Highscores = new ObservableCollection<HighscoreEntry>();
+        FlightTapes = new ObservableCollection<FlightTapeListItem>();
         CriterionResults = new ObservableCollection<CriterionResultViewModel>();
         CareerRewards = new ObservableCollection<CareerRewardSlotViewModel>();
         SecondaryHud = new SecondaryHudViewModel();
@@ -177,6 +188,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         DismissResultCommand = new RelayCommand(() => ResultVisible = false);
         ClearHighscoreSelectionCommand = new RelayCommand(() => SelectedHighscore = null);
         ToggleSecondaryHudCommand = new RelayCommand(() => RequestToggleSecondaryHud?.Invoke());
+        RefreshFlightTapesCommand = new RelayCommand(RefreshFlightTapes);
+        EvaluateSelectedFlightTapeCommand = new RelayCommand(
+            EvaluateSelectedFlightTape,
+            () => SelectedFlightTape is not null && HasValidScoringConfiguration && !IsEvaluatingFlightTape);
+        BrowseFlightTapeCommand = new RelayCommand(
+            BrowseAndEvaluateFlightTape,
+            () => HasValidScoringConfiguration && !IsEvaluatingFlightTape);
+        OpenFlightsFolderCommand = new RelayCommand(OpenFlightsFolder);
         OpenMenuCommand = new RelayCommand(() =>
         {
             ResultVisible = false;
@@ -205,6 +224,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         LogEvaluationKeyStatus();
         LogFreeEvaluationKeyStatus();
         RefreshHighscores();
+        RefreshFlightTapes();
     }
 
     private void LogEvaluationKeyStatus()
@@ -311,6 +331,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<ChallengeCardViewModel> Challenges { get; }
     public ObservableCollection<HighscoreEntry> Highscores { get; }
+    public ObservableCollection<FlightTapeListItem> FlightTapes { get; }
     public ObservableCollection<CriterionResultViewModel> CriterionResults { get; }
     public ObservableCollection<CareerRewardSlotViewModel> CareerRewards { get; }
 
@@ -329,6 +350,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand ClearHighscoreSelectionCommand { get; }
     public ICommand ToggleSecondaryHudCommand { get; }
     public ICommand OpenMenuCommand { get; }
+    public ICommand RefreshFlightTapesCommand { get; }
+    public ICommand EvaluateSelectedFlightTapeCommand { get; }
+    public ICommand BrowseFlightTapeCommand { get; }
+    public ICommand OpenFlightsFolderCommand { get; }
+
+    public string FlightsFolderPath => _flightTapes.DirectoryPath;
 
     public bool IsCareerAvailable => _career is not null;
     public string CareerConfigurationStatus
@@ -388,6 +415,38 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             SetProperty(ref _selectedHighscore, value);
             RebuildLandingReport(value);
+        }
+    }
+
+    public FlightTapeListItem? SelectedFlightTape
+    {
+        get => _selectedFlightTape;
+        set
+        {
+            if (ReferenceEquals(_selectedFlightTape, value)) return;
+            SetProperty(ref _selectedFlightTape, value);
+            (EvaluateSelectedFlightTapeCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            TestingStatus = value is null
+                ? "Select a recorded flight tape and evaluate offline."
+                : $"Selected: {value.DisplayName}";
+        }
+    }
+
+    public string TestingStatus
+    {
+        get => _testingStatus;
+        private set => SetProperty(ref _testingStatus, value);
+    }
+
+    public bool IsEvaluatingFlightTape
+    {
+        get => _isEvaluatingFlightTape;
+        private set
+        {
+            if (_isEvaluatingFlightTape == value) return;
+            SetProperty(ref _isEvaluatingFlightTape, value);
+            (EvaluateSelectedFlightTapeCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (BrowseFlightTapeCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
@@ -1065,6 +1124,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _session.SettledReady += OnSettledReady;
         _session.Arm();
         SetAttemptOrigin(LandingAttemptOrigin.FreeFlight);
+        StartFlightTapeRecording(challenge, LandingAttemptOrigin.FreeFlight.ToString());
         PhaseLabel = "Free · Armed";
         HudTip = $"Locked {airport} RWY {runway} · scoring this landing.";
         LastScore = null;
@@ -1315,6 +1375,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 careerStageNumber,
                 careerRankId,
                 careerRankTitle);
+            StartFlightTapeRecording(challenge, requestedOrigin.ToString());
             PhaseLabel = "Armed";
             ResultVisible = false;
             LastScore = null;
@@ -1365,6 +1426,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         StopSpawnReadinessWatch(clearUi: true);
         _sim.SetNoseGearImpactTelemetryEnabled(false);
+        _flightTapeRecorder.Cancel();
         if (_session is not null)
         {
             _session.PhaseChanged -= OnSessionPhaseChanged;
@@ -1377,6 +1439,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         ClearPreview();
         (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    private void StartFlightTapeRecording(ChallengeConfig challenge, string attemptOrigin)
+    {
+        _flightTapeRecorder.Start(challenge, attemptOrigin);
+        AppendLog($"Flight tape recording started ({attemptOrigin}).");
     }
 
     private bool CanCleanMetrics() =>
@@ -1625,6 +1693,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         if (_session is null) return;
 
         _session.CleanMetrics();
+        if (_activeChallenge is not null)
+            StartFlightTapeRecording(_activeChallenge, _attemptOrigin.ToString());
         LastScore = null;
         ResultVisible = false;
         PhaseLabel = "Armed";
@@ -1690,6 +1760,26 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 AppendLog($"Landing trace save failed: {ex.Message}");
             }
 
+            string? flightTapePath = null;
+            try
+            {
+                var finished = _flightTapeRecorder.Finish();
+                if (finished is { } tape)
+                {
+                    flightTapePath = _flightTapes.Save(
+                        tape.Challenge,
+                        tape.Samples,
+                        result,
+                        tape.AttemptOrigin);
+                    RefreshFlightTapes();
+                }
+            }
+            catch (Exception ex)
+            {
+                _flightTapeRecorder.Cancel();
+                AppendLog($"Flight tape save failed: {ex.Message}");
+            }
+
             var careerAttempt = _attemptOrigin == LandingAttemptOrigin.CareerAssignment;
             if (result.IsRanked)
             {
@@ -1753,6 +1843,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 : $"Unranked landing on {result.ChallengeTitle}: {string.Join(" | ", result.IncompleteReasons)}");
             if (tracePath is not null)
                 AppendLog($"Landing trace: {tracePath}");
+            if (flightTapePath is not null)
+                AppendLog($"Flight tape: {flightTapePath}");
         });
     }
 
@@ -1777,6 +1869,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     .Resolve(_activeChallenge, sessionSettings, sample)
                     .TargetTouchdownIasKts;
             }
+
+            if (_flightTapeRecorder.IsActive)
+                _flightTapeRecorder.Add(sample);
 
             _session?.Ingest(sample);
             UpdateLivePreview(force: false);
@@ -2125,6 +2220,207 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             if (match is not null && !ReferenceEquals(SelectedHighscore, match))
                 SelectedHighscore = match;
         }
+    }
+
+    private void RefreshFlightTapes()
+    {
+        var selectedPath = SelectedFlightTape?.Path;
+        FlightTapes.Clear();
+        foreach (var item in _flightTapes.List())
+            FlightTapes.Add(item);
+
+        if (!string.IsNullOrWhiteSpace(selectedPath))
+        {
+            var match = FlightTapes.FirstOrDefault(t =>
+                string.Equals(t.Path, selectedPath, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+                SelectedFlightTape = match;
+        }
+
+        TestingStatus = FlightTapes.Count == 0
+            ? $"No flight tapes yet. Land and settle (GS below score threshold) — files appear in {FlightsFolderPath}"
+            : $"{FlightTapes.Count} flight tape(s) in folder. Select one and evaluate.";
+    }
+
+    private void OpenFlightsFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(FlightsFolderPath);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = FlightsFolderPath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Open flights folder failed: {ex.Message}");
+            MessageBox.Show(
+                $"Could not open flights folder:\n{ex.Message}",
+                "Challenge Lab — Testing",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
+    private void BrowseAndEvaluateFlightTape()
+    {
+        if (!HasValidScoringConfiguration)
+        {
+            TestingStatus = "Scoring configuration is invalid — cannot evaluate.";
+            return;
+        }
+
+        var dialog = new OpenFileDialog
+        {
+            Title = "Open flight tape",
+            Filter = "Flight tapes (*.json)|*.json|All files (*.*)|*.*",
+            InitialDirectory = Directory.Exists(FlightsFolderPath)
+                ? FlightsFolderPath
+                : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            CheckFileExists = true,
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog() != true) return;
+        EvaluateFlightTapePath(dialog.FileName);
+    }
+
+    private void EvaluateSelectedFlightTape()
+    {
+        if (SelectedFlightTape is null) return;
+        EvaluateFlightTapePath(SelectedFlightTape.Path);
+    }
+
+    private void EvaluateFlightTapePath(string path)
+    {
+        if (!HasValidScoringConfiguration || _evaluationKey is null)
+        {
+            TestingStatus = "Scoring configuration is invalid — cannot evaluate.";
+            return;
+        }
+
+        IsEvaluatingFlightTape = true;
+        TestingStatus = "Evaluating…";
+        try
+        {
+            var tape = _flightTapes.Load(path);
+            // Challenge tapes use the challenge key; free-flight tapes use free key when present.
+            var baseKey = ResolveKeyForTape(tape);
+            var replay = FlightTapeReplayer.Replay(tape, baseKey);
+            var result = replay.Result;
+
+            // Show result on Session-style summary without writing highscores/career.
+            LastScore = result;
+            ResultVisible = true;
+            ApplyFinalPreview(result);
+
+            var reportEntry = HighscoreEntryFromScoreResult(result);
+            SelectedHighscore = null;
+            RebuildLandingReport(reportEntry);
+
+            var original = tape.OriginalScorePercent is null
+                ? "no original score stored"
+                : $"original live {tape.OriginalScorePercent:0.0}% {tape.OriginalGrade}";
+            TestingStatus =
+                $"Replay {result.ScoreDisplay} {result.Grade} · {result.Criteria.Count} metrics · " +
+                $"{tape.Samples.Count} samples · {original} · key {result.EvaluationKeyId} v{result.EvaluationKeyVersion}";
+            AppendLog(
+                $"Testing replay: {System.IO.Path.GetFileName(path)} → {result.ScoreDisplay} {result.Grade} " +
+                $"({original}) · ranked={result.IsRanked}");
+            SelectedTab = TestingTabIndex;
+        }
+        catch (Exception ex)
+        {
+            TestingStatus = "Evaluate failed: " + ex.Message;
+            AppendLog("Flight tape evaluate failed: " + ex);
+            MessageBox.Show(
+                $"Could not evaluate flight tape:\n{ex.Message}",
+                "Challenge Lab — Testing",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsEvaluatingFlightTape = false;
+        }
+    }
+
+    private LandingEvaluationKey ResolveKeyForTape(FlightTapeDocument tape)
+    {
+        var freeId = _freeEvaluationKeyLoad.Key?.Id;
+        if (!string.IsNullOrWhiteSpace(freeId)
+            && string.Equals(tape.EvaluationKeyId, freeId, StringComparison.OrdinalIgnoreCase)
+            && _freeEvaluationKeyLoad.Key is { } freeKey
+            && _freeEvaluationKeyLoad.IsValid)
+        {
+            return freeKey;
+        }
+
+        // Free-flight synthetic challenges usually use free key even if id missing on older tapes.
+        if (tape.Challenge is not null
+            && tape.Challenge.Id.StartsWith("free-", StringComparison.OrdinalIgnoreCase)
+            && _freeEvaluationKeyLoad.Key is { } freeKey2
+            && _freeEvaluationKeyLoad.IsValid)
+        {
+            return freeKey2;
+        }
+
+        return _evaluationKey
+               ?? throw new InvalidOperationException("Challenge evaluation key is not loaded.");
+    }
+
+    /// <summary>Build a non-persisted highscore-shaped entry so Testing can reuse the report panel.</summary>
+    private static HighscoreEntry HighscoreEntryFromScoreResult(ScoreResult result)
+    {
+        var criteria = result.Criteria.Select(criterion => new HighscoreCriterionDetail
+        {
+            Id = criterion.Id,
+            DisplayName = criterion.DisplayName,
+            ScorePercent = criterion.ScorePercent is null ? null : Math.Round(criterion.ScorePercent.Value, 1),
+            RawValue = criterion.RawValue,
+            Unit = criterion.Unit,
+            Note = criterion.Note,
+            Status = criterion.Status,
+            UnavailableReason = criterion.UnavailableReason,
+            PhaseId = criterion.PhaseId,
+            PhaseDisplayName = criterion.PhaseDisplayName,
+            PhaseImportancePercent = criterion.PhaseImportancePercent,
+            PhaseWeightPercent = criterion.PhaseWeightPercent,
+            MaxOverallPoints = criterion.MaxOverallPoints
+        }).ToList();
+
+        var phases = result.PhaseScores.Select(phase => new HighscorePhaseDetail
+        {
+            PhaseId = phase.PhaseId,
+            DisplayName = phase.DisplayName,
+            WeightPercent = phase.WeightPercent,
+            ScorePercent = phase.ScorePercent,
+            Used = phase.IsComplete
+        }).ToList();
+
+        return new HighscoreEntry
+        {
+            Id = Guid.NewGuid(),
+            Utc = result.ScoredAtUtc,
+            ChallengeId = result.ChallengeId,
+            ChallengeTitle = result.ChallengeTitle + " (replay)",
+            ScorePercent = result.ScorePercent ?? 0,
+            Grade = result.Grade,
+            Notes = result.Summary,
+            ScoreBeforeGatesPercent = result.ScoreBeforeGatesPercent,
+            GearUpPenaltyApplied = result.GearUpPenaltyApplied,
+            FlapsPenaltyApplied = result.FlapsPenaltyApplied,
+            Phases = phases,
+            VerticalSpeedFpm = result.Diagnostics.TouchdownVerticalSpeedFpm,
+            Criteria = criteria,
+            EvaluationKeyId = result.EvaluationKeyId,
+            EvaluationKeyVersion = result.EvaluationKeyVersion,
+            ScoringProfileHash = result.ScoringProfileHash,
+            RankedBucketId = result.RankedBucketId,
+            Diagnostics = result.Diagnostics
+        };
     }
 
     private void AppendLog(string line)

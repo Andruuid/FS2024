@@ -1,7 +1,7 @@
 {
   "id": "landing-evaluation-key",
-  "version": 16,
-  "description": "Single authoritative Challenge/Career landing score. Metric phases are followed by multiplicative safety and operational gates for bounce, stall warning, gear, flaps, spoilers, manual braking, nose-gear impact, automation, pause usage, and reduced simulation rate.",
+  "version": 17,
+  "description": "Single authoritative Challenge/Career landing score. Metric phases are followed by multiplicative safety and operational gates for bounce, stall warning, gear, flaps, spoilers, manual braking, nose-gear impact, automation, pause usage, reduced simulation rate, and rollout remaining runway.",
   "formula": "raw = sum(phaseScore * phaseWeightPercent / 100); final = round(raw * each applicable safety/operational gate multiplier, 1)",
   "settle": {
     "groundSpeedKts": 50,
@@ -98,6 +98,10 @@
       "minimumAllowedRate": 0.99,
       "multiplierOnFail": 0.8,
       "penaltyDescription": "Reducing the simulation rate below normal speed before touchdown applies this penalty once."
+    },
+    "rollout": {
+      "multiplierOnFail": 0.8,
+      "penaltyDescription": "As soon as groundspeed falls below the settle threshold, remaining runway must be at least max(400 m, 15% of runway length). Falling short multiplies the complete ranked score by 0.8."
     }
   },
   "phases": [

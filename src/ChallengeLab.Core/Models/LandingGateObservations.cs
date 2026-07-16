@@ -38,6 +38,17 @@ public sealed class LandingGateObservations
     public double? LastNoseGearImpactContactTimeSeconds { get; set; }
     public NoseGearImpactAnalysis? NoseGearImpact { get; set; }
 
+    /// <summary>
+    /// True after groundspeed first falls below the settle threshold on the ground
+    /// and remaining runway was evaluated against the rollout gate.
+    /// </summary>
+    public bool RolloutDistanceEvaluated { get; set; }
+    public double? GroundSpeedKtsAtRolloutCheck { get; set; }
+    public double? RemainingRunwayMetersAtSettleSpeed { get; set; }
+    public double? RequiredRemainingRunwayMeters { get; set; }
+    public double? RunwayLengthMeters { get; set; }
+    public bool RolloutEndOfRunwayViolation { get; set; }
+
     public void Reset()
     {
         MonitoringStarted = false;
@@ -66,5 +77,11 @@ public sealed class LandingGateObservations
         FirstSimultaneousBrakingTimeSeconds = null;
         LastNoseGearImpactContactTimeSeconds = null;
         NoseGearImpact = null;
+        RolloutDistanceEvaluated = false;
+        GroundSpeedKtsAtRolloutCheck = null;
+        RemainingRunwayMetersAtSettleSpeed = null;
+        RequiredRemainingRunwayMeters = null;
+        RunwayLengthMeters = null;
+        RolloutEndOfRunwayViolation = false;
     }
 }

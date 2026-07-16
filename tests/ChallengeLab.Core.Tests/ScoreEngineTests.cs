@@ -92,7 +92,13 @@ public sealed class ScoreEngineTests
             ManualBrakeTelemetryCoverageAvailable = true,
             NoseGearTouchdownTimeSeconds = 10.5,
             FirstSimultaneousBrakingTimeSeconds = 11,
-            NoseGearImpact = PassingNoseImpact()
+            NoseGearImpact = PassingNoseImpact(),
+            RolloutDistanceEvaluated = true,
+            GroundSpeedKtsAtRolloutCheck = 45,
+            RunwayLengthMeters = 3500,
+            RemainingRunwayMetersAtSettleSpeed = 2000,
+            RequiredRemainingRunwayMeters = 525,
+            RolloutEndOfRunwayViolation = false
         }
     };
 
@@ -344,7 +350,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(16, loaded.Key.Version);
+        Assert.Equal(17, loaded.Key.Version);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
 
