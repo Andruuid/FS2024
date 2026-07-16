@@ -199,7 +199,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         OpenMenuCommand = new RelayCommand(() =>
         {
             ResultVisible = false;
-            SelectedTab = CareerTabIndex;
+            SelectedTab = HighscoresTabIndex;
             // Toggle main window; HUD stays up (wired in MainWindow).
             RequestToggleMain?.Invoke();
         });
@@ -508,13 +508,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             LandingReport = report;
 
             // Brand-new collection instance
-            ReportMetrics = new ObservableCollection<ReportMetricViewModel>(report.Metrics);
+            ReportMetrics = new ObservableCollection<ReportMetricViewModel>(report.DetailMetrics);
 
             var criteriaCount = value.Criteria.Count;
             var metricCount = ReportMetrics.Count;
 
             ReportStatus =
-                $"{AppBuild.Tag} | score {value.ScorePercent:0.0}% grade {value.Grade} | {metricCount} metrics" +
+                $"{value.ScorePercent:0.0}% final score | {report.MetricCount} metrics" +
+                (report.HasPenalties ? $" | {report.Penalties.Count} penalties" : "") +
                 (string.IsNullOrWhiteSpace(value.CareerDisplay) ? "" : $" | {value.CareerDisplay}");
 
             // Primary view: hierarchical Total / phases / metrics
@@ -1787,7 +1788,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     result,
                     careerAttempt ? _careerAttemptStageNumber : null,
                     careerAttempt ? _careerAttemptRankId : null,
-                    careerAttempt ? _careerAttemptRankTitle : null);
+                    careerAttempt ? _careerAttemptRankTitle : null,
+                    SecondaryHud.GraphPoints);
                 RefreshHighscores();
                 SelectedHighscore = Highscores.FirstOrDefault();
             }

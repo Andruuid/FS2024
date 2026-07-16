@@ -26,9 +26,23 @@ public sealed class ScoreEngineTests
         return (loaded.Key!, loader.LoadChallenge("challenges/barcelona-crosswind-final.json"));
     }
 
-    private static LandingSnapshot CompleteSnapshot(bool gearDown = true, int flapsIndex = 3) => new()
+    private static LandingSnapshot CompleteSnapshot(
+        ChallengeConfig challenge,
+        bool gearDown = true,
+        int flapsIndex = 3)
     {
-        Touchdown = new TelemetrySample { Timestamp = DateTimeOffset.UtcNow, SimOnGround = true },
+        var perfectDistanceFeet = TouchdownPointCalculator.PerfectTouchdownPointFeet(
+            challenge.Runway.LengthM / RunwayPathGeometry.MetersPerFoot);
+        var (latitude, longitude) = PositionAlongRunway(challenge.Runway, perfectDistanceFeet);
+        return new LandingSnapshot
+        {
+        Touchdown = new TelemetrySample
+        {
+            Timestamp = DateTimeOffset.UtcNow,
+            SimOnGround = true,
+            Latitude = latitude,
+            Longitude = longitude
+        },
         GearDownAtTouchdown = gearDown,
         FlapsIndexAtTouchdown = flapsIndex,
         VerticalSpeedAtTouchdownFpm = -100,
@@ -98,9 +112,39 @@ public sealed class ScoreEngineTests
             RunwayLengthMeters = 3500,
             RemainingRunwayMetersAtSettleSpeed = 2000,
             RequiredRemainingRunwayMeters = 525,
-            RolloutEndOfRunwayViolation = false
+            RolloutEndOfRunwayViolation = false,
+            ReverseThrustTelemetryCoverageAvailable = true,
+            OperatingEnginesCapturedAtTouchdown = true,
+            EngineCountAtTouchdown = 2,
+            OperatingEngineIndicesAtTouchdown = new List<int> { 1, 2 },
+            FirstReverseSelectionTimeSecondsByEngine = new Dictionary<int, double>
+            {
+                [1] = 11,
+                [2] = 11.5
+            },
+            ReverseThrustStowEvaluated = true,
+            ReverseThrustStowCoverageAvailable = true,
+            GroundSpeedKtsAtReverseStowCheck = 60,
+            ReverseThrustStowedAtThreshold = true
         }
-    };
+        };
+    }
+
+    private static (double Latitude, double Longitude) PositionAlongRunway(
+        RunwayConfig runway,
+        double distanceFeet)
+    {
+        const double earthRadiusMeters = 6_371_000;
+        var distanceMeters = distanceFeet * RunwayPathGeometry.MetersPerFoot;
+        var heading = runway.HeadingTrueDeg * Math.PI / 180.0;
+        var north = distanceMeters * Math.Cos(heading);
+        var east = distanceMeters * Math.Sin(heading);
+        return (
+            runway.ThresholdLatitude + north / earthRadiusMeters * 180.0 / Math.PI,
+            runway.ThresholdLongitude
+            + east / (earthRadiusMeters * Math.Cos(runway.ThresholdLatitude * Math.PI / 180.0))
+            * 180.0 / Math.PI);
+    }
 
     private static NoseGearImpactAnalysis PassingNoseImpact() => new()
     {
@@ -162,7 +206,7 @@ public sealed class ScoreEngineTests
     public void Hierarchy_WeightsAreAppliedExactlyOnce()
     {
         var (key, challenge) = Load();
-        var result = new ScoreEngine(key).Evaluate(challenge, CompleteSnapshot());
+        var result = new ScoreEngine(key).Evaluate(challenge, CompleteSnapshot(challenge));
         Assert.True(result.IsRanked, string.Join("; ", result.IncompleteReasons));
         Assert.NotNull(result.ScorePercent);
         var literalWeightedTotal = result.PhaseScores.Sum(p => p.ScorePercent!.Value * p.WeightPercent / 100.0);
@@ -174,7 +218,7 @@ public sealed class ScoreEngineTests
     public void PerfectResult_RemainsExactlyOneHundredPercent()
     {
         var (key, challenge) = Load();
-        var result = new ScoreEngine(key).Evaluate(challenge, CompleteSnapshot());
+        var result = new ScoreEngine(key).Evaluate(challenge, CompleteSnapshot(challenge));
         Assert.True(result.IsRanked, string.Join("; ", result.IncompleteReasons));
         Assert.Equal(100, result.ScoreBeforeGatesPercent!.Value, 6);
         Assert.Equal(100, result.ScorePercent!.Value, 6);
@@ -215,7 +259,8 @@ public sealed class ScoreEngineTests
             ApproachLateralDistanceM = 2000,
             ApproachGlideslopeMeanAbsFt = 350, // zero on soft curve
             ApproachVerticalVariationFtPerSec = 25, // zero
-            ApproachLateralWeaveIndex = 0.20 // zero
+            ApproachLateralWeaveIndex = 0.20, // zero
+            ApproachBankMeanAbsDeg = 18 // zero on bank curve
         };
         var preview = new ScoreEngine(key).EvaluatePreview(challenge, snap);
         Assert.True(preview.IsPreview);
@@ -228,11 +273,11 @@ public sealed class ScoreEngineTests
     public void Preview_DoesNotWriteAsRankedForHighscorePath()
     {
         var (key, challenge) = Load();
-        var preview = new ScoreEngine(key).EvaluatePreview(challenge, CompleteSnapshot());
+        var preview = new ScoreEngine(key).EvaluatePreview(challenge, CompleteSnapshot(challenge));
         Assert.True(preview.IsPreview);
         Assert.False(preview.IsRanked);
         // Same numbers as final would produce, but flagged preview so UI/store can refuse.
-        var final = new ScoreEngine(key).Evaluate(challenge, CompleteSnapshot());
+        var final = new ScoreEngine(key).Evaluate(challenge, CompleteSnapshot(challenge));
         Assert.Equal(final.ScorePercent, preview.ScorePercent);
     }
 
@@ -241,8 +286,8 @@ public sealed class ScoreEngineTests
     {
         var (key, challenge) = Load();
         var engine = new ScoreEngine(key);
-        var down = engine.Evaluate(challenge, CompleteSnapshot(true));
-        var up = engine.Evaluate(challenge, CompleteSnapshot(false));
+        var down = engine.Evaluate(challenge, CompleteSnapshot(challenge, true));
+        var up = engine.Evaluate(challenge, CompleteSnapshot(challenge, false));
         Assert.True(down.IsRanked && up.IsRanked);
         var touchdown = key.Phases.Single(p => p.Id == "touchdown");
         var multiplier = touchdown.Penalties!.Gear!.MultiplierOnFail;
@@ -251,7 +296,7 @@ public sealed class ScoreEngineTests
         Assert.Equal(Math.Round(100 - touchdown.WeightPercent * (1 - multiplier), 1),
             up.ScorePercent!.Value, 6);
         challenge.RequireGearDown = false;
-        var free = engine.Evaluate(challenge, CompleteSnapshot(false));
+        var free = engine.Evaluate(challenge, CompleteSnapshot(challenge, false));
         Assert.Equal(down.ScorePercent, free.ScorePercent);
     }
 
@@ -263,14 +308,14 @@ public sealed class ScoreEngineTests
         Assert.NotNull(touchdown.Penalties?.Flaps);
         var engine = new ScoreEngine(key);
 
-        var ok = engine.Evaluate(challenge, CompleteSnapshot(flapsIndex: 3));
+        var ok = engine.Evaluate(challenge, CompleteSnapshot(challenge, flapsIndex: 3));
         Assert.True(ok.IsRanked);
         Assert.False(ok.FlapsPenaltyApplied);
         var flapsOk = ok.Criteria.Single(c => c.Id == "flaps");
         Assert.Equal(MetricStatus.Informational, flapsOk.Status);
         Assert.Null(flapsOk.ScorePercent); // no phase points
 
-        var bare = engine.Evaluate(challenge, CompleteSnapshot(flapsIndex: 0));
+        var bare = engine.Evaluate(challenge, CompleteSnapshot(challenge, flapsIndex: 0));
         Assert.True(bare.IsRanked);
         Assert.True(bare.FlapsPenaltyApplied);
         var multiplier = touchdown.Penalties!.Flaps!.MultiplierOnFail;
@@ -292,7 +337,7 @@ public sealed class ScoreEngineTests
 
         ScoreResult ScoreWithBounces(int count)
         {
-            var snapshot = CompleteSnapshot();
+            var snapshot = CompleteSnapshot(challenge);
             var bounces = Enumerable.Range(1, count)
                 .Select(i => new BounceEvent(i, i + 0.2, 0.2, -100, 1.2, 1.2, false))
                 .ToArray();
@@ -324,8 +369,8 @@ public sealed class ScoreEngineTests
         var approach = key.Phases.Single(p => p.Id == "approach");
         var gate = Assert.IsType<StallWarningGateConfig>(approach.Penalties!.StallWarning);
 
-        var clean = engine.Evaluate(challenge, CompleteSnapshot());
-        var warnedSnapshot = CompleteSnapshot();
+        var clean = engine.Evaluate(challenge, CompleteSnapshot(challenge));
+        var warnedSnapshot = CompleteSnapshot(challenge);
         warnedSnapshot.StallWarningOccurred = true;
         var warned = engine.Evaluate(challenge, warnedSnapshot);
 
@@ -348,8 +393,9 @@ public sealed class ScoreEngineTests
         Assert.DoesNotContain(td.Metrics, m => m.Id == "ground_track");
         Assert.DoesNotContain(td.Metrics, m => m.Id == "excess_speed");
         Assert.DoesNotContain(td.Metrics, m => m.Id == "alignment");
-        Assert.Equal(13, td.Metrics.Single(m => m.Id == "airspeed").ImportancePercent);
-        Assert.Equal(7, td.Metrics.Single(m => m.Id == "centerline").ImportancePercent);
+        Assert.Equal(20, td.Metrics.Single(m => m.Id == "touchdown_point").ImportancePercent);
+        Assert.Equal(10.4, td.Metrics.Single(m => m.Id == "airspeed").ImportancePercent);
+        Assert.Equal(5.6, td.Metrics.Single(m => m.Id == "centerline").ImportancePercent);
         Assert.Equal(100, td.Metrics.Sum(m => m.ImportancePercent), 2);
     }
 
@@ -359,7 +405,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(18, loaded.Key.Version);
+        Assert.Equal(21, loaded.Key.Version);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
 
@@ -372,7 +418,7 @@ public sealed class ScoreEngineTests
 
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("free-flight-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(5, loaded.Key.Version);
+        Assert.Equal(7, loaded.Key.Version);
         Assert.Equal(70, loaded.Key.SpeedTarget!.DefaultVappKts);
         Assert.Null(loaded.Key.Phases.Single(p => p.Id == "touchdown").Penalties!.Flaps);
     }
@@ -390,14 +436,16 @@ public sealed class ScoreEngineTests
     }
 
     [Fact]
-    public void ApproachPhase_HasThreeEqualWeightMetrics()
+    public void ApproachPhase_HasFourMetricsWithBankAtTwentyPercent()
     {
         var (key, _) = Load();
         var approach = key.Phases.Single(p => p.Id == "approach");
-        Assert.Equal(3, approach.Metrics.Count);
+        Assert.Equal(4, approach.Metrics.Count);
         Assert.Contains(approach.Metrics, m => m.Id == "approach_glideslope");
         Assert.Contains(approach.Metrics, m => m.Id == "approach_vertical_steady");
         Assert.Contains(approach.Metrics, m => m.Id == "approach_lateral_steady");
+        Assert.Contains(approach.Metrics, m => m.Id == "approach_bank_stability");
+        Assert.Equal(20, approach.Metrics.Single(m => m.Id == "approach_bank_stability").ImportancePercent, 2);
         Assert.Equal(100, approach.Metrics.Sum(m => m.ImportancePercent), 2);
     }
 
@@ -414,10 +462,10 @@ public sealed class ScoreEngineTests
     }
 
     [Fact]
-    public void Hierarchy_ApproachUsesThreeMetricsNotSinglePath()
+    public void Hierarchy_ApproachUsesFourMetricsNotSinglePath()
     {
         var (key, challenge) = Load();
-        var snap = CompleteSnapshot();
+        var snap = CompleteSnapshot(challenge);
         var result = new ScoreEngine(key).Evaluate(challenge, snap);
         Assert.True(result.IsRanked, string.Join("; ", result.IncompleteReasons));
         var approachIds = result.Criteria
@@ -426,7 +474,13 @@ public sealed class ScoreEngineTests
             .OrderBy(x => x)
             .ToList();
         Assert.Equal(
-            new[] { "approach_glideslope", "approach_lateral_steady", "approach_vertical_steady" },
+            new[]
+            {
+                "approach_bank_stability",
+                "approach_glideslope",
+                "approach_lateral_steady",
+                "approach_vertical_steady"
+            },
             approachIds);
         Assert.Contains(result.Criteria, c => c.Id == "stall_warning" && c.PhaseId == "approach");
         Assert.Contains(result.Criteria, c => c.Id == "automation" && c.PhaseId == "approach");

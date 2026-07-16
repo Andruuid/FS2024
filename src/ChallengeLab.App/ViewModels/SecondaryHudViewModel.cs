@@ -1,5 +1,6 @@
 using System.Windows.Media;
 using ChallengeLab.Core.Config;
+using ChallengeLab.Core.Highscores;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scoring;
 using Brush = System.Windows.Media.Brush;
@@ -7,8 +8,6 @@ using Color = System.Windows.Media.Color;
 using SolidColorBrush = System.Windows.Media.SolidColorBrush;
 
 namespace ChallengeLab.App.ViewModels;
-
-public sealed record LandingMonitorGraphPoint(double ElapsedSeconds, double ScorePercent);
 
 /// <summary>Stateful presentation model for one secondary-HUD landing attempt.</summary>
 public sealed class SecondaryHudViewModel : ViewModelBase
@@ -24,7 +23,7 @@ public sealed class SecondaryHudViewModel : ViewModelBase
     private static readonly Brush OrangeBrush = FrozenBrush(0xFF, 0xB0, 0x20);
     private static readonly Brush RedBrush = FrozenBrush(0xFF, 0x4D, 0x6A);
 
-    private readonly List<LandingMonitorGraphPoint> _graphPoints = new();
+    private readonly List<ScoreHistoryPoint> _graphPoints = new();
     private DateTimeOffset? _collectionStartedAt;
     private DateTimeOffset? _lastGraphSampleAt;
     private DateTimeOffset? _lastClosureSampleAt;
@@ -49,7 +48,7 @@ public sealed class SecondaryHudViewModel : ViewModelBase
     private string _windLongitudinalDisplay = "Head/tailwind —";
     private string _windCrosswindDisplay = "Crosswind —";
     private string _windTotalDisplay = "Wind —";
-    private IReadOnlyList<LandingMonitorGraphPoint> _graphSnapshot = Array.Empty<LandingMonitorGraphPoint>();
+    private IReadOnlyList<ScoreHistoryPoint> _graphSnapshot = Array.Empty<ScoreHistoryPoint>();
     private bool _isCollecting;
     private double _graphHorizonSeconds = 30;
     private bool _graphHorizonLocked;
@@ -74,7 +73,7 @@ public sealed class SecondaryHudViewModel : ViewModelBase
     public string WindLongitudinalDisplay { get => _windLongitudinalDisplay; private set => SetProperty(ref _windLongitudinalDisplay, value); }
     public string WindCrosswindDisplay { get => _windCrosswindDisplay; private set => SetProperty(ref _windCrosswindDisplay, value); }
     public string WindTotalDisplay { get => _windTotalDisplay; private set => SetProperty(ref _windTotalDisplay, value); }
-    public IReadOnlyList<LandingMonitorGraphPoint> GraphPoints { get => _graphSnapshot; private set => SetProperty(ref _graphSnapshot, value); }
+    public IReadOnlyList<ScoreHistoryPoint> GraphPoints { get => _graphSnapshot; private set => SetProperty(ref _graphSnapshot, value); }
     public bool IsCollecting { get => _isCollecting; private set => SetProperty(ref _isCollecting, value); }
     public double GraphHorizonSeconds { get => _graphHorizonSeconds; private set => SetProperty(ref _graphHorizonSeconds, value); }
 
@@ -163,7 +162,7 @@ public sealed class SecondaryHudViewModel : ViewModelBase
         _graphHorizonLocked = false;
         GraphHorizonSeconds = 30;
         _graphPoints.Clear();
-        GraphPoints = Array.Empty<LandingMonitorGraphPoint>();
+        GraphPoints = Array.Empty<ScoreHistoryPoint>();
         TargetLabel = "No runway target";
         PhaseLabel = "IDLE";
         MonitorStatus = "Waiting for an armed runway";
@@ -300,7 +299,7 @@ public sealed class SecondaryHudViewModel : ViewModelBase
             return;
 
         var elapsed = Math.Max(0, (timestamp - _collectionStartedAt.Value).TotalSeconds);
-        var point = new LandingMonitorGraphPoint(elapsed, Math.Clamp(scorePercent.Value, 0, 100));
+        var point = new ScoreHistoryPoint(elapsed, Math.Clamp(scorePercent.Value, 0, 100));
         if (force && _graphPoints.Count > 0 && Math.Abs(_graphPoints[^1].ElapsedSeconds - elapsed) < .001)
             _graphPoints[^1] = point;
         else

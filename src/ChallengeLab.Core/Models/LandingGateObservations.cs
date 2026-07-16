@@ -49,6 +49,23 @@ public sealed class LandingGateObservations
     public double? RunwayLengthMeters { get; set; }
     public bool RolloutEndOfRunwayViolation { get; set; }
 
+    public bool ReverseThrustTelemetryCoverageAvailable { get; set; }
+    public bool OperatingEnginesCapturedAtTouchdown { get; set; }
+    public int? EngineCountAtTouchdown { get; set; }
+    public List<int> OperatingEngineIndicesAtTouchdown { get; set; } = new();
+    public Dictionary<int, double> FirstReverseSelectionTimeSecondsByEngine { get; set; } = new();
+    public bool AirborneReverseViolation { get; set; }
+    public double? FirstAirborneReverseTimeSeconds { get; set; }
+    public bool PoweredReverseViolation { get; set; }
+    public double? FirstPoweredReverseTimeSeconds { get; set; }
+    public double? FirstPoweredReverseThrottlePercent { get; set; }
+    public bool ReverseThrustStowEvaluated { get; set; }
+    public bool ReverseThrustStowCoverageAvailable { get; set; }
+    public double? GroundSpeedKtsAtReverseStowCheck { get; set; }
+    public bool ReverseThrustStowedAtThreshold { get; set; }
+    public List<int> EnginesNotStowedAtThreshold { get; set; } = new();
+    public bool ReverseApplicationWaivedByLowSpeed { get; set; }
+
     public void Reset()
     {
         MonitoringStarted = false;
@@ -83,5 +100,21 @@ public sealed class LandingGateObservations
         RequiredRemainingRunwayMeters = null;
         RunwayLengthMeters = null;
         RolloutEndOfRunwayViolation = false;
+        ReverseThrustTelemetryCoverageAvailable = false;
+        OperatingEnginesCapturedAtTouchdown = false;
+        EngineCountAtTouchdown = null;
+        OperatingEngineIndicesAtTouchdown.Clear();
+        FirstReverseSelectionTimeSecondsByEngine.Clear();
+        AirborneReverseViolation = false;
+        FirstAirborneReverseTimeSeconds = null;
+        PoweredReverseViolation = false;
+        FirstPoweredReverseTimeSeconds = null;
+        FirstPoweredReverseThrottlePercent = null;
+        ReverseThrustStowEvaluated = false;
+        ReverseThrustStowCoverageAvailable = false;
+        GroundSpeedKtsAtReverseStowCheck = null;
+        ReverseThrustStowedAtThreshold = false;
+        EnginesNotStowedAtThreshold.Clear();
+        ReverseApplicationWaivedByLowSpeed = false;
     }
 }

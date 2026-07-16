@@ -111,6 +111,7 @@ public sealed class LandingSession
         Snapshot.ApproachGlideslopeMeanAbsFt = 0;
         Snapshot.ApproachVerticalVariationFtPerSec = 0;
         Snapshot.ApproachLateralWeaveIndex = 0;
+        Snapshot.ApproachBankMeanAbsDeg = 0;
         Snapshot.ApproachLateralDistanceM = 0;
         Snapshot.ApproachMetricDurationSec = 0;
         Snapshot.RolloutHeadingVariance = 0;
@@ -167,7 +168,7 @@ public sealed class LandingSession
             ? logical.LeftMainOnGround || logical.RightMainOnGround
             : sample.SimOnGround;
 
-        UpdateOperationalGates(sample, logical, timeSeconds);
+        UpdateOperationalGates(sample, logical, timeSeconds, anyMainOnGround);
 
         var lateral = _geo.LateralOffsetMeters(sample.Latitude, sample.Longitude);
         Snapshot.MaxLateralOffsetM = Math.Max(Snapshot.MaxLateralOffsetM, Math.Abs(lateral));
@@ -316,13 +317,19 @@ public sealed class LandingSession
 
         // The touchdown frame itself is inside the inclusive spoiler window.
         UpdateSpoilerDeploymentGate(sample, logical.TimeSeconds);
+        UpdateReverseThrustGate(
+            sample,
+            logical.TimeSeconds,
+            anyMainOnGround: true,
+            acceptedTouchdownSample: true);
         UpdateNoseGearImpactObservation(logical, logical.TimeSeconds);
     }
 
     private void UpdateOperationalGates(
         TelemetrySample sample,
         LandingTelemetrySample logical,
-        double timeSeconds)
+        double timeSeconds,
+        bool anyMainOnGround)
     {
         var gates = _settings.OperationalGates;
         if (!gates.Enabled)
@@ -346,6 +353,7 @@ public sealed class LandingSession
         }
 
         UpdateManualBrakingGate(sample, logical, timeSeconds);
+        UpdateReverseThrustGate(sample, timeSeconds, anyMainOnGround);
 
         // General pause/rate monitoring and the approach automation gate stop at accepted main touchdown.
         if (!_touchdownCaptured)
@@ -362,6 +370,166 @@ public sealed class LandingSession
             UpdateRolloutDistanceGate(sample);
         }
     }
+
+    private void UpdateReverseThrustGate(
+        TelemetrySample sample,
+        double timeSeconds,
+        bool anyMainOnGround,
+        bool acceptedTouchdownSample = false)
+    {
+        var gate = _settings.OperationalGates.ReverseThrust;
+        if (gate is null)
+            return;
+
+        var observations = Snapshot.GateObservations;
+        var hasCoverage = TryReadReverseThrustTelemetry(sample, out var engineCount);
+        if (!_touchdownCaptured)
+        {
+            if (!hasCoverage || anyMainOnGround)
+                return;
+
+            observations.ReverseThrustTelemetryCoverageAvailable = true;
+            if (Enumerable.Range(1, engineCount).Any(index => IsReverseSelected(sample, index, gate)))
+            {
+                observations.AirborneReverseViolation = true;
+                observations.FirstAirborneReverseTimeSeconds ??= timeSeconds;
+            }
+            return;
+        }
+
+        if (acceptedTouchdownSample)
+        {
+            observations.ReverseThrustTelemetryCoverageAvailable = hasCoverage;
+            if (hasCoverage)
+            {
+                observations.OperatingEnginesCapturedAtTouchdown = true;
+                observations.EngineCountAtTouchdown = engineCount;
+                observations.OperatingEngineIndicesAtTouchdown = Enumerable.Range(1, engineCount)
+                    .Where(index => sample.EngineCombustionByIndex![index])
+                    .ToList();
+            }
+        }
+        else if (!hasCoverage)
+            observations.ReverseThrustTelemetryCoverageAvailable = false;
+
+        if (!acceptedTouchdownSample
+            && hasCoverage
+            && observations.EngineCountAtTouchdown is { } touchdownEngineCount
+            && engineCount != touchdownEngineCount)
+        {
+            observations.ReverseThrustTelemetryCoverageAvailable = false;
+            hasCoverage = false;
+        }
+
+        if (hasCoverage)
+        {
+            foreach (var engineIndex in Enumerable.Range(1, engineCount))
+            {
+                if (IsReverseSelected(sample, engineIndex, gate))
+                    observations.FirstReverseSelectionTimeSecondsByEngine.TryAdd(engineIndex, timeSeconds);
+
+                var throttle = sample.ThrottleLeverPositionPercentByIndex![engineIndex];
+                if (throttle < gate.PoweredReverseThrottleThresholdPercent)
+                {
+                    observations.PoweredReverseViolation = true;
+                    if (observations.FirstPoweredReverseTimeSeconds is null)
+                    {
+                        observations.FirstPoweredReverseTimeSeconds = timeSeconds;
+                        observations.FirstPoweredReverseThrottlePercent = throttle;
+                    }
+                }
+            }
+        }
+
+        if (!double.IsFinite(sample.GroundSpeedKts)
+            || sample.GroundSpeedKts > gate.StowGroundSpeedKts + 1e-9)
+            return;
+
+        var firstStowSample = !observations.ReverseThrustStowEvaluated;
+        if (firstStowSample)
+        {
+            observations.ReverseThrustStowEvaluated = true;
+            observations.GroundSpeedKtsAtReverseStowCheck = sample.GroundSpeedKts;
+
+            if (gate.Policy.Equals(ReverseThrustPolicies.Required, StringComparison.OrdinalIgnoreCase)
+                && timeSeconds + 1e-9 < _touchdownTimeSeconds + gate.DeadlineSecondsAfterTouchdown
+                && !AllOperatingEnginesSelected(observations))
+                observations.ReverseApplicationWaivedByLowSpeed = true;
+        }
+
+        if (!hasCoverage)
+        {
+            observations.ReverseThrustStowCoverageAvailable = false;
+            return;
+        }
+        if (!firstStowSample && !observations.ReverseThrustStowCoverageAvailable)
+            return;
+
+        if (firstStowSample)
+            observations.ReverseThrustStowCoverageAvailable = true;
+        var notStowed = Enumerable.Range(1, engineCount)
+            .Where(index => !IsReverseStowed(sample, index, gate))
+            .ToList();
+        if (notStowed.Count == 0)
+        {
+            if (firstStowSample)
+                observations.ReverseThrustStowedAtThreshold = true;
+            return;
+        }
+
+        observations.ReverseThrustStowedAtThreshold = false;
+        observations.EnginesNotStowedAtThreshold = observations.EnginesNotStowedAtThreshold
+            .Concat(notStowed)
+            .Distinct()
+            .Order()
+            .ToList();
+    }
+
+    private static bool TryReadReverseThrustTelemetry(TelemetrySample sample, out int engineCount)
+    {
+        engineCount = sample.EngineCount ?? 0;
+        if (engineCount is < 1 or > 4
+            || sample.EngineCombustionByIndex is null
+            || sample.ReverseThrustEngagedByIndex is null
+            || sample.ReverseNozzlePositionByIndex is null
+            || sample.ThrottleLeverPositionPercentByIndex is null)
+            return false;
+
+        for (var index = 1; index <= engineCount; index++)
+        {
+            if (!sample.EngineCombustionByIndex.ContainsKey(index)
+                || !sample.ReverseThrustEngagedByIndex.ContainsKey(index)
+                || !sample.ReverseNozzlePositionByIndex.TryGetValue(index, out var nozzle)
+                || !double.IsFinite(nozzle)
+                || !sample.ThrottleLeverPositionPercentByIndex.TryGetValue(index, out var throttle)
+                || !double.IsFinite(throttle))
+                return false;
+        }
+        return true;
+    }
+
+    private static bool IsReverseSelected(
+        TelemetrySample sample,
+        int engineIndex,
+        ReverseThrustGateConfig gate) =>
+        sample.ReverseThrustEngagedByIndex![engineIndex]
+        || sample.ReverseNozzlePositionByIndex![engineIndex] >= gate.MinimumNozzlePosition
+        || sample.ThrottleLeverPositionPercentByIndex![engineIndex]
+        < gate.PoweredReverseThrottleThresholdPercent;
+
+    private static bool IsReverseStowed(
+        TelemetrySample sample,
+        int engineIndex,
+        ReverseThrustGateConfig gate) =>
+        !sample.ReverseThrustEngagedByIndex![engineIndex]
+        && sample.ReverseNozzlePositionByIndex![engineIndex] < gate.MinimumNozzlePosition
+        && sample.ThrottleLeverPositionPercentByIndex![engineIndex]
+        >= gate.PoweredReverseThrottleThresholdPercent;
+
+    private static bool AllOperatingEnginesSelected(LandingGateObservations observations) =>
+        observations.OperatingEnginesCapturedAtTouchdown
+        && observations.OperatingEngineIndicesAtTouchdown.All(
+            observations.FirstReverseSelectionTimeSecondsByEngine.ContainsKey);
 
     private void UpdateRolloutDistanceGate(TelemetrySample sample)
     {
@@ -606,6 +774,13 @@ public sealed class LandingSession
                 return false;
         }
 
+        if (gates.ReverseThrust is { } reverse
+            && reverse.Policy.Equals(ReverseThrustPolicies.Required, StringComparison.OrdinalIgnoreCase)
+            && !observations.ReverseApplicationWaivedByLowSpeed
+            && !AllOperatingEnginesSelected(observations)
+            && timeSeconds < _touchdownTimeSeconds + reverse.DeadlineSecondsAfterTouchdown)
+            return false;
+
         return true;
     }
 
@@ -722,7 +897,8 @@ public sealed class LandingSession
     /// Short-final approach metrics (same distance window as config):
     /// 1) time-weighted mean absolute altitude error vs the nominal glideslope path,
     /// 2) total vertical path variation per second,
-    /// 3) total lateral path variation per metre flown.
+    /// 3) total lateral path variation per metre flown,
+    /// 4) time-weighted mean absolute bank.
     /// The configured inner distance boundary ends collection before the flare.
     /// Raw visual-frame telemetry is stabilized by <see cref="ApproachMetricCalculator"/>.
     /// </summary>
@@ -741,6 +917,7 @@ public sealed class LandingSession
         Snapshot.ApproachVerticalVariationFtPerSec =
             result.VerticalExcessVariationFeetPerSecond;
         Snapshot.ApproachLateralWeaveIndex = result.LateralExcessVariationIndex;
+        Snapshot.ApproachBankMeanAbsDeg = result.MeanAbsoluteBankDeg;
         Snapshot.ApproachLateralDistanceM = result.GroundDistanceMeters;
         Snapshot.ApproachMetricDurationSec = result.DurationSeconds;
     }

@@ -11,5 +11,11 @@
   "weather": {},
   "aircraftSetup": {},
   "runway": { "airportIcao": "CYLT", "runwayId": "TBD" },
+  "scoringOverrides": {
+    "reverseThrust": {
+      "policy": "optional_idle_only",
+      "reason": "Aggressive crosswind on an ice-covered runway. Keep reverse stowed or at idle to preserve directional control."
+    }
+  },
   "hudTips": []
 }

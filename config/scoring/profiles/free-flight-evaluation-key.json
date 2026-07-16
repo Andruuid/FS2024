@@ -1,6 +1,6 @@
 {
   "id": "free-flight-evaluation-key",
-  "version": 5,
+  "version": 7,
   "description": "Aircraft-generic free-flight landing score. Initial impact, flare/float, and post-contact stability are evaluated separately; flap index is not gated.",
   "formula": "phaseAfterPenalties = phaseScore * product(phase penalty multipliers); final = round(sum(phaseAfterPenalties * phaseWeightPercent / 100), 1)",
   "settle": {
@@ -52,7 +52,7 @@
         {
           "id": "touchdown_impact",
           "displayName": "Touchdown impact",
-          "importancePercent": 55,
+          "importancePercent": 44,
           "unit": "%",
           "evaluator": "landingImpact",
           "note": "Initial main-gear impact only. Combines touchdown vertical speed and robust filtered peak G; later impacts are excluded.",
@@ -74,9 +74,25 @@
           }
         },
         {
+          "id": "touchdown_point",
+          "displayName": "Touchdown point",
+          "importancePercent": 20,
+          "unit": "ft",
+          "evaluator": "upperBoundBands",
+          "metric": "touchdownPointErrorFt",
+          "note": "Longitudinal position of the first accepted main-gear touchdown. The perfect point is 1,100 ft from the landing threshold on runways up to and including 6,000 ft, otherwise 1,200 ft. Early and late errors score equally.",
+          "points": [
+            { "v": 50, "s": 100 },
+            { "v": 100, "s": 90 },
+            { "v": 200, "s": 75 },
+            { "v": 300, "s": 50 },
+            { "v": 500, "s": 25 }
+          ]
+        },
+        {
           "id": "flare_efficiency",
           "displayName": "Flare and float efficiency",
-          "importancePercent": 10,
+          "importancePercent": 8,
           "unit": "%",
           "evaluator": "flareEfficiency",
           "params": {
@@ -101,7 +117,7 @@
         {
           "id": "contact_stability",
           "displayName": "Contact stability",
-          "importancePercent": 10,
+          "importancePercent": 8,
           "unit": "%",
           "evaluator": "contactStability",
           "params": {
@@ -121,7 +137,7 @@
         {
           "id": "airspeed",
           "displayName": "IAS versus touchdown target",
-          "importancePercent": 13,
+          "importancePercent": 10.4,
           "unit": "kts",
           "evaluator": "piecewise",
           "metric": "touchdownIasErrorKts",
@@ -142,7 +158,7 @@
         {
           "id": "centerline",
           "displayName": "Centerline offset",
-          "importancePercent": 7,
+          "importancePercent": 5.6,
           "unit": "m",
           "evaluator": "centerline",
           "metric": "centerlineDeviationM",
@@ -156,7 +172,7 @@
         {
           "id": "ground_track",
           "displayName": "Ground track (CG path)",
-          "importancePercent": 3,
+          "importancePercent": 2.4,
           "unit": "deg",
           "evaluator": "target",
           "metric": "groundTrackErrorMeanDeg",
@@ -167,7 +183,7 @@
         {
           "id": "bank",
           "displayName": "Bank at touchdown",
-          "importancePercent": 2,
+          "importancePercent": 1.6,
           "unit": "deg",
           "evaluator": "target",
           "metric": "bankAtTouchdownDeg",
@@ -179,12 +195,12 @@
       "id": "approach",
       "displayName": "Approach",
       "weightPercent": 25,
-      "note": "Short final (≈0.2–4.5 NM): average 3° path match, vertical steadiness, and lateral steadiness share the phase equally.",
+      "note": "Short final (≈0.2–4.5 NM): average 3° path match, vertical steadiness, lateral steadiness, and bank stability. Bank is 20%; the three path metrics share the remaining 80%.",
       "metrics": [
         {
           "id": "approach_glideslope",
           "displayName": "Average glideslope match",
-          "importancePercent": 33.34,
+          "importancePercent": 26.67,
           "unit": "ft",
           "evaluator": "target",
           "metric": "approachGlideslopeMeanAbsFt",
@@ -194,7 +210,7 @@
         {
           "id": "approach_vertical_steady",
           "displayName": "Vertical steadiness",
-          "importancePercent": 33.33,
+          "importancePercent": 26.67,
           "unit": "ft/s",
           "evaluator": "target",
           "metric": "approachVerticalVariationFtPerSec",
@@ -204,12 +220,22 @@
         {
           "id": "approach_lateral_steady",
           "displayName": "Lateral steadiness",
-          "importancePercent": 33.33,
+          "importancePercent": 26.66,
           "unit": "m/m",
           "evaluator": "target",
           "metric": "approachLateralWeaveIndex",
           "note": "Total lateral path change: Σ|Δd| / ground distance. Straight track scores high; big corrections and S-turns score low.",
           "params": { "ideal": 0, "tolerance": 0.02, "maxError": 0.20 }
+        },
+        {
+          "id": "approach_bank_stability",
+          "displayName": "Bank angle stability",
+          "importancePercent": 20,
+          "unit": "deg",
+          "evaluator": "target",
+          "metric": "approachBankMeanAbsDeg",
+          "note": "Time-weighted mean absolute bank on short final: ∫|φ|dt / T. Wings level scores high (full credit within 2°); sustained bank and left/right rocking score low (zero by 18° mean |bank|).",
+          "params": { "ideal": 0, "tolerance": 2.0, "maxError": 18.0 }
         }
       ]
     },

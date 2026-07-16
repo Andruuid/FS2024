@@ -207,6 +207,7 @@ public static class ScoreBreakdownFormatter
         "approach_glideslope" => "avg glideslope",
         "approach_vertical_steady" => "vert steady",
         "approach_lateral_steady" => "lat steady",
+        "approach_bank_stability" => "bank steady",
         "post_td_alignment" => "heading",
         "rollout_path" => "centerline",
         "rollout_weave" => "weave",

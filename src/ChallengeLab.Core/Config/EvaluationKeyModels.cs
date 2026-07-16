@@ -53,7 +53,8 @@ public sealed class LandingEvaluationKey
                 GeneralPenalties?.PauseUsage,
                 GeneralPenalties?.SimulationRate,
                 FindPhasePenalty(p => p.NoseGearImpact),
-                FindPhasePenalty(p => p.Rollout))
+                FindPhasePenalty(p => p.Rollout),
+                FindPhasePenalty(p => p.ReverseThrust))
         };
     }
 
@@ -129,7 +130,8 @@ public sealed record OperationalGateSessionSettings(
     PauseUsageGateConfig? PauseUsage = null,
     SimulationRateGateConfig? SimulationRate = null,
     NoseGearImpactGateConfig? NoseGearImpact = null,
-    RolloutGateConfig? Rollout = null)
+    RolloutGateConfig? Rollout = null,
+    ReverseThrustGateConfig? ReverseThrust = null)
 {
     public bool Enabled => SpoilerDeployment is not null
                            || ManualBraking is not null
@@ -137,7 +139,8 @@ public sealed record OperationalGateSessionSettings(
                            || PauseUsage is not null
                            || SimulationRate is not null
                            || NoseGearImpact is not null
-                           || Rollout is not null;
+                           || Rollout is not null
+                           || ReverseThrust is not null;
 }
 
 public sealed class EvaluationSettle
@@ -253,6 +256,7 @@ public sealed class EvaluationPhasePenalties
     public AutomationGateConfig? Automation { get; set; }
     public NoseGearImpactGateConfig? NoseGearImpact { get; set; }
     public RolloutGateConfig? Rollout { get; set; }
+    public ReverseThrustGateConfig? ReverseThrust { get; set; }
 }
 
 /// <summary>
@@ -279,6 +283,36 @@ public sealed class RolloutGateConfig
     /// </summary>
     public static double RequiredRemainingAt50Knots(double runwayLengthMeters)
         => Math.Max(400, runwayLengthMeters * 0.15);
+}
+
+public static class ReverseThrustPolicies
+{
+    public const string Required = "required";
+    public const string OptionalIdleOnly = "optional_idle_only";
+    public const string Prohibited = "prohibited";
+
+    public static bool IsSupported(string? policy) => policy is not null &&
+        (policy.Equals(Required, StringComparison.OrdinalIgnoreCase)
+         || policy.Equals(OptionalIdleOnly, StringComparison.OrdinalIgnoreCase)
+         || policy.Equals(Prohibited, StringComparison.OrdinalIgnoreCase));
+
+    public static string Normalize(string policy) => policy.Trim().ToLowerInvariant();
+}
+
+/// <summary>
+/// Penalty-only reverse-thrust procedure gate. Reverse must normally be selected by the
+/// touchdown deadline and completely stowed by the configured low-speed threshold.
+/// </summary>
+public sealed class ReverseThrustGateConfig
+{
+    public string Policy { get; set; } = ReverseThrustPolicies.Required;
+    public string? ExceptionReason { get; set; }
+    public double DeadlineSecondsAfterTouchdown { get; set; } = 4.0;
+    public double MinimumNozzlePosition { get; set; } = 0.01;
+    public double PoweredReverseThrottleThresholdPercent { get; set; } = -1.0;
+    public double StowGroundSpeedKts { get; set; } = 60.0;
+    public double MultiplierOnFail { get; set; } = 0.9;
+    public string? PenaltyDescription { get; set; }
 }
 
 /// <summary>

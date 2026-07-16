@@ -236,6 +236,7 @@ public static class LiveApproachIssueBuilder
                     : null),
             "approach_vertical_steady" => new Issue("unsteady vertical", 0),
             "approach_lateral_steady" => new Issue("weaving", 0),
+            "approach_bank_stability" => new Issue("rocking bank", 0),
             "touchdown_impact" => MapTouchdownImpact(snapshot),
             "flare_efficiency" => new Issue("long float / balloon", 0),
             "contact_stability" => new Issue("bounce", 0),

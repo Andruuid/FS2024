@@ -16,7 +16,7 @@ public sealed class OperationalLandingGateTests
         var free = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey);
 
         Assert.True(challenge.IsValid, string.Join("; ", challenge.Errors));
-        Assert.Equal(18, challenge.Key!.Version);
+        Assert.Equal(21, challenge.Key!.Version);
         var touchdown = challenge.Key.Phases.Single(p => p.Id == "touchdown").Penalties!;
         var approach = challenge.Key.Phases.Single(p => p.Id == "approach").Penalties!;
         var rollout = challenge.Key.Phases.Single(p => p.Id == "rollout").Penalties!;
@@ -25,6 +25,7 @@ public sealed class OperationalLandingGateTests
         Assert.NotNull(approach.Automation);
         Assert.NotNull(rollout.ManualBraking);
         Assert.NotNull(rollout.Rollout);
+        Assert.NotNull(rollout.ReverseThrust);
         Assert.NotNull(challenge.Key.GeneralPenalties!.PauseUsage);
         Assert.NotNull(challenge.Key.GeneralPenalties.SimulationRate);
         Assert.Equal(0.8, rollout.Rollout!.MultiplierOnFail, 6);
@@ -38,6 +39,7 @@ public sealed class OperationalLandingGateTests
             Assert.Null(phase.Penalties?.Automation);
             Assert.Null(phase.Penalties?.NoseGearImpact);
             Assert.Null(phase.Penalties?.Rollout);
+            Assert.Null(phase.Penalties?.ReverseThrust);
         });
     }
 
@@ -56,6 +58,8 @@ public sealed class OperationalLandingGateTests
         key.GeneralPenalties.SimulationRate!.MinimumAllowedRate = 0;
         key.Phases.Single(p => p.Id == "touchdown").Penalties!.NoseGearImpact!
             .SevereDeltaG = 0.1;
+        key.Phases.Single(p => p.Id == "rollout").Penalties!.ReverseThrust!
+            .StowGroundSpeedKts = 0;
 
         var errors = EvaluationKeyValidator.Validate(key);
         Assert.Contains(errors, error => error.Contains("minimumSurfacePosition"));
@@ -64,6 +68,82 @@ public sealed class OperationalLandingGateTests
         Assert.Contains(errors, error => error.Contains("pauseUsage.multiplierOnFail"));
         Assert.Contains(errors, error => error.Contains("simulationRate.minimumAllowedRate"));
         Assert.Contains(errors, error => error.Contains("noseGearImpact.severeDeltaG"));
+        Assert.Contains(errors, error => error.Contains("reverseThrust.stowGroundSpeedKts"));
+    }
+
+    [Fact]
+    public void ReverseThrustConfiguration_RejectsEveryInvalidBoundAndPolicy()
+    {
+        var cases = new (string ExpectedPath, Action<ReverseThrustGateConfig> Mutate)[]
+        {
+            ("policy", gate => gate.Policy = null!),
+            ("policy", gate => gate.Policy = "unknown"),
+            ("deadlineSecondsAfterTouchdown", gate => gate.DeadlineSecondsAfterTouchdown = -0.001),
+            ("deadlineSecondsAfterTouchdown", gate => gate.DeadlineSecondsAfterTouchdown = double.NaN),
+            ("minimumNozzlePosition", gate => gate.MinimumNozzlePosition = 0),
+            ("minimumNozzlePosition", gate => gate.MinimumNozzlePosition = 1.001),
+            ("poweredReverseThrottleThresholdPercent", gate => gate.PoweredReverseThrottleThresholdPercent = -100.001),
+            ("poweredReverseThrottleThresholdPercent", gate => gate.PoweredReverseThrottleThresholdPercent = 0.001),
+            ("stowGroundSpeedKts", gate => gate.StowGroundSpeedKts = 0),
+            ("multiplierOnFail", gate => gate.MultiplierOnFail = 0),
+            ("multiplierOnFail", gate => gate.MultiplierOnFail = 1.001)
+        };
+
+        foreach (var (expectedPath, mutate) in cases)
+        {
+            var (key, _) = LoadChallengeProfile();
+            var gate = key.Phases.Single(p => p.Id == "rollout").Penalties!.ReverseThrust!;
+            mutate(gate);
+            Assert.Contains(EvaluationKeyValidator.Validate(key), error => error.Contains(expectedPath));
+        }
+    }
+
+    [Fact]
+    public void ReverseThrustChallengeOverride_ChangesPolicyHash_AndArcticUsesIdleOnly()
+    {
+        var loader = new ConfigLoader(FindConfig());
+        var baseKey = loader.LoadEvaluationKey().Key!;
+        var arctic = loader.LoadChallenge("challenges/career-arctic-ice-runway-rescue.json");
+        var defaultChallenge = loader.LoadChallenge("challenges/barcelona-crosswind-final.json");
+
+        var effective = EffectiveEvaluationProfileBuilder.Build(baseKey, arctic);
+        var defaultEffective = EffectiveEvaluationProfileBuilder.Build(baseKey, defaultChallenge);
+        var reverse = effective.Key.Phases.Single(p => p.Id == "rollout").Penalties!.ReverseThrust!;
+
+        Assert.Equal(ReverseThrustPolicies.OptionalIdleOnly, reverse.Policy);
+        Assert.Contains("ice-covered runway", reverse.ExceptionReason);
+        Assert.NotEqual(defaultEffective.ProfileHash, effective.ProfileHash);
+    }
+
+    [Theory]
+    [InlineData("not_a_policy", "reason")]
+    [InlineData("prohibited", "")]
+    public void ReverseThrustChallengeOverride_RejectsInvalidPolicyOrMissingReason(string policy, string reason)
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        challenge.ScoringOverrides = new ChallengeScoringOverrides
+        {
+            ReverseThrust = new ReverseThrustChallengeOverride { Policy = policy, Reason = reason }
+        };
+
+        Assert.Throws<ArgumentException>(() => EffectiveEvaluationProfileBuilder.Build(key, challenge));
+    }
+
+    [Fact]
+    public void ReverseThrustChallengeOverride_RejectsBaseProfileWithoutGate()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        key.Phases.Single(p => p.Id == "rollout").Penalties!.ReverseThrust = null;
+        challenge.ScoringOverrides = new ChallengeScoringOverrides
+        {
+            ReverseThrust = new ReverseThrustChallengeOverride
+            {
+                Policy = ReverseThrustPolicies.Prohibited,
+                Reason = "Noise restriction."
+            }
+        };
+
+        Assert.Throws<ArgumentException>(() => EffectiveEvaluationProfileBuilder.Build(key, challenge));
     }
 
     [Fact]
@@ -73,9 +153,12 @@ public sealed class OperationalLandingGateTests
         var approach = key.Phases.Single(p => p.Id == "approach");
         var rollout = key.Phases.Single(p => p.Id == "rollout");
         rollout.Penalties!.StallWarning = approach.Penalties!.StallWarning;
+        approach.Penalties.ReverseThrust = rollout.Penalties.ReverseThrust;
 
         Assert.Contains(EvaluationKeyValidator.Validate(key), error =>
             error.Contains("stallWarning must belong to phase 'approach'", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(EvaluationKeyValidator.Validate(key), error =>
+            error.Contains("reverseThrust must belong to phase 'rollout'", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -267,6 +350,106 @@ public sealed class OperationalLandingGateTests
         Assert.True(bounced.Snapshot.GateObservations.EarlyOrAirborneBrakeViolation);
     }
 
+    [Theory]
+    [InlineData(10.0, false)]
+    [InlineData(14.0, false)]
+    [InlineData(14.001, true)]
+    public void ReverseThrust_UsesInclusiveFourSecondDeadline(double selectionTime, bool penalized)
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var snapshot = PassingSnapshot();
+        snapshot.GateObservations.FirstReverseSelectionTimeSecondsByEngine[1] = selectionTime;
+        snapshot.GateObservations.FirstReverseSelectionTimeSecondsByEngine[2] = selectionTime;
+
+        var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
+
+        Assert.Equal(penalized ? MetricStatus.GateFailed : MetricStatus.Informational,
+            result.Criteria.Single(c => c.Id == "reverse_thrust").Status);
+    }
+
+    [Fact]
+    public void ReverseThrust_MultipleFailuresApplyOneRolloutMultiplierAndOneCriterion()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var clean = new ScoreEngine(key).Evaluate(challenge, PassingSnapshot());
+        var snapshot = PassingSnapshot();
+        var obs = snapshot.GateObservations;
+        obs.AirborneReverseViolation = true;
+        obs.FirstReverseSelectionTimeSecondsByEngine[1] = 15;
+        obs.FirstReverseSelectionTimeSecondsByEngine.Remove(2);
+        obs.ReverseThrustStowedAtThreshold = false;
+        obs.EnginesNotStowedAtThreshold = new List<int> { 1 };
+
+        var failed = new ScoreEngine(key).Evaluate(challenge, snapshot);
+
+        Assert.Single(failed.Criteria, criterion => criterion.Id == "reverse_thrust");
+        Assert.Equal(MetricStatus.GateFailed, failed.Criteria.Single(c => c.Id == "reverse_thrust").Status);
+        Assert.Equal(Math.Round(clean.PhaseScores.Single(p => p.PhaseId == "rollout").ScorePercent!.Value * 0.9, 1),
+            failed.PhaseScores.Single(p => p.PhaseId == "rollout").ScorePercent);
+        Assert.Contains("before accepted", failed.Criteria.Single(c => c.Id == "reverse_thrust").Note);
+        Assert.Contains("not completely stowed", failed.Criteria.Single(c => c.Id == "reverse_thrust").Note);
+    }
+
+    [Fact]
+    public void ReverseThrust_MissingTelemetryMakesAttemptUnranked()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var snapshot = PassingSnapshot();
+        snapshot.GateObservations.ReverseThrustTelemetryCoverageAvailable = false;
+
+        var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
+
+        Assert.False(result.IsRanked);
+        Assert.Equal(MetricStatus.Unavailable, result.Criteria.Single(c => c.Id == "reverse_thrust").Status);
+    }
+
+    [Fact]
+    public void ReverseThrust_ExceptionPoliciesEnforceIdleOnlyAndProhibited()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        challenge.ScoringOverrides = new ChallengeScoringOverrides
+        {
+            ReverseThrust = new ReverseThrustChallengeOverride
+            {
+                Policy = ReverseThrustPolicies.OptionalIdleOnly,
+                Reason = "Slippery crosswind runway."
+            }
+        };
+        var idleProfile = EffectiveEvaluationProfileBuilder.Build(key, challenge);
+        var stowed = PassingSnapshot();
+        stowed.GateObservations.FirstReverseSelectionTimeSecondsByEngine.Clear();
+        Assert.Equal(MetricStatus.Informational,
+            new ScoreEngine(idleProfile.Key).Evaluate(challenge, stowed).Criteria.Single(c => c.Id == "reverse_thrust").Status);
+
+        var idle = PassingSnapshot();
+        var idleCriterion = new ScoreEngine(idleProfile.Key).Evaluate(challenge, idle).Criteria
+            .Single(c => c.Id == "reverse_thrust");
+        Assert.Equal(MetricStatus.Informational, idleCriterion.Status);
+        Assert.Contains("Slippery crosswind runway", idleCriterion.Note);
+
+        var powered = PassingSnapshot();
+        powered.GateObservations.PoweredReverseViolation = true;
+        powered.GateObservations.FirstPoweredReverseThrottlePercent = -20;
+        Assert.Equal(MetricStatus.GateFailed,
+            new ScoreEngine(idleProfile.Key).Evaluate(challenge, powered).Criteria.Single(c => c.Id == "reverse_thrust").Status);
+
+        challenge.ScoringOverrides.ReverseThrust = new ReverseThrustChallengeOverride
+        {
+            Policy = ReverseThrustPolicies.Prohibited,
+            Reason = "Night noise restriction."
+        };
+        var prohibitedProfile = EffectiveEvaluationProfileBuilder.Build(key, challenge);
+        var selected = PassingSnapshot();
+        Assert.Equal(MetricStatus.GateFailed,
+            new ScoreEngine(prohibitedProfile.Key).Evaluate(challenge, selected).Criteria.Single(c => c.Id == "reverse_thrust").Status);
+
+        var airborneOnly = PassingSnapshot();
+        airborneOnly.GateObservations.AirborneReverseViolation = true;
+        airborneOnly.GateObservations.FirstReverseSelectionTimeSecondsByEngine.Clear();
+        Assert.Equal(MetricStatus.Informational,
+            new ScoreEngine(prohibitedProfile.Key).Evaluate(challenge, airborneOnly).Criteria.Single(c => c.Id == "reverse_thrust").Status);
+    }
+
     [Fact]
     public void Session_DoesNotFinalizeBeforeSpoilerAndBrakeWindowsClose()
     {
@@ -316,6 +499,162 @@ public sealed class OperationalLandingGateTests
         session.Ingest(GearSample(3, leftMain: true, rightMain: true, nose: false));
         session.Ingest(GearSample(3.1, leftMain: true, rightMain: true, nose: true));
         Assert.Equal(3.1, observations.LastNoseGearImpactContactTimeSeconds);
+    }
+
+    [Fact]
+    public void ReverseThrustSession_LatchesBothOperatingEnginesAndExactSixtyKnotStow()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var session = new LandingSession(challenge, key.ToSessionSettings() with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false
+        });
+        session.Arm();
+        session.Ingest(ReverseSample(9, airborne: true, groundSpeed: 130));
+        session.Ingest(ReverseSample(10, airborne: false, groundSpeed: 120));
+        session.Ingest(ReverseSample(14, airborne: false, groundSpeed: 90, reverse1: true, reverse2: true));
+        session.Ingest(ReverseSample(20, airborne: false, groundSpeed: 60));
+
+        var obs = session.Snapshot.GateObservations;
+        Assert.Equal(new[] { 1, 2 }, obs.OperatingEngineIndicesAtTouchdown);
+        Assert.Equal(14, obs.FirstReverseSelectionTimeSecondsByEngine[1]);
+        Assert.Equal(14, obs.FirstReverseSelectionTimeSecondsByEngine[2]);
+        Assert.True(obs.ReverseThrustStowEvaluated);
+        Assert.True(obs.ReverseThrustStowedAtThreshold);
+        Assert.Equal(60, obs.GroundSpeedKtsAtReverseStowCheck);
+    }
+
+    [Fact]
+    public void ReverseThrustSession_RequiresOnlyOperatingEngine_AndWaivesDeadlineWhenSixtyComesFirst()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var settings = key.ToSessionSettings() with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false
+        };
+        var engineOut = new LandingSession(challenge, settings);
+        engineOut.Arm();
+        engineOut.Ingest(ReverseSample(9, true, 130, engine2Operating: false));
+        engineOut.Ingest(ReverseSample(10, false, 120, engine2Operating: false));
+        engineOut.Ingest(ReverseSample(12, false, 90, reverse1: true, engine2Operating: false));
+        Assert.Equal(new[] { 1 }, engineOut.Snapshot.GateObservations.OperatingEngineIndicesAtTouchdown);
+
+        var lowSpeed = new LandingSession(challenge, settings);
+        lowSpeed.Arm();
+        lowSpeed.Ingest(ReverseSample(9, true, 80));
+        lowSpeed.Ingest(ReverseSample(10, false, 70));
+        lowSpeed.Ingest(ReverseSample(12, false, 60));
+        Assert.True(lowSpeed.Snapshot.GateObservations.ReverseApplicationWaivedByLowSpeed);
+        Assert.True(lowSpeed.Snapshot.GateObservations.ReverseThrustStowedAtThreshold);
+    }
+
+    [Fact]
+    public void ReverseThrustSession_LatchesAirborneAndPoweredReverseViolations()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var session = new LandingSession(challenge, key.ToSessionSettings() with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false
+        });
+        session.Arm();
+        session.Ingest(ReverseSample(9, true, 130, reverse1: true));
+        session.Ingest(ReverseSample(10, false, 120));
+        session.Ingest(ReverseSample(11, false, 100, reverse1: true, reverse2: true, throttle1: -20));
+
+        var obs = session.Snapshot.GateObservations;
+        Assert.True(obs.AirborneReverseViolation);
+        Assert.True(obs.PoweredReverseViolation);
+        Assert.Equal(-20, obs.FirstPoweredReverseThrottlePercent);
+    }
+
+    [Theory]
+    [InlineData(true, 0, 0)]
+    [InlineData(false, 0.2, 0)]
+    [InlineData(false, 0, -2)]
+    public void ReverseThrustSession_UsesEngagedNozzleAndThrottleSignalFallbacks(
+        bool engaged,
+        double nozzle,
+        double throttle)
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var session = new LandingSession(challenge, key.ToSessionSettings() with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false
+        });
+        session.Arm();
+        session.Ingest(ReverseSample(9, true, 130));
+        session.Ingest(ReverseSample(
+            10,
+            false,
+            120,
+            throttle1: throttle,
+            reverseEngaged1: engaged,
+            reverseNozzle1: nozzle));
+        session.Ingest(ReverseSample(
+            15,
+            false,
+            60,
+            throttle1: throttle,
+            reverseEngaged1: engaged,
+            reverseNozzle1: nozzle));
+
+        var obs = session.Snapshot.GateObservations;
+        Assert.Equal(10, obs.FirstReverseSelectionTimeSecondsByEngine[1]);
+        Assert.False(obs.ReverseThrustStowedAtThreshold);
+        Assert.Contains(1, obs.EnginesNotStowedAtThreshold);
+    }
+
+    [Fact]
+    public void ReverseThrustSession_DoesNotReconstructMissingTouchdownCoverageLater()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var session = new LandingSession(challenge, key.ToSessionSettings() with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false
+        });
+        session.Arm();
+        session.Ingest(ReverseSample(9, true, 130));
+        session.Ingest(ReverseSample(10, false, 120, includeReverseTelemetry: false));
+        session.Ingest(ReverseSample(11, false, 100, reverse1: true, reverse2: true));
+        session.Ingest(ReverseSample(15, false, 60));
+
+        var obs = session.Snapshot.GateObservations;
+        Assert.False(obs.OperatingEnginesCapturedAtTouchdown);
+        Assert.False(obs.ReverseThrustTelemetryCoverageAvailable);
+    }
+
+    [Fact]
+    public void ReverseThrustSession_LatchesCoverageLossAndContinuedStowViolation()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var settings = key.ToSessionSettings() with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false
+        };
+        var coverageLoss = new LandingSession(challenge, settings);
+        coverageLoss.Arm();
+        coverageLoss.Ingest(ReverseSample(9, true, 130));
+        coverageLoss.Ingest(ReverseSample(10, false, 120, reverse1: true, reverse2: true));
+        coverageLoss.Ingest(ReverseSample(11, false, 100, includeReverseTelemetry: false));
+        coverageLoss.Ingest(ReverseSample(15, false, 60));
+        Assert.False(coverageLoss.Snapshot.GateObservations.ReverseThrustTelemetryCoverageAvailable);
+
+        var redeployed = new LandingSession(challenge, settings);
+        redeployed.Arm();
+        redeployed.Ingest(ReverseSample(9, true, 130));
+        redeployed.Ingest(ReverseSample(10, false, 120, reverse1: true, reverse2: true));
+        redeployed.Ingest(ReverseSample(15, false, 60));
+        redeployed.Ingest(ReverseSample(16, false, 50, reverse1: true));
+
+        var obs = redeployed.Snapshot.GateObservations;
+        Assert.False(obs.ReverseThrustStowedAtThreshold);
+        Assert.Contains(1, obs.EnginesNotStowedAtThreshold);
     }
 
     [Fact]
@@ -549,6 +888,11 @@ public sealed class OperationalLandingGateTests
             Assert.Equal(950, reloaded.Diagnostics.OperationalGates.FirstAutomationViolationRadioHeightFeet);
             Assert.NotNull(reloaded.Diagnostics.OperationalGates.NoseGearImpact?.WorstEvent);
             Assert.Contains(reloaded.Criteria, c => c.Id == "nose_gear_impact");
+            Assert.Contains(reloaded.Criteria, c => c.Id == "reverse_thrust"
+                                                   && c.Note!.Contains("Engine coverage at touchdown"));
+            Assert.Equal(2, reloaded.Diagnostics.OperationalGates.EngineCountAtTouchdown);
+            Assert.Equal(new[] { 1, 2 },
+                reloaded.Diagnostics.OperationalGates.OperatingEngineIndicesAtTouchdown);
         }
         finally
         {
@@ -562,6 +906,12 @@ public sealed class OperationalLandingGateTests
         var (key, challenge) = LoadChallengeProfile();
         var snapshot = PassingSnapshot();
         snapshot.GateObservations.PauseViolation = true;
+        snapshot.RolloutSamples.Add(ReverseSample(
+            time: 11,
+            airborne: false,
+            groundSpeed: 100,
+            reverse1: true,
+            reverse2: true));
         var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
         var directory = Path.Combine(Path.GetTempPath(), "ChallengeLabGateTraces", Guid.NewGuid().ToString("N"));
         try
@@ -574,11 +924,28 @@ public sealed class OperationalLandingGateTests
             Assert.Equal(0.1, root.GetProperty("Snapshot").GetProperty("OperationalGates")
                 .GetProperty("NoseGearImpact").GetProperty("WorstEvent")
                 .GetProperty("DeltaG").GetDouble(), 3);
+            Assert.Equal(2, root.GetProperty("Snapshot").GetProperty("OperationalGates")
+                .GetProperty("OperatingEngineIndicesAtTouchdown").GetArrayLength());
+            Assert.Equal(60, root.GetProperty("Snapshot").GetProperty("OperationalGates")
+                .GetProperty("GroundSpeedKtsAtReverseStowCheck").GetDouble());
             Assert.Contains(root.GetProperty("Metrics").EnumerateArray(), metric =>
                 metric.GetProperty("Id").GetString() == "pause_usage"
                 && metric.GetProperty("Status").GetString() == nameof(MetricStatus.GateFailed));
             Assert.Contains(root.GetProperty("Metrics").EnumerateArray(), metric =>
                 metric.GetProperty("Id").GetString() == "nose_gear_impact");
+            Assert.Contains(root.GetProperty("Metrics").EnumerateArray(), metric =>
+                metric.GetProperty("Id").GetString() == "reverse_thrust"
+                && metric.GetProperty("Note").GetString()!.Contains("required", StringComparison.Ordinal));
+            Assert.Equal(2, root.GetProperty("RolloutSamples")[0].GetProperty("EngineCount").GetInt32());
+            Assert.True(root.GetProperty("RolloutSamples")[0].GetProperty("ReverseEngaged")
+                .GetProperty("1").GetBoolean());
+
+            var reloaded = JsonSerializer.Deserialize<LandingTraceDocument>(File.ReadAllText(path));
+            Assert.NotNull(reloaded);
+            Assert.Equal(new[] { 1, 2 }, reloaded!.Snapshot.OperationalGates.OperatingEngineIndicesAtTouchdown);
+            Assert.True(reloaded.RolloutSamples[0].ReverseEngaged![2]);
+            Assert.Equal(0.2, reloaded.RolloutSamples[0].ReverseNozzle![1], 3);
+            Assert.Contains("required", reloaded.Metrics.Single(m => m.Id == "reverse_thrust").Note);
         }
         finally
         {
@@ -626,6 +993,11 @@ public sealed class OperationalLandingGateTests
         ManualBrakeRightPosition = brakeRight,
         SpoilersLeftPosition = 0,
         SpoilersRightPosition = 0,
+        EngineCount = 2,
+        EngineCombustionByIndex = new Dictionary<int, bool> { [1] = true, [2] = true },
+        ReverseThrustEngagedByIndex = new Dictionary<int, bool> { [1] = false, [2] = false },
+        ReverseNozzlePositionByIndex = new Dictionary<int, double> { [1] = 0, [2] = 0 },
+        ThrottleLeverPositionPercentByIndex = new Dictionary<int, double> { [1] = 0, [2] = 0 },
         AutopilotHeadingHoldActive = activeAutomation == "heading",
         AutopilotAltitudeHoldActive = activeAutomation == "altitude",
         AutopilotMasterActive = activeAutomation == "master",
@@ -672,6 +1044,11 @@ public sealed class OperationalLandingGateTests
         ManualBrakeRightPosition = brakes,
         SpoilersLeftPosition = spoilers,
         SpoilersRightPosition = spoilers,
+        EngineCount = 2,
+        EngineCombustionByIndex = new Dictionary<int, bool> { [1] = true, [2] = true },
+        ReverseThrustEngagedByIndex = new Dictionary<int, bool> { [1] = false, [2] = false },
+        ReverseNozzlePositionByIndex = new Dictionary<int, double> { [1] = 0, [2] = 0 },
+        ThrottleLeverPositionPercentByIndex = new Dictionary<int, double> { [1] = 0, [2] = 0 },
         AutopilotHeadingHoldActive = false,
         AutopilotAltitudeHoldActive = false,
         AutopilotMasterActive = false,
@@ -716,6 +1093,82 @@ public sealed class OperationalLandingGateTests
         ManualBrakeRightPosition = 0,
         SpoilersLeftPosition = 0,
         SpoilersRightPosition = 0,
+        EngineCount = 2,
+        EngineCombustionByIndex = new Dictionary<int, bool> { [1] = true, [2] = true },
+        ReverseThrustEngagedByIndex = new Dictionary<int, bool> { [1] = false, [2] = false },
+        ReverseNozzlePositionByIndex = new Dictionary<int, double> { [1] = 0, [2] = 0 },
+        ThrottleLeverPositionPercentByIndex = new Dictionary<int, double> { [1] = 0, [2] = 0 },
+        AutopilotHeadingHoldActive = false,
+        AutopilotAltitudeHoldActive = false,
+        AutopilotMasterActive = false,
+        AutopilotChannel1Active = false,
+        AutopilotChannel2Active = false,
+        AutothrustActive = false,
+        AutothrustArmed = false,
+        PauseStateAvailable = true,
+        SimulationRate = 1
+    };
+
+    private static TelemetrySample ReverseSample(
+        double time,
+        bool airborne,
+        double groundSpeed,
+        bool reverse1 = false,
+        bool reverse2 = false,
+        double throttle1 = 0,
+        double throttle2 = 0,
+        bool engine2Operating = true,
+        bool? reverseEngaged1 = null,
+        double? reverseNozzle1 = null,
+        bool includeReverseTelemetry = true) => new()
+    {
+        Timestamp = DateTimeOffset.UnixEpoch.AddSeconds(time),
+        SimulationTimeSeconds = time,
+        Latitude = 41.3,
+        Longitude = 2.1,
+        AglFeet = airborne ? 100 : 0,
+        RadioHeightFeet = airborne ? 100 : 0,
+        RadioHeightAvailable = true,
+        AirspeedKts = Math.Max(40, groundSpeed),
+        GroundSpeedKts = groundSpeed,
+        VerticalSpeedFpm = airborne ? -500 : 0,
+        TouchdownNormalVelocityFps = airborne ? null : 100.0 / 60.0,
+        GForce = airborne ? 1 : 1.2,
+        SimOnGround = !airborne,
+        IsGearWheels = true,
+        GearHandlePosition = 1,
+        FlapsHandleIndex = 3,
+        GearOnGroundByIndex = new Dictionary<int, bool>
+        {
+            [0] = !airborne,
+            [1] = !airborne,
+            [2] = !airborne
+        },
+        ManualBrakeLeftPosition = airborne ? 0 : 0.1,
+        ManualBrakeRightPosition = airborne ? 0 : 0.1,
+        SpoilersLeftPosition = airborne ? 0 : 0.2,
+        SpoilersRightPosition = airborne ? 0 : 0.2,
+        EngineCount = includeReverseTelemetry ? 2 : null,
+        EngineCombustionByIndex = includeReverseTelemetry ? new Dictionary<int, bool>
+        {
+            [1] = true,
+            [2] = engine2Operating
+        } : null,
+        ReverseThrustEngagedByIndex = includeReverseTelemetry ? new Dictionary<int, bool>
+        {
+            [1] = reverseEngaged1 ?? reverse1,
+            [2] = reverse2
+        } : null,
+        ReverseNozzlePositionByIndex = includeReverseTelemetry ? new Dictionary<int, double>
+        {
+            [1] = reverseNozzle1 ?? (reverse1 ? 0.2 : 0),
+            [2] = reverse2 ? 0.2 : 0
+        } : null,
+        ThrottleLeverPositionPercentByIndex = includeReverseTelemetry ? new Dictionary<int, double>
+        {
+            [1] = throttle1,
+            [2] = throttle2
+        } : null,
         AutopilotHeadingHoldActive = false,
         AutopilotAltitudeHoldActive = false,
         AutopilotMasterActive = false,
@@ -731,12 +1184,11 @@ public sealed class OperationalLandingGateTests
     {
         var snapshot = new LandingSnapshot
         {
-            Touchdown = new TelemetrySample
-            {
-                Timestamp = DateTimeOffset.UnixEpoch.AddSeconds(10),
-                SimulationTimeSeconds = 10,
-                SimOnGround = true
-            },
+            Touchdown = PositionedSample(
+                time: 10,
+                airborne: false,
+                groundSpeed: 120,
+                alongRunwayMeters: 1_200 * RunwayPathGeometry.MetersPerFoot),
             GearDownAtTouchdown = true,
             FlapsIndexAtTouchdown = 3,
             VerticalSpeedAtTouchdownFpm = -100,
@@ -804,6 +1256,19 @@ public sealed class OperationalLandingGateTests
         obs.RemainingRunwayMetersAtSettleSpeed = 2000;
         obs.RequiredRemainingRunwayMeters = 525;
         obs.RolloutEndOfRunwayViolation = false;
+        obs.ReverseThrustTelemetryCoverageAvailable = true;
+        obs.OperatingEnginesCapturedAtTouchdown = true;
+        obs.EngineCountAtTouchdown = 2;
+        obs.OperatingEngineIndicesAtTouchdown = new List<int> { 1, 2 };
+        obs.FirstReverseSelectionTimeSecondsByEngine = new Dictionary<int, double>
+        {
+            [1] = 11,
+            [2] = 11.5
+        };
+        obs.ReverseThrustStowEvaluated = true;
+        obs.ReverseThrustStowCoverageAvailable = true;
+        obs.GroundSpeedKtsAtReverseStowCheck = 60;
+        obs.ReverseThrustStowedAtThreshold = true;
         return snapshot;
     }
 
@@ -857,6 +1322,11 @@ public sealed class OperationalLandingGateTests
             ManualBrakeRightPosition = onGround ? 0.1 : 0,
             SpoilersLeftPosition = onGround ? 0.2 : 0,
             SpoilersRightPosition = onGround ? 0.2 : 0,
+            EngineCount = 2,
+            EngineCombustionByIndex = new Dictionary<int, bool> { [1] = true, [2] = true },
+            ReverseThrustEngagedByIndex = new Dictionary<int, bool> { [1] = false, [2] = false },
+            ReverseNozzlePositionByIndex = new Dictionary<int, double> { [1] = 0, [2] = 0 },
+            ThrottleLeverPositionPercentByIndex = new Dictionary<int, double> { [1] = 0, [2] = 0 },
             AutopilotHeadingHoldActive = false,
             AutopilotAltitudeHoldActive = false,
             AutopilotMasterActive = false,

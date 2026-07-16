@@ -172,6 +172,23 @@ public sealed class SimConnectClient : ISimBridge
         public double IniAutothrottleArmed;
         public double IniBrakePedalLeft;
         public double IniBrakePedalRight;
+        public double EngineCount;
+        public double EngineCombustion1;
+        public double EngineCombustion2;
+        public double EngineCombustion3;
+        public double EngineCombustion4;
+        public double ReverseThrustEngaged1;
+        public double ReverseThrustEngaged2;
+        public double ReverseThrustEngaged3;
+        public double ReverseThrustEngaged4;
+        public double ReverseNozzle1;
+        public double ReverseNozzle2;
+        public double ReverseNozzle3;
+        public double ReverseNozzle4;
+        public double ThrottleLever1;
+        public double ThrottleLever2;
+        public double ThrottleLever3;
+        public double ThrottleLever4;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
@@ -1859,6 +1876,29 @@ public sealed class SimConnectClient : ISimBridge
                     t.BrakeLeft, t.IniBrakePedalLeft, t.AutoBrakesActive > 0.5),
                 ManualBrakeRightPosition = ResolveManualBrakePosition(
                     t.BrakeRight, t.IniBrakePedalRight, t.AutoBrakesActive > 0.5),
+                EngineCount = t.EngineCount is >= 1 and <= 4 && double.IsFinite(t.EngineCount)
+                    ? (int)Math.Round(t.EngineCount)
+                    : null,
+                EngineCombustionByIndex = new Dictionary<int, bool>
+                {
+                    [1] = t.EngineCombustion1 > 0.5, [2] = t.EngineCombustion2 > 0.5,
+                    [3] = t.EngineCombustion3 > 0.5, [4] = t.EngineCombustion4 > 0.5
+                },
+                ReverseThrustEngagedByIndex = new Dictionary<int, bool>
+                {
+                    [1] = t.ReverseThrustEngaged1 > 0.5, [2] = t.ReverseThrustEngaged2 > 0.5,
+                    [3] = t.ReverseThrustEngaged3 > 0.5, [4] = t.ReverseThrustEngaged4 > 0.5
+                },
+                ReverseNozzlePositionByIndex = new Dictionary<int, double>
+                {
+                    [1] = NormalizeUnitPosition(t.ReverseNozzle1), [2] = NormalizeUnitPosition(t.ReverseNozzle2),
+                    [3] = NormalizeUnitPosition(t.ReverseNozzle3), [4] = NormalizeUnitPosition(t.ReverseNozzle4)
+                },
+                ThrottleLeverPositionPercentByIndex = new Dictionary<int, double>
+                {
+                    [1] = t.ThrottleLever1, [2] = t.ThrottleLever2,
+                    [3] = t.ThrottleLever3, [4] = t.ThrottleLever4
+                },
                 WindDirectionDeg = t.WindDir,
                 WindVelocityKts = t.WindVel,
                 RadioHeightFeet = t.RadioHeight,
@@ -2050,6 +2090,20 @@ public sealed class SimConnectClient : ISimBridge
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_BRAKE_PEDAL_RIGHT", "number",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "NUMBER OF ENGINES", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        for (var engineIndex = 1; engineIndex <= 4; engineIndex++)
+            _sim.AddToDataDefinition(Definitions.Telemetry, $"GENERAL ENG COMBUSTION:{engineIndex}", "bool",
+                SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        for (var engineIndex = 1; engineIndex <= 4; engineIndex++)
+            _sim.AddToDataDefinition(Definitions.Telemetry, $"GENERAL ENG REVERSE THRUST ENGAGED:{engineIndex}", "bool",
+                SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        for (var engineIndex = 1; engineIndex <= 4; engineIndex++)
+            _sim.AddToDataDefinition(Definitions.Telemetry, $"TURB ENG REVERSE NOZZLE PERCENT:{engineIndex}", "percent",
+                SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        for (var engineIndex = 1; engineIndex <= 4; engineIndex++)
+            _sim.AddToDataDefinition(Definitions.Telemetry, $"GENERAL ENG THROTTLE LEVER POSITION:{engineIndex}", "percent",
+                SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.ContactPoints, "SIMULATION TIME", "seconds",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         for (var contactPointIndex = 0; contactPointIndex <= 15; contactPointIndex++)

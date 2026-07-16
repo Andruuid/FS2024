@@ -104,6 +104,13 @@ public sealed class ChallengeConfig
 public sealed class ChallengeScoringOverrides
 {
     public List<EvaluationMetricOverride> Metrics { get; set; } = new();
+    public ReverseThrustChallengeOverride? ReverseThrust { get; set; }
+}
+
+public sealed class ReverseThrustChallengeOverride
+{
+    public string Policy { get; set; } = "";
+    public string Reason { get; set; } = "";
 }
 
 public sealed class EvaluationMetricOverride

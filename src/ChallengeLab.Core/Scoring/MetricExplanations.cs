@@ -10,6 +10,7 @@ public static class MetricExplanations
     public static string For(
         EvaluationMetric metric,
         LandingSnapshot snapshot,
+        ChallengeConfig challenge,
         double score01,
         double? raw)
     {
@@ -17,7 +18,7 @@ public static class MetricExplanations
             ? metric.Note.Trim()
             : DefaultCatalog(metric.Id, metric.DisplayName);
 
-        var measured = FormatMeasured(metric, snapshot, raw);
+        var measured = FormatMeasured(metric, snapshot, challenge, raw);
         var how = HowItIsScored(metric);
         var verdict = ScoreVerdict(score01);
 
@@ -32,6 +33,8 @@ public static class MetricExplanations
             "A firm plant is preferred; ultra-soft “butter” floats and hard landings both score poorly.",
         "touchdown_impact" =>
             "Initial touchdown impact combines official touchdown vertical speed and robust filtered peak G. Later bounce impacts are excluded.",
+        "touchdown_point" =>
+            "Longitudinal position of the first accepted main-gear touchdown, measured from the selected landing threshold.",
         "flare_efficiency" =>
             "Flare efficiency measures sustained float distance, duration, and positive vertical speed before first main-gear contact.",
         "contact_stability" =>
@@ -72,6 +75,9 @@ public static class MetricExplanations
         "approach_lateral_steady" =>
             "Lateral path steadiness on short final: reversal-only weave per metre flown. " +
             "A smooth centerline intercept is removed; repeated S-turns are penalized.",
+        "approach_bank_stability" =>
+            "Bank angle stability on short final: time-weighted mean absolute bank (∫|φ|dt / T). " +
+            "Wings level scores high; sustained bank and left/right rocking score low.",
         "ground_track" =>
             "Mean error between ground track (direction the CG moves over the ground) and runway heading, " +
             "from 3 seconds before touchdown to 3 seconds after. Not wind-dependent crab angle.",
@@ -88,12 +94,18 @@ public static class MetricExplanations
             "Largest lateral offset from centerline during the rollout after touchdown.",
         "rollout" =>
             "Heading stability during rollout (legacy variance metric).",
+        "reverse_thrust" =>
+            "Operational gate for timely reverse selection, challenge-specific reverse restrictions, and complete low-speed stow.",
         "crab" =>
             "Legacy crab-at-flare metric (replaced by ground track / rollout alignment).",
         _ => $"{displayName}: part of the configurable landing evaluation."
     };
 
-    private static string FormatMeasured(EvaluationMetric metric, LandingSnapshot snap, double? raw)
+    private static string FormatMeasured(
+        EvaluationMetric metric,
+        LandingSnapshot snap,
+        ChallengeConfig challenge,
+        double? raw)
     {
         var id = metric.Id;
         return id switch
@@ -101,6 +113,13 @@ public static class MetricExplanations
             "touchdown_vs" =>
                 $"Measured: {snap.VerticalSpeedAtTouchdownFpm:0} fpm " +
                 $"(absolute sink rate {Math.Abs(snap.VerticalSpeedAtTouchdownFpm):0} fpm).",
+            "touchdown_point" when snap.Touchdown is not null
+                                   && TouchdownPointCalculator.TryCalculate(
+                                       challenge.Runway,
+                                       snap.Touchdown,
+                                       out var touchdownPoint,
+                                       out _) =>
+                FormatTouchdownPoint(touchdownPoint),
             "peak_g" =>
                 $"Measured: {snap.PeakGForce:0.00} G.",
             "centerline" =>
@@ -129,6 +148,9 @@ public static class MetricExplanations
             "approach_lateral_steady" =>
                 $"Measured: reversal-only approach weave {snap.ApproachLateralWeaveIndex:0.000} m/m " +
                 $"over {snap.ApproachLateralDistanceM:0} m.",
+            "approach_bank_stability" =>
+                $"Measured: mean |bank| {snap.ApproachBankMeanAbsDeg:0.0}° " +
+                $"(window {snap.ApproachMetricDurationSec:0.0}s, n={snap.ApproachPathSampleCount}).",
             "ground_track" =>
                 $"Measured: mean track error {snap.GroundTrackErrorMeanDeg:0.0}° " +
                 $"(peak {snap.GroundTrackErrorPeakDeg:0.0}°, n={snap.GroundTrackSampleCount}).",
@@ -161,6 +183,13 @@ public static class MetricExplanations
         if (eval == "piecewise")
             return "Scoring: multi-zone curve (piecewise) — each point maps measured value → metric score 0–100%.";
 
+        if (eval == "upperboundbands" && metric.Points is { Count: > 0 })
+        {
+            var bands = string.Join(", ", metric.Points.Select(point =>
+                $"≤{point.V:0.##} {metric.Unit ?? "units"} → {point.S:0.##}%"));
+            return $"Scoring: absolute early/late error bands ({bands}); beyond the final band → 0%.";
+        }
+
         if (eval == "target" && metric.Params.Count > 0)
         {
             var ideal = Get(metric.Params, "ideal", 0);
@@ -192,6 +221,16 @@ public static class MetricExplanations
         > 0 => "Result: poor.",
         _ => "Result: failed this criterion."
     };
+
+    private static string FormatTouchdownPoint(TouchdownPointMeasurement point)
+    {
+        var onTarget = point.AbsoluteErrorFeet < 0.05;
+        var signedError = onTarget ? "0.0" : Signed(point.SignedErrorFeet);
+        var direction = onTarget ? "on target" : point.SignedErrorFeet < 0 ? "early" : "late";
+        return $"Measured: touchdown {point.ActualDistanceFeet:0.0} ft from threshold; " +
+               $"perfect point {point.PerfectDistanceFeet:0.0} ft; " +
+               $"error {signedError} ft ({direction}).";
+    }
 
     private static string Signed(double v) => v >= 0 ? $"+{v:0.0}" : $"{v:0.0}";
 

@@ -5,6 +5,8 @@ using ChallengeLab.Core.Scoring;
 
 namespace ChallengeLab.Core.Highscores;
 
+public sealed record ScoreHistoryPoint(double ElapsedSeconds, double ScorePercent);
+
 public sealed class HighscoreCriterionDetail
 {
     public string Id { get; set; } = "";
@@ -68,6 +70,9 @@ public sealed class HighscoreEntry
     public LandingResultDiagnostics? Diagnostics { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ScoreHistoryPoint>? ProjectedScoreHistory { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? CareerStageNumber { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -127,14 +132,15 @@ public sealed class HighscoreEntry
     public bool HasDetail => Criteria is { Count: > 0 };
 
     [JsonIgnore]
+    public bool HasProjectedScoreHistory => ProjectedScoreHistory is { Count: > 0 };
+
+    [JsonIgnore]
     public string VerticalSpeedDisplay
     {
         get
         {
             var verticalSpeed = ResolveVerticalSpeedFpm();
-            if (verticalSpeed is null) return "—";
-            // Grid column: signed value + absolute sink rate for quick reading.
-            return $"{verticalSpeed:0} ({Math.Abs(verticalSpeed.Value):0} abs)";
+            return verticalSpeed is null ? "—" : $"{verticalSpeed.Value:0}";
         }
     }
 
@@ -219,7 +225,8 @@ public sealed class HighscoreStore
         ScoreResult result,
         int? careerStageNumber = null,
         string? careerRankId = null,
-        string? careerRankTitle = null)
+        string? careerRankTitle = null,
+        IReadOnlyList<ScoreHistoryPoint>? projectedScoreHistory = null)
     {
         if (!result.IsRanked || result.ScorePercent is null)
             throw new InvalidOperationException("Unranked results cannot be saved as highscores.");
@@ -277,6 +284,7 @@ public sealed class HighscoreStore
             ScoringProfileHash = result.ScoringProfileHash,
             RankedBucketId = result.RankedBucketId,
             Diagnostics = result.Diagnostics,
+            ProjectedScoreHistory = NormalizeScoreHistory(projectedScoreHistory),
             CareerStageNumber = careerStageNumber,
             CareerRankId = careerRankId,
             CareerRankTitle = careerRankTitle
@@ -315,6 +323,7 @@ public sealed class HighscoreStore
                 if (entry.Id == Guid.Empty) entry.Id = Guid.NewGuid();
                 entry.Criteria ??= new List<HighscoreCriterionDetail>();
                 entry.Phases ??= new List<HighscorePhaseDetail>();
+                entry.ProjectedScoreHistory = NormalizeScoreHistory(entry.ProjectedScoreHistory);
 
                 if (entry.Criteria.Count == 0 && entry.VerticalSpeedFpm is not null)
                 {
@@ -342,5 +351,48 @@ public sealed class HighscoreStore
     {
         var json = JsonSerializer.Serialize(_entries, JsonOptions);
         File.WriteAllText(_filePath, json);
+    }
+
+    private static List<ScoreHistoryPoint>? NormalizeScoreHistory(
+        IReadOnlyList<ScoreHistoryPoint>? points)
+    {
+        if (points is null || points.Count == 0) return null;
+
+        var ordered = points
+            .Where(point => double.IsFinite(point.ElapsedSeconds) && double.IsFinite(point.ScorePercent))
+            .Select(point => new ScoreHistoryPoint(
+                Math.Round(Math.Max(0, point.ElapsedSeconds), 2),
+                Math.Round(Math.Clamp(point.ScorePercent, 0, 100), 1)))
+            .OrderBy(point => point.ElapsedSeconds)
+            .ToList();
+        if (ordered.Count == 0) return null;
+
+        var sampled = new List<ScoreHistoryPoint>(Math.Min(ordered.Count, 601));
+        foreach (var point in ordered)
+        {
+            if (sampled.Count == 0 || point.ElapsedSeconds - sampled[^1].ElapsedSeconds >= 1.0)
+                sampled.Add(point);
+        }
+
+        var final = ordered[^1];
+        if (Math.Abs(sampled[^1].ElapsedSeconds - final.ElapsedSeconds) < .001)
+            sampled[^1] = final;
+        else
+            sampled.Add(final);
+
+        const int maximumPoints = 600;
+        if (sampled.Count <= maximumPoints) return sampled;
+
+        var thinned = new List<ScoreHistoryPoint>(maximumPoints);
+        for (var index = 0; index < maximumPoints; index++)
+        {
+            var sourceIndex = (int)Math.Round(
+                index * (sampled.Count - 1.0) / (maximumPoints - 1.0),
+                MidpointRounding.AwayFromZero);
+            thinned.Add(sampled[sourceIndex]);
+        }
+
+        thinned[^1] = final;
+        return thinned;
     }
 }

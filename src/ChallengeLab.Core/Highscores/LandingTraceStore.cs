@@ -74,7 +74,9 @@ public sealed class LandingTraceStore
                 ScorePercent = c.ScorePercent is null ? null : Math.Round(c.ScorePercent.Value, 1),
                 RawValue = c.RawValue,
                 Unit = c.Unit,
-                Status = c.Status.ToString()
+                Status = c.Status.ToString(),
+                Note = c.Note,
+                UnavailableReason = c.UnavailableReason
             }).ToList(),
             Snapshot = new LandingTraceSnapshot
             {
@@ -86,6 +88,7 @@ public sealed class LandingTraceStore
                 ApproachGlideslopeMeanAbsFt = snapshot.ApproachGlideslopeMeanAbsFt,
                 ApproachVerticalVariationFtPerSec = snapshot.ApproachVerticalVariationFtPerSec,
                 ApproachLateralWeaveIndex = snapshot.ApproachLateralWeaveIndex,
+                ApproachBankMeanAbsDeg = snapshot.ApproachBankMeanAbsDeg,
                 ApproachLateralDistanceM = snapshot.ApproachLateralDistanceM,
                 ApproachMetricDurationSec = snapshot.ApproachMetricDurationSec,
                 RolloutLateralMeanM = snapshot.RolloutLateralMeanM,
@@ -175,6 +178,7 @@ public sealed class LandingTraceSnapshot
     public double ApproachGlideslopeMeanAbsFt { get; set; }
     public double ApproachVerticalVariationFtPerSec { get; set; }
     public double ApproachLateralWeaveIndex { get; set; }
+    public double ApproachBankMeanAbsDeg { get; set; }
     public double ApproachLateralDistanceM { get; set; }
     public double ApproachMetricDurationSec { get; set; }
     public double RolloutLateralMeanM { get; set; }
@@ -196,6 +200,8 @@ public sealed class LandingTraceMetric
     public double? RawValue { get; set; }
     public string? Unit { get; set; }
     public string? Status { get; set; }
+    public string? Note { get; set; }
+    public string? UnavailableReason { get; set; }
 }
 
 public sealed class LandingTraceSample
@@ -225,6 +231,11 @@ public sealed class LandingTraceSample
     public double? SpoilersRight { get; set; }
     public double? BrakeLeft { get; set; }
     public double? BrakeRight { get; set; }
+    public int? EngineCount { get; set; }
+    public Dictionary<int, bool>? EngineCombustion { get; set; }
+    public Dictionary<int, bool>? ReverseEngaged { get; set; }
+    public Dictionary<int, double>? ReverseNozzle { get; set; }
+    public Dictionary<int, double>? ThrottleLeverPercent { get; set; }
     public bool? HeadingHold { get; set; }
     public bool? AltitudeHold { get; set; }
     public bool? AutopilotMaster { get; set; }
@@ -264,6 +275,11 @@ public sealed class LandingTraceSample
         SpoilersRight = s.SpoilersRightPosition,
         BrakeLeft = s.ManualBrakeLeftPosition,
         BrakeRight = s.ManualBrakeRightPosition,
+        EngineCount = s.EngineCount,
+        EngineCombustion = s.EngineCombustionByIndex?.ToDictionary(pair => pair.Key, pair => pair.Value),
+        ReverseEngaged = s.ReverseThrustEngagedByIndex?.ToDictionary(pair => pair.Key, pair => pair.Value),
+        ReverseNozzle = s.ReverseNozzlePositionByIndex?.ToDictionary(pair => pair.Key, pair => pair.Value),
+        ThrottleLeverPercent = s.ThrottleLeverPositionPercentByIndex?.ToDictionary(pair => pair.Key, pair => pair.Value),
         HeadingHold = s.AutopilotHeadingHoldActive,
         AltitudeHold = s.AutopilotAltitudeHoldActive,
         AutopilotMaster = s.AutopilotMasterActive,

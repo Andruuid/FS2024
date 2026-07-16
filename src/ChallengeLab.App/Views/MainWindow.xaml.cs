@@ -71,57 +71,63 @@ public partial class MainWindow : Window
             var report = _vm.LandingReport;
             if (report is null)
             {
-                if (ReportStatusText is not null)
-                    ReportStatusText.Text = "(no highscore selected)";
-                if (ReportBodyBlock is not null)
-                    ReportBodyBlock.Text = "";
                 MetricsHost?.Children.Clear();
+                PenaltiesHost?.Children.Clear();
+                PhaseSummaryHost?.Children.Clear();
                 return;
             }
 
-            // Direct property assignment — binding cannot swallow this
             if (ReportStatusText is not null)
             {
-                ReportStatusText.Text = string.IsNullOrWhiteSpace(_vm.ReportStatus)
-                    ? $"{AppBuild.Tag} FALLBACK | metrics={_vm.ReportMetrics.Count} | bodyLen={_vm.ReportBodyText?.Length ?? 0}"
-                    : _vm.ReportStatus;
-                ReportStatusText.Foreground = MediaBrushes.Black;
+                ReportStatusText.Text = _vm.ReportStatus;
+                ReportStatusText.Foreground = MediaBrushes.White;
                 ReportStatusText.Background = MediaBrushes.Transparent;
-                ReportStatusText.FontSize = 16;
-                ReportStatusText.FontWeight = FontWeights.Bold;
-                ReportStatusText.Visibility = Visibility.Visible;
+                ReportStatusText.Visibility = Visibility.Collapsed;
             }
 
             if (ReportBodyBlock is not null)
             {
-                var body = _vm.ReportBodyText;
-                if (string.IsNullOrWhiteSpace(body))
-                    body = BuildBodyFallback(report);
-
-                ReportBodyBlock.Text = body;
-                ReportBodyBlock.Foreground = MediaBrushes.Yellow;
-                ReportBodyBlock.FontSize = 13;
-                ReportBodyBlock.Visibility = Visibility.Visible;
+                ReportBodyBlock.Text = _vm.ReportBodyText;
+                ReportBodyBlock.Visibility = Visibility.Collapsed;
             }
+
+            if (PhaseSummaryHost is not null)
+            {
+                PhaseSummaryHost.Children.Clear();
+                foreach (var phase in report.Phases)
+                    PhaseSummaryHost.Children.Add(CreatePhaseCard(phase));
+            }
+            if (PhaseSummarySection is not null)
+                PhaseSummarySection.Visibility = report.Phases.Count > 0
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+
+            if (PenaltiesHost is not null)
+            {
+                PenaltiesHost.Children.Clear();
+                foreach (var penalty in report.Penalties)
+                    PenaltiesHost.Children.Add(CreatePenaltyCard(penalty));
+            }
+            if (PenaltySection is not null)
+                PenaltySection.Visibility = report.HasPenalties
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
 
             if (MetricsHost is not null)
             {
                 MetricsHost.Children.Clear();
-                var metrics = _vm.ReportMetrics;
-                if (metrics.Count == 0 && report.Metrics.Count > 0)
-                    metrics = report.Metrics;
+                var metrics = report.DetailMetrics;
 
                 foreach (var m in metrics)
                     MetricsHost.Children.Add(CreateMetricCard(m));
 
-                if (metrics.Count == 0)
+                if (metrics.Count == 0 && !report.HasDetail)
                 {
                     MetricsHost.Children.Add(new TextBlock
                     {
-                        Text = "No metric cards to show. Check yellow text dump above / Session log.",
-                        Foreground = MediaBrushes.OrangeRed,
-                        FontSize = 14,
-                        FontWeight = FontWeights.Bold,
+                        Text = "No detailed metric breakdown was stored for this landing.",
+                        Foreground = MediaBrushes.LightGray,
+                        FontSize = 13,
                         TextWrapping = TextWrapping.Wrap,
                         Margin = new Thickness(0, 8, 0, 0)
                     });
@@ -132,24 +138,93 @@ public partial class MainWindow : Window
         {
             Title = $"Challenge Lab — {AppBuild.Tag} PAINT ERROR";
             if (ReportStatusText is not null)
+            {
                 ReportStatusText.Text = "PAINT ERROR: " + ex.Message;
+                ReportStatusText.Foreground = MediaBrushes.OrangeRed;
+                ReportStatusText.Visibility = Visibility.Visible;
+            }
             if (ReportBodyBlock is not null)
                 ReportBodyBlock.Text = ex.ToString();
         }
     }
 
-    private static string BuildBodyFallback(LandingReportViewModel report)
+    private static Border CreatePhaseCard(ReportPhaseViewModel phase)
     {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"FALLBACK BODY | report metrics={report.MetricCount}");
-        foreach (var m in report.Metrics)
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock
         {
-            sb.AppendLine($"* {m.DisplayName}: {m.ScoreDisplay} | {m.RawDisplay}");
-            sb.AppendLine($"  {m.Note}");
-            sb.AppendLine();
-        }
+            Text = phase.DisplayName.ToUpperInvariant(),
+            FontSize = 10,
+            FontWeight = FontWeights.Bold,
+            Foreground = MediaBrushes.LightGray
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = phase.ScoreDisplay,
+            FontSize = 22,
+            FontWeight = FontWeights.Bold,
+            Foreground = MediaBrushes.White,
+            Margin = new Thickness(0, 3, 0, 0)
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = phase.WeightDisplay,
+            FontSize = 10,
+            Foreground = MediaBrushes.LightBlue,
+            Margin = new Thickness(0, 2, 0, 0)
+        });
 
-        return sb.ToString();
+        return new Border
+        {
+            Child = stack,
+            Width = 150,
+            Background = new SolidColorBrush(MediaColor.FromRgb(0x1A, 0x25, 0x40)),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 8, 8)
+        };
+    }
+
+    private static Border CreatePenaltyCard(PenaltyViewModel penalty)
+    {
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock
+        {
+            Text = penalty.DisplayName,
+            FontSize = 14,
+            FontWeight = FontWeights.Bold,
+            Foreground = MediaBrushes.White,
+            TextWrapping = TextWrapping.Wrap
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{penalty.ScopeDisplay}  ·  Value: {penalty.RawDisplay}",
+            FontSize = 11,
+            FontFamily = new MediaFontFamily("Consolas"),
+            Foreground = MediaBrushes.LightPink,
+            Margin = new Thickness(0, 4, 0, 0),
+            TextWrapping = TextWrapping.Wrap
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = penalty.Note,
+            FontSize = 12,
+            Foreground = MediaBrushes.White,
+            Margin = new Thickness(0, 7, 0, 0),
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = 18
+        });
+
+        return new Border
+        {
+            Child = stack,
+            Background = new SolidColorBrush(MediaColor.FromRgb(0x3A, 0x16, 0x20)),
+            BorderBrush = new SolidColorBrush(MediaColor.FromRgb(0xA8, 0x36, 0x4C)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12),
+            Margin = new Thickness(0, 0, 0, 8)
+        };
     }
 
     private static Border CreateMetricCard(ReportMetricViewModel m)

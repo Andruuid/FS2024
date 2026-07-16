@@ -32,6 +32,12 @@ public sealed class LandingSnapshot
     /// </summary>
     public double ApproachLateralWeaveIndex { get; set; }
 
+    /// <summary>
+    /// Bank stability: time-weighted mean absolute bank on short final (degrees):
+    /// ∫|φ(t)|dt / T. Wings level scores near 0; sustained bank and left/right rocking raise the value.
+    /// </summary>
+    public double ApproachBankMeanAbsDeg { get; set; }
+
     /// <summary>Ground distance used for approach lateral weave (metres).</summary>
     public double ApproachLateralDistanceM { get; set; }
 

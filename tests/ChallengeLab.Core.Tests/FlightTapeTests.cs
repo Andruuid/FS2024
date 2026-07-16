@@ -49,6 +49,11 @@ public sealed class FlightTapeTests
         Assert.Equal(samples.Count, loaded.Samples.Count);
         Assert.Equal(samples[0].Latitude, loaded.Samples[0].Latitude, 6);
         Assert.Equal(samples[^1].GroundSpeedKts, loaded.Samples[^1].GroundSpeedKts, 3);
+        Assert.Equal(2, loaded.Samples[40].EngineCount);
+        Assert.True(loaded.Samples[40].EngineCombustionByIndex![1]);
+        Assert.True(loaded.Samples[40].ReverseThrustEngagedByIndex![2]);
+        Assert.True(loaded.Samples[40].ReverseNozzlePositionByIndex![1] >= 0.01);
+        Assert.Equal(0, loaded.Samples[40].ThrottleLeverPositionPercentByIndex![2]);
         Assert.Equal(88.5, loaded.OriginalScorePercent);
         Assert.Equal("A", loaded.OriginalGrade);
 
@@ -103,8 +108,34 @@ public sealed class FlightTapeTests
         Assert.Equal(first.Result.ScorePercent, second.Result.ScorePercent);
         Assert.Equal(first.Result.Grade, second.Result.Grade);
         Assert.Equal(first.Result.Criteria.Count, second.Result.Criteria.Count);
+        Assert.Equal(MetricStatus.Informational,
+            first.Result.Criteria.Single(c => c.Id == "reverse_thrust").Status);
         Assert.True(first.Session.Snapshot.ApproachSamples.Count > 0);
         Assert.NotNull(first.Session.Snapshot.Touchdown);
+    }
+
+    [Fact]
+    public void Replayer_OldTapeWithoutReverseTelemetry_IsUnrankedUnderV21()
+    {
+        var (challenge, key, _) = Load();
+        var t0 = new DateTimeOffset(2026, 3, 1, 12, 0, 0, TimeSpan.Zero);
+        var samples = BuildSettlingLanding(challenge, t0, includeReverseTelemetry: false);
+
+        var replay = FlightTapeReplayer.Replay(
+            new FlightTapeDocument
+            {
+                Challenge = challenge,
+                ChallengeId = challenge.Id,
+                ChallengeTitle = challenge.Title,
+                Samples = samples,
+                SampleCount = samples.Count,
+                Utc = t0
+            },
+            key);
+
+        Assert.False(replay.Result.IsRanked);
+        Assert.Equal(MetricStatus.Unavailable,
+            replay.Result.Criteria.Single(c => c.Id == "reverse_thrust").Status);
     }
 
     [Fact]
@@ -150,7 +181,10 @@ public sealed class FlightTapeTests
     /// Synthetic approach → touchdown → rollout that settles under the configured GS threshold.
     /// Uses SimulationTimeSeconds so replay is pause-aware and deterministic.
     /// </summary>
-    private static List<TelemetrySample> BuildSettlingLanding(ChallengeConfig challenge, DateTimeOffset t0)
+    private static List<TelemetrySample> BuildSettlingLanding(
+        ChallengeConfig challenge,
+        DateTimeOffset t0,
+        bool includeReverseTelemetry = true)
     {
         var rwy = challenge.Runway;
         var hdg = rwy.HeadingTrueDeg;
@@ -167,7 +201,8 @@ public sealed class FlightTapeTests
             samples.Add(Sample(
                 challenge, t0.AddSeconds(simT - 10), simT,
                 onGround: false, agl: Math.Max(alt - elev, 80),
-                gs: 145, ias: 145, lat: lat, lon: lon, alt: alt, vs: -700));
+                gs: 145, ias: 145, lat: lat, lon: lon, alt: alt, vs: -700,
+                includeReverseTelemetry: includeReverseTelemetry));
             simT += 0.2;
         }
 
@@ -176,7 +211,8 @@ public sealed class FlightTapeTests
             challenge, t0.AddSeconds(simT - 10), simT,
             onGround: true, agl: 0, gs: 130, ias: 138,
             lat: rwy.ThresholdLatitude, lon: rwy.ThresholdLongitude, alt: elev, vs: -140,
-            g: 1.15, spoilers: 0.4, brake: 0.2));
+            g: 1.15, spoilers: 0.4, brake: 0.2, reverseSelected: true,
+            includeReverseTelemetry: includeReverseTelemetry));
         simT += 0.2;
 
         // Rollout then settle well below settle GS for several seconds.
@@ -189,7 +225,8 @@ public sealed class FlightTapeTests
                 challenge, t0.AddSeconds(simT - 10), simT,
                 onGround: true, agl: 0, gs: gs, ias: gs,
                 lat: lat, lon: lon, alt: elev, vs: 0,
-                g: 1.0, spoilers: 0.8, brake: 0.5));
+                g: 1.0, spoilers: 0.8, brake: 0.5, reverseSelected: gs > 60,
+                includeReverseTelemetry: includeReverseTelemetry));
             simT += 0.25;
         }
 
@@ -228,7 +265,9 @@ public sealed class FlightTapeTests
         double vs = -200,
         double g = 1.0,
         double spoilers = 0,
-        double brake = 0)
+        double brake = 0,
+        bool reverseSelected = false,
+        bool includeReverseTelemetry = true)
     {
         var rwy = challenge.Runway;
         return new TelemetrySample
@@ -261,6 +300,19 @@ public sealed class FlightTapeTests
             ManualBrakeRightPosition = brake,
             SimulationRate = 1.0,
             PauseStateAvailable = true,
+            EngineCount = includeReverseTelemetry ? 2 : null,
+            EngineCombustionByIndex = includeReverseTelemetry
+                ? new Dictionary<int, bool> { [1] = true, [2] = true }
+                : null,
+            ReverseThrustEngagedByIndex = includeReverseTelemetry
+                ? new Dictionary<int, bool> { [1] = reverseSelected, [2] = reverseSelected }
+                : null,
+            ReverseNozzlePositionByIndex = includeReverseTelemetry
+                ? new Dictionary<int, double> { [1] = reverseSelected ? 0.2 : 0, [2] = reverseSelected ? 0.2 : 0 }
+                : null,
+            ThrottleLeverPositionPercentByIndex = includeReverseTelemetry
+                ? new Dictionary<int, double> { [1] = 0, [2] = 0 }
+                : null,
             GearOnGroundByIndex = onGround
                 ? new Dictionary<int, bool> { [0] = true, [1] = true, [2] = true }
                 : new Dictionary<int, bool> { [0] = false, [1] = false, [2] = false }

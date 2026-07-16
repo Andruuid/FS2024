@@ -41,6 +41,7 @@ public static class EffectiveEvaluationProfileBuilder
         }
 
         ApplyMetricOverrides(key, challenge?.ScoringOverrides);
+        ApplyReverseThrustOverride(key, challenge?.ScoringOverrides?.ReverseThrust);
         var errors = EvaluationKeyValidator.Validate(key);
         if (errors.Count > 0)
             throw new ArgumentException("Effective evaluation key is invalid: " + string.Join(" | ", errors));
@@ -49,6 +50,29 @@ public static class EffectiveEvaluationProfileBuilder
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)))[..16]
             .ToLowerInvariant();
         return new EffectiveEvaluationProfile(key, hash);
+    }
+
+    private static void ApplyReverseThrustOverride(
+        LandingEvaluationKey key,
+        ReverseThrustChallengeOverride? reverseOverride)
+    {
+        if (reverseOverride is null) return;
+        if (!ReverseThrustPolicies.IsSupported(reverseOverride.Policy))
+            throw new ArgumentException(
+                $"scoringOverrides.reverseThrust.policy '{reverseOverride.Policy}' is invalid. " +
+                $"Expected {ReverseThrustPolicies.Required}, {ReverseThrustPolicies.OptionalIdleOnly}, or {ReverseThrustPolicies.Prohibited}.");
+        if (string.IsNullOrWhiteSpace(reverseOverride.Reason))
+            throw new ArgumentException("scoringOverrides.reverseThrust.reason is required.");
+
+        var gate = key.Phases
+            .Where(phase => phase.Id.Equals("rollout", StringComparison.OrdinalIgnoreCase))
+            .Select(phase => phase.Penalties?.ReverseThrust)
+            .FirstOrDefault(candidate => candidate is not null)
+            ?? throw new ArgumentException(
+                "scoringOverrides.reverseThrust requires a reverseThrust gate in the base evaluation key rollout phase.");
+
+        gate.Policy = ReverseThrustPolicies.Normalize(reverseOverride.Policy);
+        gate.ExceptionReason = reverseOverride.Reason.Trim();
     }
 
     private static void ApplyMetricOverrides(

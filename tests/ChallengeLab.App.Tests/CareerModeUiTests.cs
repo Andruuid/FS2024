@@ -71,6 +71,40 @@ public sealed class CareerModeUiTests
     }
 
     [Fact]
+    public void HudMenu_OpensHighscoresWhileStartupRemainsCareer()
+    {
+        RunSta(() =>
+        {
+            var tempDirectory = Path.Combine(Path.GetTempPath(), "ChallengeLabMenuUi", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDirectory);
+            var vm = new MainViewModel(
+                new FakeSimBridge(),
+                new ConfigLoader(FindConfig()),
+                new HighscoreStore(Path.Combine(tempDirectory, "highscores.json")),
+                new CareerProgressStore(Path.Combine(tempDirectory, "career.json")),
+                new FixedRandom(0));
+            try
+            {
+                Assert.Equal(MainViewModel.CareerTabIndex, vm.SelectedTab);
+                vm.SelectedTab = MainViewModel.SessionTabIndex;
+                var toggleRequested = false;
+                vm.RequestToggleMain += () => toggleRequested = true;
+
+                vm.OpenMenuCommand.Execute(null);
+
+                Assert.True(toggleRequested);
+                Assert.Equal(MainViewModel.HighscoresTabIndex, vm.SelectedTab);
+            }
+            finally
+            {
+                vm.Dispose();
+                try { Directory.Delete(tempDirectory, recursive: true); }
+                catch { /* best effort cleanup */ }
+            }
+        });
+    }
+
+    [Fact]
     public void CareerXaml_HasFirstTabMysteryRewardsAndOneWayReadOnlyProgressBindings()
     {
         var root = FindRepositoryRoot();

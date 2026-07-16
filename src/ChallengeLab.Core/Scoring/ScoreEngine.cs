@@ -167,8 +167,16 @@ public sealed class ScoreEngine
                 double? displayRaw = raw;
                 if (metric.Metric.Equals("touchdownIasErrorKts", StringComparison.OrdinalIgnoreCase))
                     displayRaw = snapshot.AirspeedAtTouchdownKts;
+                else if (metric.Metric.Equals("touchdownPointErrorFt", StringComparison.OrdinalIgnoreCase)
+                         && snapshot.Touchdown is not null
+                         && TouchdownPointCalculator.TryCalculate(
+                             challenge.Runway,
+                             snapshot.Touchdown,
+                             out var touchdownPoint,
+                             out _))
+                    displayRaw = touchdownPoint.ActualDistanceFeet;
 
-                var explanation = MetricExplanations.For(metric, snapshot, score01, raw);
+                var explanation = MetricExplanations.For(metric, snapshot, challenge, score01, raw);
                 if (preview)
                     explanation = "[PREVIEW · measured] " + explanation;
                 explanation =

@@ -82,6 +82,21 @@ public sealed class TelemetrySample
     public double? ManualBrakeLeftPosition { get; init; }
     public double? ManualBrakeRightPosition { get; init; }
 
+    /// <summary>Installed engine count (1-4). Null when engine telemetry was not sampled.</summary>
+    public int? EngineCount { get; init; }
+
+    /// <summary>Per-engine combustion state used to identify engines operating at touchdown.</summary>
+    public IReadOnlyDictionary<int, bool>? EngineCombustionByIndex { get; init; }
+
+    /// <summary>Per-engine reverse-thruster selected state.</summary>
+    public IReadOnlyDictionary<int, bool>? ReverseThrustEngagedByIndex { get; init; }
+
+    /// <summary>Per-engine physical reverse-nozzle deployment normalized to 0-1.</summary>
+    public IReadOnlyDictionary<int, double>? ReverseNozzlePositionByIndex { get; init; }
+
+    /// <summary>Per-engine throttle-lever position in percent; negative values are powered reverse.</summary>
+    public IReadOnlyDictionary<int, double>? ThrottleLeverPositionPercentByIndex { get; init; }
+
     public double WindDirectionDeg { get; init; }
     public double WindVelocityKts { get; init; }
 

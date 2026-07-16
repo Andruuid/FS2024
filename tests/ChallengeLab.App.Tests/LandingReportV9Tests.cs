@@ -20,7 +20,7 @@ public sealed class LandingReportV9Tests
     }
 
     [Fact]
-    public void Report_LabelsProfileAndBuildsDistinctCompositeMetricCards()
+    public void Report_BuildsStructuredPhasesAndDistinctCompositeMetricCards()
     {
         HighscoreCriterionDetail Metric(string id, string name, double score, string note) => new()
         {
@@ -85,9 +85,12 @@ public sealed class LandingReportV9Tests
 
         var report = new LandingReportViewModel(entry);
 
-        Assert.Contains("v9", report.Subtitle, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("v9", report.Subtitle, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("LEGACY", report.Subtitle, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(report.Phases);
+        Assert.Equal("90.0%", report.Phases[0].ScoreDisplay);
         Assert.Equal(4, report.Metrics.Count);
+        Assert.Equal(2, report.DetailMetrics.Count);
         Assert.Equal(4, report.Metrics.Select(m => m.Id).Distinct().Count());
         Assert.Single(report.Metrics, m => m.Id == "touchdown_impact");
         Assert.Equal(92, report.VerticalSpeedScorePercent);
@@ -129,16 +132,53 @@ public sealed class LandingReportV9Tests
     }
 
     [Fact]
-    public void Report_ShowsAllOperationalGateCardsWithFailureDetails()
+    public void Report_FormatsTouchdownPointWithActualTargetAndEarlyLateError()
+    {
+        var entry = new HighscoreEntry
+        {
+            ChallengeTitle = "Touchdown point",
+            EvaluationKeyVersion = 19,
+            ScoringProfileHash = "touchdown-point",
+            RankedBucketId = "test|landing-evaluation-key|v19|touchdown-point",
+            Criteria =
+            {
+                new HighscoreCriterionDetail
+                {
+                    Id = "touchdown_point",
+                    DisplayName = "Touchdown point",
+                    ScorePercent = 90,
+                    RawValue = 1_125,
+                    Unit = "ft",
+                    Status = MetricStatus.Scored,
+                    Note = "Measured: touchdown 1125.0 ft from threshold; perfect point 1200.0 ft; error -75.0 ft (early).",
+                    PhaseId = "touchdown",
+                    PhaseDisplayName = "Touchdown",
+                    PhaseImportancePercent = 20,
+                    PhaseWeightPercent = 70,
+                    MaxOverallPoints = 14
+                }
+            }
+        };
+
+        var metric = Assert.Single(new LandingReportViewModel(entry).Metrics);
+
+        Assert.Equal("1125.0 ft from threshold · target 1200.0 ft · error -75.0 ft (early)", metric.RawDisplay);
+        Assert.Equal("20% of Touchdown · 14 max overall points", metric.InfluenceDisplay);
+        Assert.Contains("perfect point 1200.0 ft", metric.Note, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Report_SeparatesAllOperationalPenaltyCardsFromMetrics()
     {
         var ids = new[]
         {
-            "spoiler_deployment", "manual_braking", "nose_gear_impact", "automation", "pause_usage", "simulation_rate", "rollout_distance"
+            "spoiler_deployment", "manual_braking", "nose_gear_impact", "automation", "pause_usage", "simulation_rate",
+            "rollout_distance", "reverse_thrust"
         };
         var entry = new HighscoreEntry
         {
             ChallengeTitle = "Operational gates",
-            EvaluationKeyVersion = 17,
+            EvaluationKeyVersion = 21,
             ScoringProfileHash = "gates",
             RankedBucketId = "test|landing-evaluation-key|v17|gates",
             Criteria = ids.Select(id => new HighscoreCriterionDetail
@@ -153,10 +193,45 @@ public sealed class LandingReportV9Tests
 
         var report = new LandingReportViewModel(entry);
 
-        Assert.Equal(7, report.Metrics.Count);
-        Assert.All(ids, id => Assert.Single(report.Metrics, metric => metric.Id == id));
-        Assert.All(report.Metrics, metric => Assert.Equal("FAILED GATE", metric.Verdict));
-        Assert.All(report.Metrics, metric => Assert.Contains("multiplied", metric.Note));
+        Assert.Empty(report.Metrics);
+        Assert.True(report.HasPenalties);
+        Assert.Equal(8, report.Penalties.Count);
+        Assert.All(ids, id => Assert.Single(report.Penalties, penalty => penalty.Id == id));
+        Assert.All(report.Penalties, penalty => Assert.Contains("multiplied", penalty.Note));
+    }
+
+    [Fact]
+    public void Report_HidesSuccessfulGearAndFlapsAndHasNoPenaltySection()
+    {
+        var entry = new HighscoreEntry
+        {
+            ChallengeTitle = "Clean landing",
+            Criteria =
+            {
+                new HighscoreCriterionDetail
+                {
+                    Id = "gear", DisplayName = "Gear (not required)",
+                    Status = MetricStatus.Informational, RawValue = 0
+                },
+                new HighscoreCriterionDetail
+                {
+                    Id = "flaps", DisplayName = "Flaps (safety gate)",
+                    Status = MetricStatus.Informational, RawValue = 3
+                },
+                new HighscoreCriterionDetail
+                {
+                    Id = "touchdown_point", DisplayName = "Touchdown point",
+                    Status = MetricStatus.Scored, RawValue = 1100, ScorePercent = 88, Unit = "ft"
+                }
+            }
+        };
+
+        var report = new LandingReportViewModel(entry);
+
+        Assert.False(report.HasPenalties);
+        Assert.Empty(report.Penalties);
+        Assert.Single(report.Metrics);
+        Assert.DoesNotContain(report.Metrics, metric => metric.Id is "gear" or "flaps");
     }
 
     [Fact]
@@ -169,6 +244,14 @@ public sealed class LandingReportV9Tests
         Assert.Contains("LandingReport.AirspeedScorePercent, Mode=OneWay", xaml, StringComparison.Ordinal);
         Assert.Contains("BarValue, Mode=OneWay", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"MetricsHost\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"PenaltiesHost\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"PhaseSummaryHost\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("LandingReport.ProjectedScoreHistory, Mode=OneWay", xaml, StringComparison.Ordinal);
         Assert.Contains("MetricsHost.Children.Add(CreateMetricCard", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("PenaltiesHost.Children.Add(CreatePenaltyCard", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("Text=\"{Binding LandingReport.Notes}\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("Header=\"Career\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("Header=\"Grade\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("Header=\"Profile\"", xaml, StringComparison.Ordinal);
     }
 }

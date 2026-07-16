@@ -12,7 +12,7 @@ public static class EvaluatorFactory
 {
     private static readonly HashSet<string> KnownTypes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "target", "band", "piecewise", "centerline", "boolean", "range",
+        "target", "band", "piecewise", "upperboundbands", "centerline", "boolean", "range",
         "landingimpact", "flareefficiency", "contactstability"
     };
 
@@ -26,6 +26,7 @@ public static class EvaluatorFactory
         "target" => TargetEvaluator.Instance,
         "band" => BandEvaluator.Instance,
         "piecewise" => PiecewiseEvaluator.Instance,
+        "upperboundbands" => UpperBoundBandsEvaluator.Instance,
         "centerline" => CenterlineEvaluator.Instance,
         "boolean" => BooleanEvaluator.Instance,
         "range" => RangeEvaluator.Instance,

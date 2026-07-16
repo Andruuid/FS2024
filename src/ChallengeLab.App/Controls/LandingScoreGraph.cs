@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
-using ChallengeLab.App.ViewModels;
+using ChallengeLab.Core.Highscores;
 using Brush = System.Windows.Media.Brush;
 using Color = System.Windows.Media.Color;
 using Pen = System.Windows.Media.Pen;
@@ -10,24 +10,25 @@ using WpfFlowDirection = System.Windows.FlowDirection;
 
 namespace ChallengeLab.App.Controls;
 
-/// <summary>Small dependency-free score/time plot for the secondary HUD.</summary>
+/// <summary>Dependency-free projected score/time plot shared by the HUD and landing report.</summary>
 public sealed class LandingScoreGraph : FrameworkElement
 {
     private static readonly Pen GridPen = FrozenPen(Color.FromArgb(0x35, 0xFF, 0xFF, 0xFF), 1);
     private static readonly Pen ScorePen = FrozenPen(Color.FromRgb(0x2D, 0xE2, 0xE6), 2);
+    private static readonly Pen LossPen = FrozenPen(Color.FromRgb(0xFF, 0x6B, 0x6B), 2.5);
     private static readonly Brush LabelBrush = FrozenBrush(Color.FromRgb(0x8B, 0x9B, 0xB8));
 
     public static readonly DependencyProperty PointsProperty = DependencyProperty.Register(
         nameof(Points),
-        typeof(IReadOnlyList<LandingMonitorGraphPoint>),
+        typeof(IReadOnlyList<ScoreHistoryPoint>),
         typeof(LandingScoreGraph),
         new FrameworkPropertyMetadata(
-            Array.Empty<LandingMonitorGraphPoint>(),
+            Array.Empty<ScoreHistoryPoint>(),
             FrameworkPropertyMetadataOptions.AffectsRender));
 
-    public IReadOnlyList<LandingMonitorGraphPoint> Points
+    public IReadOnlyList<ScoreHistoryPoint> Points
     {
-        get => (IReadOnlyList<LandingMonitorGraphPoint>)GetValue(PointsProperty);
+        get => (IReadOnlyList<ScoreHistoryPoint>)GetValue(PointsProperty);
         set => SetValue(PointsProperty, value);
     }
 
@@ -64,7 +65,7 @@ public sealed class LandingScoreGraph : FrameworkElement
             DrawLabel(drawingContext, score.ToString(CultureInfo.InvariantCulture), 2, y - 7, pixelsPerDip);
         }
 
-        var points = Points ?? Array.Empty<LandingMonitorGraphPoint>();
+        var points = Points ?? Array.Empty<ScoreHistoryPoint>();
         var lastElapsed = points.Count > 0 ? points[^1].ElapsedSeconds : 0;
         var configuredHorizon = double.IsFinite(HorizonSeconds) && HorizonSeconds > 0
             ? HorizonSeconds
@@ -86,28 +87,50 @@ public sealed class LandingScoreGraph : FrameworkElement
             return;
         }
 
-        var geometry = new StreamGeometry();
-        using (var context = geometry.Open())
+        drawingContext.PushClip(new RectangleGeometry(new Rect(left, top, width, height)));
+        if (points.Count == 1)
         {
-            for (var i = 0; i < points.Count; i++)
+            drawingContext.DrawEllipse(
+                ScorePen.Brush,
+                null,
+                ToPlotPoint(points[0], left, top, width, height, span),
+                2.5,
+                2.5);
+        }
+        else
+        {
+            for (var index = 1; index < points.Count; index++)
             {
-                var point = points[i];
-                var x = left + Math.Clamp(point.ElapsedSeconds / span, 0, 1) * width;
-                var y = top + (100 - Math.Clamp(point.ScorePercent, 0, 100)) / 100.0 * height;
-                if (i == 0) context.BeginFigure(new Point(x, y), false, false);
-                else context.LineTo(new Point(x, y), true, false);
+                var previous = points[index - 1];
+                var current = points[index];
+                var pen = current.ScorePercent < previous.ScorePercent ? LossPen : ScorePen;
+                drawingContext.DrawLine(
+                    pen,
+                    ToPlotPoint(previous, left, top, width, height, span),
+                    ToPlotPoint(current, left, top, width, height, span));
             }
         }
 
-        geometry.Freeze();
-        drawingContext.PushClip(new RectangleGeometry(new Rect(left, top, width, height)));
-        drawingContext.DrawGeometry(null, ScorePen, geometry);
         var last = points[^1];
-        var lastX = left + Math.Clamp(last.ElapsedSeconds / span, 0, 1) * width;
-        var lastY = top + (100 - Math.Clamp(last.ScorePercent, 0, 100)) / 100.0 * height;
-        drawingContext.DrawEllipse(ScorePen.Brush, null, new Point(lastX, lastY), 2.5, 2.5);
+        var lastPoint = ToPlotPoint(last, left, top, width, height, span);
+        drawingContext.DrawEllipse(ScorePen.Brush, null, lastPoint, 3.5, 3.5);
         drawingContext.Pop();
+
+        var finalLabel = CreateText($"{last.ScorePercent:0.0}%", pixelsPerDip);
+        var labelX = Math.Clamp(lastPoint.X - finalLabel.Width - 6, left, left + width - finalLabel.Width);
+        var labelY = Math.Clamp(lastPoint.Y - finalLabel.Height - 4, top, top + height - finalLabel.Height);
+        drawingContext.DrawText(finalLabel, new Point(labelX, labelY));
     }
+
+    private static Point ToPlotPoint(
+        ScoreHistoryPoint point,
+        double left,
+        double top,
+        double width,
+        double height,
+        double span) => new(
+        left + Math.Clamp(point.ElapsedSeconds / span, 0, 1) * width,
+        top + (100 - Math.Clamp(point.ScorePercent, 0, 100)) / 100.0 * height);
 
     private static void DrawLabel(
         DrawingContext drawingContext,

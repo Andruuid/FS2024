@@ -5,6 +5,7 @@ using ChallengeLab.App.Controls;
 using ChallengeLab.App.ViewModels;
 using ChallengeLab.App.Views;
 using ChallengeLab.Core.Config;
+using ChallengeLab.Core.Highscores;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scoring;
 
@@ -181,9 +182,9 @@ public sealed class SecondaryHudTests
                 HorizonSeconds = 40,
                 Points =
                 [
-                    new LandingMonitorGraphPoint(0, 100),
-                    new LandingMonitorGraphPoint(10, 92),
-                    new LandingMonitorGraphPoint(20, 86)
+                    new ScoreHistoryPoint(0, 100),
+                    new ScoreHistoryPoint(10, 92),
+                    new ScoreHistoryPoint(20, 86)
                 ]
             };
             graph.Measure(new Size(360, 160));

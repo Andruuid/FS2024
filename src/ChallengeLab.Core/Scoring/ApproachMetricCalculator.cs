@@ -10,12 +10,14 @@ internal readonly record struct ApproachMetricResult(
     double MeanAbsoluteErrorFeet,
     double VerticalExcessVariationFeetPerSecond,
     double LateralExcessVariationIndex,
-    double RootMeanSquareErrorFeet);
+    double RootMeanSquareErrorFeet,
+    double MeanAbsoluteBankDeg);
 
 /// <summary>
 /// Deterministic short-final metric calculation. Raw visual-frame telemetry is converted to
 /// runway-local coordinates, split at discontinuities, resampled to 5 Hz, and lightly smoothed
-/// before path-accuracy (mean |alt error|) and total-variation steadiness metrics are integrated.
+/// before path-accuracy (mean |alt error|), bank stability (mean |bank|), and total-variation
+/// steadiness metrics are integrated.
 /// </summary>
 internal static class ApproachMetricCalculator
 {
@@ -46,6 +48,7 @@ internal static class ApproachMetricCalculator
         double groundDistanceMeters = 0;
         double absoluteErrorIntegral = 0;
         double squaredErrorIntegral = 0;
+        double absoluteBankIntegral = 0;
         // Total path variation (not reversal-only): live preview and finals must react to
         // corrections / pumping / S-turns. One-way intercepts also cost, which matches
         // pilot expectation that "wild flying" pulls the score down during approach.
@@ -72,6 +75,8 @@ internal static class ApproachMetricCalculator
                 squaredErrorIntegral +=
                     0.5 * (previous.AltitudeErrorFeet * previous.AltitudeErrorFeet
                            + current.AltitudeErrorFeet * current.AltitudeErrorFeet) * dt;
+                absoluteBankIntegral +=
+                    0.5 * (Math.Abs(previous.BankDeg) + Math.Abs(current.BankDeg)) * dt;
 
                 verticalTotalVariationFeet +=
                     Math.Abs(current.AltitudeErrorFeet - previous.AltitudeErrorFeet);
@@ -98,6 +103,9 @@ internal static class ApproachMetricCalculator
         var lateralWeaveIndex = groundDistanceMeters > 0
             ? lateralTotalVariationMeters / groundDistanceMeters
             : 0;
+        var meanAbsoluteBankDeg = durationSeconds > 0
+            ? absoluteBankIntegral / durationSeconds
+            : 0;
 
         return new ApproachMetricResult(
             rawSampleCount,
@@ -106,7 +114,8 @@ internal static class ApproachMetricCalculator
             meanAbsoluteErrorFeet,
             verticalVariationFeetPerSecond,
             lateralWeaveIndex,
-            rootMeanSquareErrorFeet);
+            rootMeanSquareErrorFeet,
+            meanAbsoluteBankDeg);
     }
 
     private static List<List<ApproachPoint>> BuildSegments(
@@ -175,7 +184,8 @@ internal static class ApproachMetricCalculator
             ScoringTimestamp(sample),
             path.ApproachDistanceMeters,
             path.LateralMeters,
-            path.AltitudeErrorFeet);
+            path.AltitudeErrorFeet,
+            sample.BankDeg);
         return true;
     }
 
@@ -216,7 +226,8 @@ internal static class ApproachMetricCalculator
                 timestamp,
                 Lerp(previous.ApproachDistanceMeters, current.ApproachDistanceMeters, fraction),
                 Lerp(previous.LateralMeters, current.LateralMeters, fraction),
-                Lerp(previous.AltitudeErrorFeet, current.AltitudeErrorFeet, fraction)));
+                Lerp(previous.AltitudeErrorFeet, current.AltitudeErrorFeet, fraction),
+                Lerp(previous.BankDeg, current.BankDeg, fraction)));
         }
 
         if (result[^1].Timestamp < last.Timestamp)
@@ -239,7 +250,8 @@ internal static class ApproachMetricCalculator
             {
                 LateralMeters = (previous.LateralMeters + current.LateralMeters + next.LateralMeters) / 3.0,
                 AltitudeErrorFeet =
-                    (previous.AltitudeErrorFeet + current.AltitudeErrorFeet + next.AltitudeErrorFeet) / 3.0
+                    (previous.AltitudeErrorFeet + current.AltitudeErrorFeet + next.AltitudeErrorFeet) / 3.0,
+                BankDeg = (previous.BankDeg + current.BankDeg + next.BankDeg) / 3.0
             });
         }
 
@@ -254,5 +266,6 @@ internal static class ApproachMetricCalculator
         DateTimeOffset Timestamp,
         double ApproachDistanceMeters,
         double LateralMeters,
-        double AltitudeErrorFeet);
+        double AltitudeErrorFeet,
+        double BankDeg);
 }

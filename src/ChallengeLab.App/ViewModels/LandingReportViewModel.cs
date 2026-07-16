@@ -13,12 +13,23 @@ public sealed class LandingReportViewModel : ViewModelBase
     {
         Entry = entry;
         Title = entry.ChallengeTitle;
-        Subtitle = $"{entry.Utc:yyyy-MM-dd HH:mm} UTC  ·  Grade {entry.Grade}  ·  {entry.ScoringProfileDisplay}" +
+        Subtitle = $"{entry.Utc:yyyy-MM-dd HH:mm} UTC" +
                    (entry.IsLegacy ? "  ·  LEGACY RECORD" : "");
         ScorePercent = entry.ScorePercent;
         Grade = entry.Grade;
         Notes = entry.Breakdown;
         CriteriaStored = entry.Criteria?.Count ?? 0;
+        ProjectedScoreHistory = entry.ProjectedScoreHistory is { } history
+            ? history
+            : Array.Empty<ScoreHistoryPoint>();
+        HasProjectedScoreHistory = ProjectedScoreHistory.Count > 0;
+
+        Phases = new ObservableCollection<ReportPhaseViewModel>(
+            entry.Phases
+                .Where(phase => phase.Used)
+                .OrderBy(phase => PhaseOrder(phase.PhaseId))
+                .ThenBy(phase => phase.DisplayName)
+                .Select(phase => new ReportPhaseViewModel(phase)));
 
         VerticalSpeedRaw = entry.ResolveVerticalSpeedFpm();
         VerticalSpeedDisplay = FormatVerticalSpeedDisplay(VerticalSpeedRaw);
@@ -47,13 +58,31 @@ public sealed class LandingReportViewModel : ViewModelBase
                   $" Measured: {AirspeedDisplay}.");
 
         Metrics = new ObservableCollection<ReportMetricViewModel>();
+        DetailMetrics = new ObservableCollection<ReportMetricViewModel>();
+        Penalties = new ObservableCollection<PenaltyViewModel>();
         var source = entry.CriteriaForReport;
         if (source.Count == 0 && entry.Criteria is { Count: > 0 }) source = entry.Criteria;
         foreach (var criterion in source)
-            Metrics.Add(new ReportMetricViewModel(criterion, IsVs(criterion)));
+        {
+            if (criterion.EffectiveStatus == MetricStatus.GateFailed)
+            {
+                Penalties.Add(new PenaltyViewModel(criterion));
+                continue;
+            }
+
+            if (!ShouldShowAsMetric(criterion)) continue;
+            var isVs = IsVs(criterion);
+            var isAirspeed = IsAirspeed(criterion);
+            var metric = new ReportMetricViewModel(criterion, isVs);
+            Metrics.Add(metric);
+            if (!isVs && !isAirspeed)
+                DetailMetrics.Add(metric);
+        }
 
         MetricCount = Metrics.Count;
         HasDetail = MetricCount > 0;
+        HasPenalties = Penalties.Count > 0;
+        PenaltySummary = BuildPenaltySummary(entry, Penalties.Count);
         DetailHint = HasDetail
             ? $"METRICS: {MetricCount} (stored criteria: {CriteriaStored}) — scroll for every result and explanation"
             : $"NO METRIC BREAKDOWN (stored criteria: {CriteriaStored}). This attempt predates metric storage.";
@@ -65,6 +94,10 @@ public sealed class LandingReportViewModel : ViewModelBase
     public double ScorePercent { get; }
     public string Grade { get; }
     public string Notes { get; }
+    public IReadOnlyList<ScoreHistoryPoint> ProjectedScoreHistory { get; }
+    public bool HasProjectedScoreHistory { get; }
+    public string ProjectedScoreHistoryUnavailableText =>
+        "Projected score history was not stored for this landing.";
     public bool HasDetail { get; }
     public int MetricCount { get; }
     public int CriteriaStored { get; }
@@ -99,7 +132,12 @@ public sealed class LandingReportViewModel : ViewModelBase
         ? "Score: N/A"
         : $"Metric score: {AirspeedScorePercent:0}%";
 
+    public ObservableCollection<ReportPhaseViewModel> Phases { get; }
+    public ObservableCollection<PenaltyViewModel> Penalties { get; }
     public ObservableCollection<ReportMetricViewModel> Metrics { get; }
+    public ObservableCollection<ReportMetricViewModel> DetailMetrics { get; }
+    public bool HasPenalties { get; }
+    public string PenaltySummary { get; }
 
     internal static string FormatVerticalSpeedDisplay(double? fpm)
     {
@@ -181,6 +219,68 @@ public sealed class LandingReportViewModel : ViewModelBase
         criterion.DisplayName.Contains("IAS", StringComparison.OrdinalIgnoreCase) ||
         criterion.DisplayName.Contains("airspeed", StringComparison.OrdinalIgnoreCase) ||
         criterion.DisplayName.Contains("touchdown target", StringComparison.OrdinalIgnoreCase);
+
+    private static bool ShouldShowAsMetric(HighscoreCriterionDetail criterion)
+    {
+        if (string.Equals(criterion.Id, "gear", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(criterion.Id, "flaps", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return criterion.EffectiveStatus != MetricStatus.Informational;
+    }
+
+    private static string BuildPenaltySummary(HighscoreEntry entry, int count)
+    {
+        var label = $"{count} penalt{(count == 1 ? "y" : "ies")} applied";
+        if (entry.ScoreBeforeGatesPercent is not { } before) return label;
+        var loss = Math.Max(0, before - entry.ScorePercent);
+        return $"{label}  ·  {before:0.0}% before penalties → {entry.ScorePercent:0.0}% final" +
+               (loss > .05 ? $"  ·  −{loss:0.0} points" : "");
+    }
+
+    private static int PhaseOrder(string? id) => id?.ToLowerInvariant() switch
+    {
+        "touchdown" => 0,
+        "approach" => 1,
+        "rollout" => 2,
+        _ => 3
+    };
+}
+
+public sealed class ReportPhaseViewModel
+{
+    public ReportPhaseViewModel(HighscorePhaseDetail phase)
+    {
+        DisplayName = phase.DisplayName;
+        ScorePercent = phase.ScorePercent;
+        ScoreDisplay = phase.ScorePercent is null ? "N/A" : $"{phase.ScorePercent:0.0}%";
+        WeightDisplay = $"{phase.WeightPercent:0.#}% overall";
+    }
+
+    public string DisplayName { get; }
+    public double? ScorePercent { get; }
+    public string ScoreDisplay { get; }
+    public string WeightDisplay { get; }
+}
+
+public sealed class PenaltyViewModel
+{
+    public PenaltyViewModel(HighscoreCriterionDetail criterion)
+    {
+        Id = criterion.Id;
+        DisplayName = criterion.DisplayName;
+        var metric = new ReportMetricViewModel(criterion, false);
+        RawDisplay = metric.RawDisplay;
+        Note = metric.Note;
+        ScopeDisplay = string.IsNullOrWhiteSpace(criterion.PhaseDisplayName)
+            ? "Overall score penalty"
+            : $"{criterion.PhaseDisplayName} penalty";
+    }
+
+    public string Id { get; }
+    public string DisplayName { get; }
+    public string RawDisplay { get; }
+    public string Note { get; }
+    public string ScopeDisplay { get; }
 }
 
 public sealed class ReportMetricViewModel
@@ -255,6 +355,20 @@ public sealed class ReportMetricViewModel
         if (criterion.RawValue is null) return "—";
 
         var id = criterion.Id ?? "";
+        if (id == "touchdown_point")
+        {
+            var target = TryParseFromNote(criterion.Note, @"perfect\s+point\s+(-?\d+(?:\.\d+)?)\s*ft");
+            var errorMatch = Regex.Match(
+                criterion.Note ?? "",
+                @"error\s+([+\-]?\d+(?:\.\d+)?)\s*ft\s+\((early|late|on\s+target)\)",
+                RegexOptions.IgnoreCase);
+            var error = errorMatch.Success ? errorMatch.Groups[1].Value : null;
+            var direction = errorMatch.Success ? errorMatch.Groups[2].Value.ToLowerInvariant() : null;
+            return target is null || error is null || direction is null
+                ? $"{criterion.RawValue:0.0} ft from threshold"
+                : $"{criterion.RawValue:0.0} ft from threshold · target {target:0.0} ft · error {error} ft ({direction})";
+        }
+
         if (id is "touchdown_vs" or "touchdownVerticalSpeedFpm"
             || criterion.DisplayName.Contains("firmness", StringComparison.OrdinalIgnoreCase)
             || (criterion.Unit?.Equals("fpm", StringComparison.OrdinalIgnoreCase) == true

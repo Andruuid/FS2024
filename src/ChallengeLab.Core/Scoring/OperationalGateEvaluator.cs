@@ -29,6 +29,8 @@ internal static class OperationalGateEvaluator
             multiplier *= AppendAutomation(automation, observations, criteria, incompleteReasons, preview, scoreTarget);
         if (penalties.Rollout is { } rollout)
             multiplier *= AppendRollout(rollout, observations, criteria, incompleteReasons, preview, scoreTarget);
+        if (penalties.ReverseThrust is { } reverseThrust)
+            multiplier *= AppendReverseThrust(reverseThrust, snapshot, observations, criteria, incompleteReasons, preview, scoreTarget);
 
         return multiplier;
     }
@@ -320,6 +322,137 @@ internal static class OperationalGateEvaluator
 
         AddFailed(criteria, id, name, remaining, "m remaining", cfg.MultiplierOnFail, scoreTarget,
             $"{lengthNote}{speedNote}Remaining runway was only {remaining:0} m (< {required:0} m). {cfg.PenaltyDescription}");
+        return cfg.MultiplierOnFail;
+    }
+
+    private static double AppendReverseThrust(
+        ReverseThrustGateConfig cfg,
+        LandingSnapshot snapshot,
+        LandingGateObservations obs,
+        List<CriterionScore> criteria,
+        List<string> incomplete,
+        bool preview,
+        string scoreTarget)
+    {
+        const string id = "reverse_thrust";
+        const string name = "Reverse-thrust procedure";
+        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview))
+            return 1;
+        if (obs.MainGearTouchdownTimeSeconds is not { } touchdownTime)
+            return PendingOrUnavailable(id, name, "Accepted main-gear touchdown timing is unavailable.", criteria, incomplete, preview);
+        if (!obs.ReverseThrustTelemetryCoverageAvailable
+            || !obs.OperatingEnginesCapturedAtTouchdown)
+            return PendingOrUnavailable(id, name,
+                "Per-engine count, combustion, reverse engagement, nozzle, and throttle telemetry is unavailable.",
+                criteria, incomplete, preview);
+
+        var policy = ReverseThrustPolicies.Normalize(cfg.Policy);
+        var operating = obs.OperatingEngineIndicesAtTouchdown;
+        var operatingLabel = operating.Count == 0 ? "none" : string.Join(", ", operating);
+        var selectedElapsed = obs.FirstReverseSelectionTimeSecondsByEngine
+            .ToDictionary(pair => pair.Key, pair => pair.Value - touchdownTime);
+        var latestRequiredSelection = operating
+            .Where(selectedElapsed.ContainsKey)
+            .Select(index => selectedElapsed[index])
+            .DefaultIfEmpty()
+            .Max();
+
+        if (preview
+            && policy == ReverseThrustPolicies.Required
+            && !obs.ReverseApplicationWaivedByLowSpeed
+            && operating.Any(index => !selectedElapsed.TryGetValue(index, out var elapsed)
+                                      || elapsed > cfg.DeadlineSecondsAfterTouchdown + 1e-9)
+            && LatestTime(snapshot) < touchdownTime + cfg.DeadlineSecondsAfterTouchdown)
+        {
+            AddPending(criteria, id, name,
+                $"Waiting for operating engines [{operatingLabel}] to select reverse by TD+{cfg.DeadlineSecondsAfterTouchdown:0.##} s.");
+            return 1;
+        }
+
+        if (!obs.ReverseThrustStowEvaluated || !obs.ReverseThrustStowCoverageAvailable)
+            return PendingOrUnavailable(id, name,
+                $"Complete per-engine reverse state was not observed at or below {cfg.StowGroundSpeedKts:0.##} kt groundspeed.",
+                criteria, incomplete, preview);
+
+        var failures = new List<string>();
+        if (obs.AirborneReverseViolation && policy != ReverseThrustPolicies.Prohibited)
+            failures.Add("Reverse was selected before accepted main-gear touchdown");
+
+        switch (policy)
+        {
+            case ReverseThrustPolicies.Required:
+                if (!obs.ReverseApplicationWaivedByLowSpeed)
+                {
+                    var missingOrLate = operating.Where(index =>
+                            !selectedElapsed.TryGetValue(index, out var elapsed)
+                            || elapsed > cfg.DeadlineSecondsAfterTouchdown + 1e-9)
+                        .ToList();
+                    if (missingOrLate.Count > 0)
+                        failures.Add(
+                            $"engine(s) {string.Join(", ", missingOrLate)} did not select reverse inside the inclusive TD+{cfg.DeadlineSecondsAfterTouchdown:0.##} s window");
+                }
+                if (!obs.ReverseThrustStowedAtThreshold)
+                    failures.Add(
+                        $"engine(s) {string.Join(", ", obs.EnginesNotStowedAtThreshold)} were not completely stowed by {cfg.StowGroundSpeedKts:0.##} kt");
+                break;
+
+            case ReverseThrustPolicies.OptionalIdleOnly:
+                if (obs.PoweredReverseViolation)
+                    failures.Add(
+                        $"powered reverse reached {obs.FirstPoweredReverseThrottlePercent:0.##}% throttle; only stowed or idle reverse is permitted");
+                if (obs.FirstReverseSelectionTimeSecondsByEngine.Count > 0
+                    && !obs.ReverseThrustStowedAtThreshold)
+                    failures.Add(
+                        $"engine(s) {string.Join(", ", obs.EnginesNotStowedAtThreshold)} were not completely stowed by {cfg.StowGroundSpeedKts:0.##} kt");
+                break;
+
+            case ReverseThrustPolicies.Prohibited:
+                if (obs.FirstReverseSelectionTimeSecondsByEngine.Count > 0)
+                    failures.Add(
+                        $"reverse was selected on engine(s) {string.Join(", ", obs.FirstReverseSelectionTimeSecondsByEngine.Keys.Order())}");
+                break;
+        }
+
+        var policyNote = policy switch
+        {
+            ReverseThrustPolicies.Required =>
+                $"All engines operating at touchdown [{operatingLabel}] must select at least idle reverse by TD+{cfg.DeadlineSecondsAfterTouchdown:0.##} s and every reverser must be stowed by {cfg.StowGroundSpeedKts:0.##} kt.",
+            ReverseThrustPolicies.OptionalIdleOnly =>
+                $"Reverse is optional but may not use throttle below {cfg.PoweredReverseThrottleThresholdPercent:0.##}%; selected reversers must be stowed by {cfg.StowGroundSpeedKts:0.##} kt.",
+            _ => "Reverse selection is prohibited after touchdown."
+        };
+        policyNote = $"Effective policy: {policy}. {policyNote}";
+        var selectionNote = selectedElapsed.Count == 0
+            ? "No post-touchdown reverse selection was detected."
+            : "First selection: " + string.Join(", ", selectedElapsed.OrderBy(pair => pair.Key)
+                .Select(pair => $"engine {pair.Key} at TD{pair.Value:+0.##;-0.##;+0} s")) + ".";
+        policyNote += $" Engine coverage at touchdown: {obs.EngineCountAtTouchdown ?? operating.Count} installed; "
+                      + $"operating engines [{operatingLabel}]. {selectionNote}";
+        policyNote += obs.PoweredReverseViolation
+            ? $" Powered reverse detected at {obs.FirstPoweredReverseThrottlePercent:0.##}% throttle"
+              + (obs.FirstPoweredReverseTimeSeconds is { } poweredTime
+                  ? $" at TD{poweredTime - touchdownTime:+0.##;-0.##;+0} s."
+                  : ".")
+            : " Powered reverse detected: no.";
+        if (!string.IsNullOrWhiteSpace(cfg.ExceptionReason))
+            policyNote += $" Exception: {cfg.ExceptionReason}";
+        if (obs.ReverseApplicationWaivedByLowSpeed)
+            policyNote += $" The application deadline was waived because groundspeed reached {cfg.StowGroundSpeedKts:0.##} kt first.";
+        if (obs.GroundSpeedKtsAtReverseStowCheck is { } stowSpeed)
+            policyNote += $" Stow was checked at {stowSpeed:0.##} kt.";
+
+        if (failures.Count == 0)
+        {
+            AddPassed(criteria, id, name,
+                selectedElapsed.Count == 0 ? null : latestRequiredSelection,
+                "s after touchdown", policyNote);
+            return 1;
+        }
+
+        AddFailed(criteria, id, name,
+            selectedElapsed.Count == 0 ? null : latestRequiredSelection,
+            "s after touchdown", cfg.MultiplierOnFail, scoreTarget,
+            $"{string.Join("; ", failures)}. {policyNote} {cfg.PenaltyDescription}");
         return cfg.MultiplierOnFail;
     }
 

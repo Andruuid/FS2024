@@ -16,6 +16,7 @@ public static class MetricResolver
     private static readonly HashSet<string> KnownMetricNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "touchdownVerticalSpeedFpm",
+        "touchdownPointErrorFt",
         "centerlineDeviationM",
         "alignmentDeg",
         "touchdownIasErrorKts",
@@ -26,6 +27,7 @@ public static class MetricResolver
         "approachGlideslopeMeanAbsFt",
         "approachVerticalVariationFtPerSec",
         "approachLateralWeaveIndex",
+        "approachBankMeanAbsDeg",
         "groundTrackErrorMeanDeg",
         "postTouchdownAlignmentMeanDeg",
         "rolloutLateralMeanM",
@@ -48,6 +50,7 @@ public static class MetricResolver
         return metric.ToLowerInvariant() switch
         {
             "touchdownverticalspeedfpm" => MetricObservation.Available(snap.VerticalSpeedAtTouchdownFpm),
+            "touchdownpointerrorft" => ResolveTouchdownPoint(snap, challenge),
             "centerlinedeviationm" => MetricObservation.Available(Math.Abs(snap.TouchdownLateralOffsetM)),
             "alignmentdeg" => MetricObservation.Available(Math.Abs(snap.TouchdownHeadingErrorDeg)),
             "touchdowniaserrorkts" => MetricObservation.Available(snap.TouchdownIasErrorKts),
@@ -73,6 +76,11 @@ public static class MetricResolver
                 MetricObservation.Available(snap.ApproachLateralWeaveIndex),
             "approachlateralweaveindex" =>
                 MetricObservation.Unavailable("Approach lateral steadiness requires at least 10 m of short-final track."),
+            "approachbankmeanabsdeg" when snap.ApproachPathSampleCount >= 2
+                                          && snap.ApproachMetricDurationSec >= 0.5 =>
+                MetricObservation.Available(snap.ApproachBankMeanAbsDeg),
+            "approachbankmeanabsdeg" =>
+                MetricObservation.Unavailable("Approach bank stability requires a short-final sample window."),
             "groundtrackerrormeandeg" when snap.GroundTrackBeforeSegmentCount >= 1
                                                    && snap.GroundTrackAfterSegmentCount >= 1 =>
                 MetricObservation.Available(snap.GroundTrackErrorMeanDeg),
@@ -114,10 +122,27 @@ public static class MetricResolver
 
     private static bool IsTouchdownMetric(string metric) => metric.ToLowerInvariant() is
         "touchdownverticalspeedfpm" or
+        "touchdownpointerrorft" or
         "centerlinedeviationm" or
         "alignmentdeg" or
         "touchdowniaserrorkts" or
         "excessspeedovervappkts" or
         "flapsindex" or
         "bankattouchdowndeg";
+
+    private static MetricObservation ResolveTouchdownPoint(
+        LandingSnapshot snapshot,
+        ChallengeConfig challenge)
+    {
+        if (snapshot.Touchdown is null)
+            return MetricObservation.Unavailable("Touchdown telemetry was not captured.");
+
+        return TouchdownPointCalculator.TryCalculate(
+            challenge.Runway,
+            snapshot.Touchdown,
+            out var measurement,
+            out var reason)
+            ? MetricObservation.Available(measurement.AbsoluteErrorFeet)
+            : MetricObservation.Unavailable(reason ?? "Touchdown-point geometry is unavailable.");
+    }
 }

@@ -83,6 +83,7 @@ public static class EvaluationKeyValidator
         ValidateAutomationGate(penalties.Automation, $"{path}.automation", errors);
         ValidateNoseGearImpactGate(penalties.NoseGearImpact, $"{path}.noseGearImpact", errors);
         ValidateRolloutGate(penalties.Rollout, $"{path}.rollout", errors);
+        ValidateReverseThrustGate(penalties.ReverseThrust, $"{path}.reverseThrust", errors);
 
         RequirePenaltyPhase(phase, penalties.ContactStability is not null, "contactStability", "touchdown", errors);
         RequirePenaltyPhase(phase, penalties.StallWarning is not null, "stallWarning", "approach", errors);
@@ -93,6 +94,7 @@ public static class EvaluationKeyValidator
         RequirePenaltyPhase(phase, penalties.Automation is not null, "automation", "approach", errors);
         RequirePenaltyPhase(phase, penalties.NoseGearImpact is not null, "noseGearImpact", "touchdown", errors);
         RequirePenaltyPhase(phase, penalties.Rollout is not null, "rollout", "rollout", errors);
+        RequirePenaltyPhase(phase, penalties.ReverseThrust is not null, "reverseThrust", "rollout", errors);
     }
 
     private static void RequirePenaltyPhase(
@@ -166,6 +168,9 @@ public static class EvaluationKeyValidator
         {
             case "piecewise":
                 ValidatePiecewise(metric, path, errors);
+                break;
+            case "upperboundbands":
+                ValidateUpperBoundBands(metric, path, errors);
                 break;
             case "target":
                 ValidateExactParams(metric, path, errors, "ideal", "tolerance", "maxError");
@@ -293,6 +298,35 @@ public static class EvaluationKeyValidator
             if (!double.IsFinite(point.S) || point.S is < 0 or > 100)
                 errors.Add($"{path}.points score s must be between 0 and 100.");
             if (!values.Add(point.V)) errors.Add($"{path}.points contains duplicate v value {point.V}.");
+        }
+    }
+
+    private static void ValidateUpperBoundBands(
+        EvaluationMetric metric,
+        string path,
+        List<string> errors)
+    {
+        if (metric.Params.Count > 0)
+            errors.Add($"{path}.params is not used by upperBoundBands evaluators.");
+        if (metric.Points is not { Count: > 0 })
+        {
+            errors.Add($"{path}.points must contain at least one upper-bound score point.");
+            return;
+        }
+
+        double? previousBound = null;
+        foreach (var point in metric.Points)
+        {
+            if (!double.IsFinite(point.V))
+                errors.Add($"{path}.points contains a non-finite v value.");
+            else if (previousBound is not null && point.V <= previousBound.Value)
+                errors.Add($"{path}.points upper bounds must be strictly increasing and unique.");
+
+            if (!double.IsFinite(point.S) || point.S is < 0 or > 100)
+                errors.Add($"{path}.points score s must be between 0 and 100.");
+
+            if (double.IsFinite(point.V))
+                previousBound = point.V;
         }
     }
 
@@ -504,6 +538,31 @@ public static class EvaluationKeyValidator
         if (gate is null) return;
         ValidateOptionalMultiplier(gate.MultiplierOnFail,
             $"{path}.multiplierOnFail", errors);
+    }
+
+    private static void ValidateReverseThrustGate(
+        ReverseThrustGateConfig? gate,
+        string path,
+        List<string> errors)
+    {
+        if (gate is null) return;
+        if (!ReverseThrustPolicies.IsSupported(gate.Policy))
+            errors.Add($"{path}.policy must be required, optional_idle_only, or prohibited.");
+        if (!string.Equals(gate.Policy, ReverseThrustPolicies.Required, StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrWhiteSpace(gate.ExceptionReason))
+            errors.Add($"{path}.exceptionReason is required for a non-default policy.");
+        if (!double.IsFinite(gate.DeadlineSecondsAfterTouchdown)
+            || gate.DeadlineSecondsAfterTouchdown < 0)
+            errors.Add($"{path}.deadlineSecondsAfterTouchdown must be at least zero.");
+        if (!double.IsFinite(gate.MinimumNozzlePosition)
+            || gate.MinimumNozzlePosition is <= 0 or > 1)
+            errors.Add($"{path}.minimumNozzlePosition must be greater than zero and at most one.");
+        if (!double.IsFinite(gate.PoweredReverseThrottleThresholdPercent)
+            || gate.PoweredReverseThrottleThresholdPercent is < -100 or > 0)
+            errors.Add($"{path}.poweredReverseThrottleThresholdPercent must be between -100 and zero.");
+        if (!IsPositiveFinite(gate.StowGroundSpeedKts))
+            errors.Add($"{path}.stowGroundSpeedKts must be greater than zero.");
+        ValidateOptionalMultiplier(gate.MultiplierOnFail, $"{path}.multiplierOnFail", errors);
     }
 
     private static void ValidateOptionalMultiplier(

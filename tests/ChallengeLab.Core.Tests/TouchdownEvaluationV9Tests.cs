@@ -49,8 +49,8 @@ public sealed class TouchdownEvaluationV9Tests
         var catalog = loader.LoadCatalog();
         foreach (var (path, version) in new[]
                  {
-                     (catalog.EvaluationKey, 18),
-                     (catalog.FreeFlightEvaluationKey, 5)
+                     (catalog.EvaluationKey, 21),
+                     (catalog.FreeFlightEvaluationKey, 7)
                  })
         {
             var loaded = loader.LoadEvaluationKey(path);
@@ -60,16 +60,17 @@ public sealed class TouchdownEvaluationV9Tests
             var touchdown = loaded.Key.Phases.Single(p => p.Id == "touchdown");
             Assert.Equal(100, touchdown.Metrics.Sum(m => m.ImportancePercent), 6);
             var isNormal = path == catalog.EvaluationKey;
-            Assert.Equal(isNormal ? 68 : 55,
+            Assert.Equal(isNormal ? 54.4 : 44,
                 touchdown.Metrics.Single(m => m.Id == "touchdown_impact").ImportancePercent);
-            Assert.Equal(10, touchdown.Metrics.Single(m => m.Id == "flare_efficiency").ImportancePercent);
+            Assert.Equal(20, touchdown.Metrics.Single(m => m.Id == "touchdown_point").ImportancePercent);
+            Assert.Equal(8, touchdown.Metrics.Single(m => m.Id == "flare_efficiency").ImportancePercent);
             if (isNormal)
             {
                 Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "contact_stability");
                 Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "ground_track");
             }
             else
-                Assert.Equal(10, touchdown.Metrics.Single(m => m.Id == "contact_stability").ImportancePercent);
+                Assert.Equal(8, touchdown.Metrics.Single(m => m.Id == "contact_stability").ImportancePercent);
             Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "touchdown_vs");
             Assert.Equal(70, touchdown.WeightPercent);
             Assert.Equal(25, loaded.Key.Phases.Single(p => p.Id == "approach").WeightPercent);
@@ -194,7 +195,7 @@ public sealed class TouchdownEvaluationV9Tests
         var result = new ScoreEngine(profile11.Key, profile11.ProfileHash)
             .EvaluatePreview(challenge, new LandingSnapshot());
         Assert.Equal(profile11.Key.Id, result.EvaluationKeyId);
-        Assert.Equal(18, result.EvaluationKeyVersion);
+        Assert.Equal(21, result.EvaluationKeyVersion);
         Assert.Equal(profile11.ProfileHash, result.ScoringProfileHash);
         Assert.Equal(profile11.BucketId(challenge.Id), result.RankedBucketId);
 
@@ -679,12 +680,22 @@ public sealed class TouchdownEvaluationV9Tests
                 }
             };
             var store = new HighscoreStore(path);
-            store.Add(result);
+            var projectedHistory = Enumerable.Range(0, 2401)
+                .Select(index => new ScoreHistoryPoint(index * .25, 100 - index % 30))
+                .ToList();
+            store.Add(result, projectedScoreHistory: projectedHistory);
             var reloaded = new HighscoreStore(path).Entries.Single();
             Assert.False(reloaded.IsLegacy);
             Assert.Equal(result.RankedBucketId, reloaded.EffectiveRankedBucketId);
             Assert.Equal(-250, reloaded.ResolveVerticalSpeedFpm());
+            Assert.Equal("-250", reloaded.VerticalSpeedDisplay);
             Assert.NotNull(reloaded.Diagnostics);
+            Assert.True(reloaded.HasProjectedScoreHistory);
+            Assert.NotNull(reloaded.ProjectedScoreHistory);
+            Assert.InRange(reloaded.ProjectedScoreHistory!.Count, 2, 600);
+            Assert.Equal(0, reloaded.ProjectedScoreHistory[0].ElapsedSeconds);
+            Assert.Equal(600, reloaded.ProjectedScoreHistory[^1].ElapsedSeconds);
+            Assert.Equal(projectedHistory[^1].ScorePercent, reloaded.ProjectedScoreHistory[^1].ScorePercent);
 
             File.WriteAllText(path,
                 "[{\"Utc\":\"2025-01-01T00:00:00Z\",\"ChallengeId\":\"old\",\"ChallengeTitle\":\"Old\",\"ScorePercent\":80,\"Grade\":\"B\",\"VerticalSpeedFpm\":-300}]");
@@ -693,11 +704,13 @@ public sealed class TouchdownEvaluationV9Tests
             Assert.True(legacy.IsLegacy);
             Assert.Equal("legacy|unknown-scoring-profile", legacy.EffectiveRankedBucketId);
             Assert.Equal(-300, legacy.ResolveVerticalSpeedFpm());
+            Assert.False(legacy.HasProjectedScoreHistory);
             legacyStore.RewriteClean();
             var rewritten = File.ReadAllText(path);
             Assert.DoesNotContain("HasDetail", rewritten, StringComparison.Ordinal);
             Assert.DoesNotContain("CriteriaForReport", rewritten, StringComparison.Ordinal);
             Assert.DoesNotContain("VerticalSpeedDisplay", rewritten, StringComparison.Ordinal);
+            Assert.DoesNotContain("HasProjectedScoreHistory", rewritten, StringComparison.Ordinal);
         }
         finally
         {

@@ -1,6 +1,6 @@
 {
   "id": "landing-evaluation-key",
-  "version": 18,
+  "version": 21,
   "description": "Single authoritative Challenge/Career landing score. Phase penalties affect only their owning phase; pause usage and reduced simulation rate are general penalties on the combined score.",
   "formula": "phaseAfterPenalties = phaseScore * product(phase penalty multipliers); subtotal = sum(phaseAfterPenalties * phaseWeightPercent / 100); final = round(subtotal * product(general penalty multipliers), 1)",
   "settle": {
@@ -96,7 +96,7 @@
         {
           "id": "touchdown_impact",
           "displayName": "Touchdown impact",
-          "importancePercent": 68,
+          "importancePercent": 54.4,
           "unit": "%",
           "evaluator": "landingImpact",
           "note": "Initial main-gear impact only. Combines challenge-specific touchdown vertical-speed and robust filtered peak-G subscores using weighted RMS penalties.",
@@ -121,9 +121,25 @@
           }
         },
         {
+          "id": "touchdown_point",
+          "displayName": "Touchdown point",
+          "importancePercent": 20,
+          "unit": "ft",
+          "evaluator": "upperBoundBands",
+          "metric": "touchdownPointErrorFt",
+          "note": "Longitudinal position of the first accepted main-gear touchdown. The perfect point is 1,100 ft from the landing threshold on runways up to and including 6,000 ft, otherwise 1,200 ft. Early and late errors score equally.",
+          "points": [
+            { "v": 50, "s": 100 },
+            { "v": 100, "s": 90 },
+            { "v": 200, "s": 75 },
+            { "v": 300, "s": 50 },
+            { "v": 500, "s": 25 }
+          ]
+        },
+        {
           "id": "flare_efficiency",
           "displayName": "Flare and float efficiency",
-          "importancePercent": 10,
+          "importancePercent": 8,
           "unit": "%",
           "evaluator": "flareEfficiency",
           "note": "Measures actual runway consumed after a sustained near-level or positive vertical-speed state begins below flare height. IAS scoring is not reused.",
@@ -152,7 +168,7 @@
         {
           "id": "airspeed",
           "displayName": "IAS versus touchdown target",
-          "importancePercent": 13,
+          "importancePercent": 10.4,
           "unit": "kts",
           "evaluator": "piecewise",
           "metric": "touchdownIasErrorKts",
@@ -173,7 +189,7 @@
         {
           "id": "centerline",
           "displayName": "Centerline offset",
-          "importancePercent": 7,
+          "importancePercent": 5.6,
           "unit": "m",
           "evaluator": "centerline",
           "metric": "centerlineDeviationM",
@@ -187,7 +203,7 @@
         {
           "id": "bank",
           "displayName": "Bank at touchdown",
-          "importancePercent": 2,
+          "importancePercent": 1.6,
           "unit": "deg",
           "evaluator": "target",
           "metric": "bankAtTouchdownDeg",
@@ -199,7 +215,7 @@
       "id": "approach",
       "displayName": "Approach",
       "weightPercent": 25,
-      "note": "Short final (≈0.2–4.5 NM, includes typical 4 NM spawn): average 3° path match, vertical steadiness, and lateral steadiness share the phase equally.",
+      "note": "Short final (≈0.2–4.5 NM, includes typical 4 NM spawn): average 3° path match, vertical steadiness, lateral steadiness, and bank stability. Bank is 20%; the three path metrics share the remaining 80%.",
       "penalties": {
         "stallWarning": {
           "multiplierOnWarning": 0.5,
@@ -216,7 +232,7 @@
         {
           "id": "approach_glideslope",
           "displayName": "Average glideslope match",
-          "importancePercent": 33.34,
+          "importancePercent": 26.67,
           "unit": "ft",
           "evaluator": "target",
           "metric": "approachGlideslopeMeanAbsFt",
@@ -226,7 +242,7 @@
         {
           "id": "approach_vertical_steady",
           "displayName": "Vertical steadiness",
-          "importancePercent": 33.33,
+          "importancePercent": 26.67,
           "unit": "ft/s",
           "evaluator": "target",
           "metric": "approachVerticalVariationFtPerSec",
@@ -236,12 +252,22 @@
         {
           "id": "approach_lateral_steady",
           "displayName": "Lateral steadiness",
-          "importancePercent": 33.33,
+          "importancePercent": 26.66,
           "unit": "m/m",
           "evaluator": "target",
           "metric": "approachLateralWeaveIndex",
           "note": "Total lateral path change: Σ|Δd| / ground distance. Straight track scores high; big corrections and S-turns score low.",
           "params": { "ideal": 0, "tolerance": 0.02, "maxError": 0.20 }
+        },
+        {
+          "id": "approach_bank_stability",
+          "displayName": "Bank angle stability",
+          "importancePercent": 20,
+          "unit": "deg",
+          "evaluator": "target",
+          "metric": "approachBankMeanAbsDeg",
+          "note": "Time-weighted mean absolute bank on short final: ∫|φ|dt / T. Wings level scores high (full credit within 2°); sustained bank and left/right rocking score low (zero by 18° mean |bank|).",
+          "params": { "ideal": 0, "tolerance": 2.0, "maxError": 18.0 }
         }
       ]
     },
@@ -260,6 +286,15 @@
         "rollout": {
           "multiplierOnFail": 0.8,
           "penaltyDescription": "As soon as groundspeed falls below the settle threshold, remaining runway must be at least max(400 m, 15% of runway length). Falling short multiplies the Rollout phase by 0.8."
+        },
+        "reverseThrust": {
+          "policy": "required",
+          "deadlineSecondsAfterTouchdown": 4.0,
+          "minimumNozzlePosition": 0.01,
+          "poweredReverseThrottleThresholdPercent": -1.0,
+          "stowGroundSpeedKts": 60.0,
+          "multiplierOnFail": 0.9,
+          "penaltyDescription": "Every engine operating at main-gear touchdown must select at least idle reverse no later than TD+4 seconds, and all reversers must be completely stowed by 60 kt groundspeed. Failure multiplies the Rollout phase once."
         }
       },
       "metrics": [

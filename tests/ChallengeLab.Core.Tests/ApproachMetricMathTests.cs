@@ -26,6 +26,7 @@ public sealed class ApproachMetricMathTests
         Assert.InRange(snapshot.ApproachPathRms, 0, 0.01);
         Assert.InRange(snapshot.ApproachVerticalVariationFtPerSec, 0, 0.001);
         Assert.InRange(snapshot.ApproachLateralWeaveIndex, 0, 0.000001);
+        Assert.InRange(snapshot.ApproachBankMeanAbsDeg, 0, 0.001);
     }
 
     [Theory]
@@ -98,6 +99,32 @@ public sealed class ApproachMetricMathTests
         Assert.True(weaving.ApproachLateralWeaveIndex > 0.10,
             $"Expected S-turn weave above 0.10 m/m, got {weaving.ApproachLateralWeaveIndex}");
         Assert.True(weaving.ApproachLateralWeaveIndex > intercept.ApproachLateralWeaveIndex);
+    }
+
+    [Fact]
+    public void BankMeanAbs_TracksConstantBankAndOscillation()
+    {
+        var wingsLevel = CalculateApproach(
+            60,
+            altitudeError: _ => 0,
+            lateralOffset: _ => 0,
+            bankDeg: _ => 0);
+        var constantBank = CalculateApproach(
+            60,
+            altitudeError: _ => 0,
+            lateralOffset: _ => 0,
+            bankDeg: _ => 5);
+        var rocking = CalculateApproach(
+            60,
+            altitudeError: _ => 0,
+            lateralOffset: _ => 0,
+            bankDeg: progress => 15 * Math.Sin(progress * 4 * Math.PI));
+
+        Assert.InRange(wingsLevel.ApproachBankMeanAbsDeg, 0, 0.001);
+        Assert.InRange(constantBank.ApproachBankMeanAbsDeg, 4.9, 5.1);
+        // Mean |A sin| ≈ 2A/π ≈ 9.55° for A=15.
+        Assert.InRange(rocking.ApproachBankMeanAbsDeg, 8.5, 10.5);
+        Assert.True(rocking.ApproachBankMeanAbsDeg > constantBank.ApproachBankMeanAbsDeg);
     }
 
     [Fact]
@@ -239,6 +266,8 @@ public sealed class ApproachMetricMathTests
             "approachVerticalVariationFtPerSec", snapshot, challenge).IsAvailable);
         Assert.False(MetricResolver.Resolve(
             "approachLateralWeaveIndex", snapshot, challenge).IsAvailable);
+        Assert.False(MetricResolver.Resolve(
+            "approachBankMeanAbsDeg", snapshot, challenge).IsAvailable);
 
         snapshot.ApproachMetricDurationSec = 0.5;
         snapshot.ApproachLateralDistanceM = 10;
@@ -249,12 +278,15 @@ public sealed class ApproachMetricMathTests
             "approachVerticalVariationFtPerSec", snapshot, challenge).IsAvailable);
         Assert.True(MetricResolver.Resolve(
             "approachLateralWeaveIndex", snapshot, challenge).IsAvailable);
+        Assert.True(MetricResolver.Resolve(
+            "approachBankMeanAbsDeg", snapshot, challenge).IsAvailable);
     }
 
     private static LandingSnapshot CalculateApproach(
         double rateHz,
         Func<double, double> altitudeError,
         Func<double, double> lateralOffset,
+        Func<double, double>? bankDeg = null,
         bool irregularCadence = false)
     {
         var (challenge, settings) = Load();
@@ -263,6 +295,7 @@ public sealed class ApproachMetricMathTests
         const double durationSeconds = 20;
         const double startDistanceNm = 2.8;
         const double endDistanceNm = 0.3;
+        bankDeg ??= _ => 0;
 
         double elapsed = 0;
         var sampleIndex = 0;
@@ -289,7 +322,8 @@ public sealed class ApproachMetricMathTests
                 start.AddSeconds(seconds),
                 distanceNm,
                 lateralOffset(progress),
-                altitudeError(progress)));
+                altitudeError(progress),
+                bankDeg: bankDeg(progress)));
         }
     }
 
@@ -322,7 +356,8 @@ public sealed class ApproachMetricMathTests
         double approachDistanceNm,
         double lateralMeters,
         double altitudeErrorFeet,
-        double? heightFeetOverride = null)
+        double? heightFeetOverride = null,
+        double bankDeg = 0)
     {
         var runway = challenge.Runway;
         var headingRadians = runway.HeadingTrueDeg * Math.PI / 180.0;
@@ -353,6 +388,7 @@ public sealed class ApproachMetricMathTests
             RadioHeightFeet = height,
             HeadingTrueDeg = runway.HeadingTrueDeg,
             GroundTrackTrueDeg = runway.HeadingTrueDeg,
+            BankDeg = bankDeg,
             GroundSpeedKts = 140,
             AirspeedKts = 140,
             VerticalSpeedFpm = -700,
@@ -395,6 +431,7 @@ public sealed class ApproachMetricMathTests
         snapshot.ApproachGlideslopeMeanAbsFt,
         snapshot.ApproachVerticalVariationFtPerSec,
         snapshot.ApproachLateralWeaveIndex,
+        snapshot.ApproachBankMeanAbsDeg,
         snapshot.ApproachPathRms);
 
     private static (ChallengeConfig Challenge, LandingSessionSettings Settings) Load()
@@ -426,5 +463,6 @@ public sealed class ApproachMetricMathTests
         double MeanAbsoluteErrorFeet,
         double VerticalVariationFeetPerSecond,
         double LateralWeaveIndex,
+        double MeanAbsoluteBankDeg,
         double RootMeanSquareErrorFeet);
 }
