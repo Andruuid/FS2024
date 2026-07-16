@@ -16,6 +16,9 @@ namespace ChallengeLab.App.Controls;
 public sealed class PrecisionRunwayView : FrameworkElement
 {
     private const double FeetPerMeter = 3.280839895;
+    private const double MinimumLandingZoneDisplayFeet = 2_500;
+    private const double RunwayDisplayFraction = 1.0 / 3.0;
+    private const double TargetTrailingContextFeet = 800;
     private static readonly Brush GroundBrush = Gradient(
         Color.FromRgb(0x0A, 0x1D, 0x1B), Color.FromRgb(0x12, 0x2B, 0x25));
     private static readonly Brush RunwayBrush = Gradient(
@@ -67,17 +70,32 @@ public sealed class PrecisionRunwayView : FrameworkElement
         dc.DrawRectangle(RunwayBrush, EdgePen, layout.Runway);
         DrawRunwayTexture(dc, layout.Runway);
         DrawEdgeLights(dc, layout.Runway);
-        DrawCenterline(dc, data, layout.Runway);
+        DrawCenterline(dc, layout);
         DrawThreshold(dc, layout.Runway, data.RunwayWidthM, left: true);
-        DrawThreshold(dc, layout.Runway, data.RunwayWidthM, left: false);
-        DrawAimingAndTouchdownZoneMarkings(dc, data, layout.Runway);
-        DrawRunwayDesignations(dc, data, layout.Runway);
+        if (!layout.RunwayContinues)
+            DrawThreshold(dc, layout.Runway, data.RunwayWidthM, left: false);
+        DrawAimingAndTouchdownZoneMarkings(dc, data, layout);
+        DrawRunwayDesignations(dc, data, layout);
+        if (layout.RunwayContinues)
+            DrawContinuationBreak(dc, layout.Runway);
+        DrawDistanceScale(dc, layout);
         DrawTarget(dc, data, layout);
         DrawTouchdown(dc, data, layout);
 
         var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        DrawText(dc, "APPROACH  →", 18, layout.Runway.Top - 31, 10, MutedBrush, dpi);
-        DrawText(dc, "PLAN VIEW  ·  WIDTH EXPANDED FOR CLARITY", 18, ActualHeight - 22, 9, MutedBrush, dpi);
+        DrawText(dc, "APPROACH  ->", 18, 17, 10, MutedBrush, dpi);
+        var visibleFeet = layout.VisibleDistanceM * FeetPerMeter;
+        var viewportLabel = CreateText(
+            $"LANDING ZONE VIEW  0-{visibleFeet:0} FT" +
+            (layout.RunwayContinues ? "  /  RUNWAY CONTINUES" : "  /  FULL RUNWAY"),
+            9,
+            MutedBrush,
+            dpi,
+            FontWeights.Bold);
+        dc.DrawText(viewportLabel, new Point(
+            Math.Max(18, ActualWidth - viewportLabel.Width - 18),
+            17));
+        DrawText(dc, "CALIBRATED 500 FT SCALE  /  RUNWAY WIDTH EXPANDED", 18, ActualHeight - 20, 9, MutedBrush, dpi);
     }
 
     public static RunwayPlotLayout CalculateLayout(
@@ -85,15 +103,25 @@ public sealed class PrecisionRunwayView : FrameworkElement
         double width,
         double height)
     {
-        var left = Math.Max(38, width * .075);
-        var right = Math.Max(38, width * .06);
+        var left = Math.Max(48, width * .065);
+        var right = Math.Max(48, width * .055);
         var runwayWidth = Math.Max(1, width - left - right);
-        var runwayHeight = Math.Clamp(height * .34, 76, 126);
-        var top = Math.Max(48, (height - runwayHeight) * .48);
+        var runwayHeight = Math.Clamp(height * .36, 80, 122);
+        var top = Math.Max(68, (height - runwayHeight) * .46);
         var runway = new Rect(left, top, runwayWidth, runwayHeight);
 
-        var alongRatio = data.RunwayLengthM > 0
-            ? data.TouchdownDistanceFromThresholdM / data.RunwayLengthM
+        var idealM = double.IsFinite(data.IdealTouchdownDistanceFromThresholdM)
+            ? Math.Max(0, data.IdealTouchdownDistanceFromThresholdM)
+            : 0;
+        var requestedVisibleM = Math.Max(
+            data.RunwayLengthM * RunwayDisplayFraction,
+            Math.Max(
+                MinimumLandingZoneDisplayFeet / FeetPerMeter,
+                idealM + TargetTrailingContextFeet / FeetPerMeter));
+        var visibleDistanceM = Math.Min(data.RunwayLengthM, requestedVisibleM);
+        var runwayContinues = data.RunwayLengthM > visibleDistanceM + .01;
+        var alongRatio = visibleDistanceM > 0
+            ? data.TouchdownDistanceFromThresholdM / visibleDistanceM
             : 0;
         var rawX = runway.Left + alongRatio * runway.Width;
         var minX = Math.Max(12, runway.Left - Math.Min(35, runway.Width * .06));
@@ -106,6 +134,8 @@ public sealed class PrecisionRunwayView : FrameworkElement
         return new RunwayPlotLayout(
             runway,
             new Point(Math.Clamp(rawX, minX, maxX), Math.Clamp(rawY, minY, maxY)),
+            visibleDistanceM,
+            runwayContinues,
             rawX < minX,
             rawX > maxX,
             rawY < minY || rawY > maxY);
@@ -141,15 +171,16 @@ public sealed class PrecisionRunwayView : FrameworkElement
         }
     }
 
-    private static void DrawCenterline(DrawingContext dc, LandingVisualizationData data, Rect runway)
+    private static void DrawCenterline(DrawingContext dc, RunwayPlotLayout layout)
     {
         const double stripeM = 30;
         const double gapM = 20;
+        var runway = layout.Runway;
         var y = runway.Top + runway.Height / 2;
-        for (var distance = 170.0; distance < data.RunwayLengthM - 170; distance += stripeM + gapM)
+        for (var distance = 170.0; distance < layout.VisibleDistanceM - 20; distance += stripeM + gapM)
         {
-            var x = XForDistance(distance, data.RunwayLengthM, runway);
-            var length = Math.Max(2, stripeM / data.RunwayLengthM * runway.Width);
+            var x = XForDistance(distance, layout.VisibleDistanceM, runway);
+            var length = Math.Max(2, stripeM / layout.VisibleDistanceM * runway.Width);
             dc.DrawRectangle(WhiteBrush, null, new Rect(x, y - 1.4, Math.Min(length, runway.Right - x), 2.8));
         }
     }
@@ -177,30 +208,39 @@ public sealed class PrecisionRunwayView : FrameworkElement
     private static void DrawAimingAndTouchdownZoneMarkings(
         DrawingContext dc,
         LandingVisualizationData data,
-        Rect runway)
+        RunwayPlotLayout layout)
     {
-        DrawAimingBlocks(dc, data, runway, 305);
-        DrawAimingBlocks(dc, data, runway, data.RunwayLengthM - 305);
+        DrawAimingBlocks(dc, layout, 305);
 
         var groups = new[] { 3, 3, 2, 2, 1, 1 };
         for (var index = 0; index < groups.Length; index++)
         {
             var distance = 150.0 * (index + 1);
-            if (distance >= data.RunwayLengthM / 2 - 80) break;
-            DrawTouchdownZoneGroup(dc, data, runway, distance, groups[index]);
-            DrawTouchdownZoneGroup(dc, data, runway, data.RunwayLengthM - distance, groups[index]);
+            if (distance >= Math.Min(layout.VisibleDistanceM - 40, data.RunwayLengthM / 2 - 80)) break;
+            DrawTouchdownZoneGroup(dc, layout, distance, groups[index]);
+        }
+
+        if (!layout.RunwayContinues)
+        {
+            DrawAimingBlocks(dc, layout, data.RunwayLengthM - 305);
+            for (var index = 0; index < groups.Length; index++)
+            {
+                var distance = 150.0 * (index + 1);
+                if (distance >= data.RunwayLengthM / 2 - 80) break;
+                DrawTouchdownZoneGroup(dc, layout, data.RunwayLengthM - distance, groups[index]);
+            }
         }
     }
 
     private static void DrawAimingBlocks(
         DrawingContext dc,
-        LandingVisualizationData data,
-        Rect runway,
+        RunwayPlotLayout layout,
         double distanceM)
     {
-        if (distanceM <= 120 || distanceM >= data.RunwayLengthM - 120) return;
-        var x = XForDistance(distanceM, data.RunwayLengthM, runway);
-        var blockWidth = Math.Max(5, 45 / data.RunwayLengthM * runway.Width);
+        var runway = layout.Runway;
+        if (distanceM <= 120 || distanceM >= layout.VisibleDistanceM - 40) return;
+        var x = XForDistance(distanceM, layout.VisibleDistanceM, runway);
+        var blockWidth = Math.Max(5, 45 / layout.VisibleDistanceM * runway.Width);
         var blockHeight = Math.Max(4, runway.Height * .12);
         var inset = runway.Height * .18;
         dc.DrawRectangle(WhiteBrush, null,
@@ -211,13 +251,13 @@ public sealed class PrecisionRunwayView : FrameworkElement
 
     private static void DrawTouchdownZoneGroup(
         DrawingContext dc,
-        LandingVisualizationData data,
-        Rect runway,
+        RunwayPlotLayout layout,
         double distanceM,
         int bars)
     {
-        var x = XForDistance(distanceM, data.RunwayLengthM, runway);
-        var barWidth = Math.Max(2.5, 22 / data.RunwayLengthM * runway.Width);
+        var runway = layout.Runway;
+        var x = XForDistance(distanceM, layout.VisibleDistanceM, runway);
+        var barWidth = Math.Max(2.5, 22 / layout.VisibleDistanceM * runway.Width);
         var barHeight = Math.Max(2.2, runway.Height * .035);
         for (var index = 0; index < bars; index++)
         {
@@ -232,19 +272,59 @@ public sealed class PrecisionRunwayView : FrameworkElement
     private static void DrawRunwayDesignations(
         DrawingContext dc,
         LandingVisualizationData data,
-        Rect runway)
+        RunwayPlotLayout layout)
     {
+        var runway = layout.Runway;
         var dpi = VisualTreeHelper.GetDpi(new DrawingVisual()).PixelsPerDip;
         var leftText = CreateText(data.RunwayId.ToUpperInvariant(), Math.Clamp(runway.Height * .18, 13, 22), WhiteBrush, dpi, FontWeights.Bold);
-        var leftX = XForDistance(Math.Min(105, data.RunwayLengthM * .08), data.RunwayLengthM, runway);
+        var leftX = XForDistance(Math.Min(105, layout.VisibleDistanceM * .12), layout.VisibleDistanceM, runway);
         dc.DrawText(leftText, new Point(leftX - leftText.Width / 2, runway.Top + (runway.Height - leftText.Height) / 2));
+
+        if (layout.RunwayContinues)
+            return;
 
         var reciprocal = ReciprocalRunwayId(data.RunwayId, data.RunwayHeadingTrueDeg);
         var rightText = CreateText(reciprocal, Math.Clamp(runway.Height * .18, 13, 22), WhiteBrush, dpi, FontWeights.Bold);
-        var rightX = XForDistance(Math.Max(0, data.RunwayLengthM - Math.Min(105, data.RunwayLengthM * .08)), data.RunwayLengthM, runway);
+        var rightX = XForDistance(Math.Max(0, data.RunwayLengthM - Math.Min(105, data.RunwayLengthM * .12)), layout.VisibleDistanceM, runway);
         dc.PushTransform(new RotateTransform(180, rightX, runway.Top + runway.Height / 2));
         dc.DrawText(rightText, new Point(rightX - rightText.Width / 2, runway.Top + (runway.Height - rightText.Height) / 2));
         dc.Pop();
+    }
+
+    private static void DrawContinuationBreak(DrawingContext dc, Rect runway)
+    {
+        var mask = FrozenBrush(Color.FromArgb(0xE8, 0x21, 0x28, 0x31));
+        var slashPen = FrozenPen(Color.FromArgb(0xD8, 0xF2, 0xF4, 0xED), 1.4);
+        dc.DrawRectangle(mask, null, new Rect(runway.Right - 19, runway.Top + 1, 18, runway.Height - 2));
+        for (var y = runway.Top + 13; y < runway.Bottom + 12; y += 18)
+            dc.DrawLine(slashPen, new Point(runway.Right - 18, y + 8), new Point(runway.Right - 2, y - 8));
+    }
+
+    private static void DrawDistanceScale(DrawingContext dc, RunwayPlotLayout layout)
+    {
+        var runway = layout.Runway;
+        var dpi = VisualTreeHelper.GetDpi(new DrawingVisual()).PixelsPerDip;
+        var visibleFeet = layout.VisibleDistanceM * FeetPerMeter;
+        const double minorStepFeet = 250;
+
+        for (var feet = 0.0; feet <= visibleFeet + .1; feet += minorStepFeet)
+        {
+            var isMajor = Math.Abs(feet % 500) < .1;
+            var x = XForDistance(feet / FeetPerMeter, layout.VisibleDistanceM, runway);
+            dc.DrawLine(
+                isMajor ? EdgePen : FaintPen,
+                new Point(x, runway.Bottom + 6),
+                new Point(x, runway.Bottom + (isMajor ? 13 : 10)));
+
+            if (!isMajor || feet < 1 || feet > visibleFeet - 100)
+                continue;
+
+            var label = CreateText($"{feet:0}", 8, MutedBrush, dpi, FontWeights.Bold);
+            dc.DrawText(label, new Point(x - label.Width / 2, runway.Bottom + 14));
+        }
+
+        var threshold = CreateText("THR  0 FT", 8, MutedBrush, dpi, FontWeights.Bold);
+        dc.DrawText(threshold, new Point(runway.Left - threshold.Width / 2, runway.Bottom + 14));
     }
 
     private static void DrawTarget(
@@ -252,11 +332,7 @@ public sealed class PrecisionRunwayView : FrameworkElement
         LandingVisualizationData data,
         RunwayPlotLayout layout)
     {
-        var x = XForDistance(data.IdealTouchdownDistanceFromThresholdM, data.RunwayLengthM, layout.Runway);
-        dc.DrawRectangle(
-            FrozenBrush(Color.FromArgb(0x28, 0x62, 0xE6, 0xA7)),
-            null,
-            new Rect(x - 7, layout.Runway.Top, 14, layout.Runway.Height));
+        var x = XForDistance(data.IdealTouchdownDistanceFromThresholdM, layout.VisibleDistanceM, layout.Runway);
         dc.DrawLine(TargetPen, new Point(x, layout.Runway.Top - 7), new Point(x, layout.Runway.Bottom + 7));
         var dpi = VisualTreeHelper.GetDpi(new DrawingVisual()).PixelsPerDip;
         var label = CreateText(
@@ -267,7 +343,7 @@ public sealed class PrecisionRunwayView : FrameworkElement
             FontWeights.Bold);
         dc.DrawText(label, new Point(
             Math.Clamp(x - label.Width / 2, 8, layout.Runway.Right - label.Width),
-            layout.Runway.Bottom + 13));
+            layout.Runway.Bottom + 31));
     }
 
     private static void DrawTouchdown(
@@ -279,7 +355,7 @@ public sealed class PrecisionRunwayView : FrameworkElement
         var centerY = layout.Runway.Top + layout.Runway.Height / 2;
         dc.DrawLine(CenterGuidePen, marker, new Point(marker.X, centerY));
 
-        var targetX = XForDistance(data.IdealTouchdownDistanceFromThresholdM, data.RunwayLengthM, layout.Runway);
+        var targetX = XForDistance(data.IdealTouchdownDistanceFromThresholdM, layout.VisibleDistanceM, layout.Runway);
         var measureY = layout.Runway.Top - 14;
         dc.DrawLine(CenterGuidePen, new Point(targetX, measureY), new Point(marker.X, measureY));
         dc.DrawLine(CenterGuidePen, new Point(targetX, measureY - 4), new Point(targetX, measureY + 4));
@@ -340,9 +416,7 @@ public sealed class PrecisionRunwayView : FrameworkElement
             dpi,
             FontWeights.Bold);
         var x = Math.Clamp(layout.Touchdown.X - label.Width / 2 - 8, 8, layout.Runway.Right - label.Width - 8);
-        var above = layout.Touchdown.Y >= layout.Runway.Top + layout.Runway.Height / 2;
-        var y = above ? layout.Runway.Top - 43 : layout.Runway.Bottom + 28;
-        y = Math.Clamp(y, 7, Math.Max(7, layout.Runway.Bottom + 36));
+        var y = Math.Max(35, layout.Runway.Top - 48);
         var box = new Rect(x, y, label.Width + 16, label.Height + 8);
         dc.DrawRoundedRectangle(
             FrozenBrush(Color.FromArgb(0xE8, 0x0B, 0x10, 0x20)),
@@ -461,6 +535,8 @@ public sealed class PrecisionRunwayView : FrameworkElement
 public readonly record struct RunwayPlotLayout(
     Rect Runway,
     Point Touchdown,
+    double VisibleDistanceM,
+    bool RunwayContinues,
     bool ClippedBefore,
     bool ClippedAfter,
     bool ClippedLateral);

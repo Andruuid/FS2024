@@ -95,10 +95,10 @@ public sealed class LandingVisualizationTests
     }
 
     [Fact]
-    public void RunwayLayout_MapsThresholdCenterlineRunwayEndAndOffPavement()
+    public void RunwayLayout_FocusesTheFirstThirdAndClipsOutsideTheLandingZone()
     {
         var data = Entry().LandingVisualization!;
-        data.RunwayLengthM = 1000;
+        data.RunwayLengthM = 3000;
         data.RunwayWidthM = 40;
         data.TouchdownDistanceFromThresholdM = 0;
         data.TouchdownLateralOffsetM = 0;
@@ -106,18 +106,22 @@ public sealed class LandingVisualizationTests
         var threshold = PrecisionRunwayView.CalculateLayout(data, 800, 300);
         Assert.Equal(threshold.Runway.Left, threshold.Touchdown.X, 6);
         Assert.Equal(threshold.Runway.Top + threshold.Runway.Height / 2, threshold.Touchdown.Y, 6);
+        Assert.Equal(data.RunwayLengthM / 3, threshold.VisibleDistanceM, 6);
+        Assert.True(threshold.RunwayContinues);
 
-        data.TouchdownDistanceFromThresholdM = 1000;
-        var farEnd = PrecisionRunwayView.CalculateLayout(data, 800, 300);
-        Assert.Equal(farEnd.Runway.Right, farEnd.Touchdown.X, 6);
-
-        data.TouchdownDistanceFromThresholdM = 500;
+        data.TouchdownDistanceFromThresholdM = data.RunwayLengthM / 6;
         data.TouchdownLateralOffsetM = 20;
         var rightEdge = PrecisionRunwayView.CalculateLayout(data, 800, 300);
         Assert.Equal(rightEdge.Runway.Left + rightEdge.Runway.Width / 2, rightEdge.Touchdown.X, 6);
         Assert.Equal(rightEdge.Runway.Bottom, rightEdge.Touchdown.Y, 6);
 
-        data.TouchdownDistanceFromThresholdM = -500;
+        data.TouchdownDistanceFromThresholdM = data.RunwayLengthM * .4;
+        data.TouchdownLateralOffsetM = 0;
+        var beyondLandingZone = PrecisionRunwayView.CalculateLayout(data, 800, 300);
+        Assert.True(beyondLandingZone.ClippedAfter);
+        Assert.True(beyondLandingZone.Touchdown.X > beyondLandingZone.Runway.Right);
+
+        data.TouchdownDistanceFromThresholdM = -500 / 3.280839895;
         data.TouchdownLateralOffsetM = -100;
         var overflow = PrecisionRunwayView.CalculateLayout(data, 800, 300);
         Assert.True(overflow.ClippedBefore);
@@ -127,12 +131,32 @@ public sealed class LandingVisualizationTests
     }
 
     [Fact]
+    public void RunwayLayout_ShowsThePhysicalEndOnlyForRunwaysShorterThanTheFocusRange()
+    {
+        var data = Entry().LandingVisualization!;
+        data.RunwayLengthM = 500;
+        data.TouchdownDistanceFromThresholdM = 500;
+
+        var layout = PrecisionRunwayView.CalculateLayout(data, 800, 300);
+
+        Assert.False(layout.RunwayContinues);
+        Assert.Equal(500, layout.VisibleDistanceM, 6);
+        Assert.Equal(layout.Runway.Right, layout.Touchdown.X, 6);
+        Assert.False(layout.ClippedAfter);
+    }
+
+    [Fact]
     public void VectorControlsRenderNonEmptyOutputOnStaThread()
     {
         RunSta(() =>
         {
+            var focusedTouchdown = Entry().LandingVisualization!;
+            focusedTouchdown.RunwayId = "32";
+            focusedTouchdown.RunwayLengthM = 3392;
+            focusedTouchdown.TouchdownDistanceFromThresholdM = 3548 / 3.280839895;
+            focusedTouchdown.TouchdownLateralOffsetM = 5.5;
             AssertNonEmptyRender(
-                new PrecisionRunwayView { Data = Entry().LandingVisualization }, 1000, 390, "precision-runway.png");
+                new PrecisionRunwayView { Data = focusedTouchdown }, 800, 292, "precision-runway.png");
             AssertNonEmptyRender(
                 new TouchdownAttitudeView { Data = Entry().LandingVisualization }, 600, 340, "touchdown-attitude.png");
         });
