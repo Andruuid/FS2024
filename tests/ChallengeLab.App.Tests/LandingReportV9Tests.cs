@@ -173,7 +173,7 @@ public sealed class LandingReportV9Tests
         var ids = new[]
         {
             "spoiler_deployment", "manual_braking", "nose_gear_impact", "automation", "pause_usage", "simulation_rate",
-            "rollout_distance", "reverse_thrust"
+            "cockpit_view", "rollout_distance", "reverse_thrust"
         };
         var entry = new HighscoreEntry
         {
@@ -195,7 +195,7 @@ public sealed class LandingReportV9Tests
 
         Assert.Empty(report.Metrics);
         Assert.True(report.HasPenalties);
-        Assert.Equal(8, report.Penalties.Count);
+        Assert.Equal(9, report.Penalties.Count);
         Assert.All(ids, id => Assert.Single(report.Penalties, penalty => penalty.Id == id));
         Assert.All(report.Penalties, penalty => Assert.Contains("multiplied", penalty.Note));
     }

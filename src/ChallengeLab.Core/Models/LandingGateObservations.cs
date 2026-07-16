@@ -17,6 +17,20 @@ public sealed class LandingGateObservations
     public bool ReducedSimulationRateViolation { get; set; }
     public double? MinimumSimulationRate { get; set; }
 
+    /// <summary>
+    /// True once at least one finite <c>CAMERA STATE</c> sample was observed while monitoring.
+    /// </summary>
+    public bool CameraStateCoverageAvailable { get; set; }
+
+    /// <summary>
+    /// Count of cockpit → non-cockpit transitions before accepted main-gear touchdown.
+    /// Each exit multiplies the combined score by the configured per-switch factor.
+    /// </summary>
+    public int CockpitViewExitCount { get; set; }
+
+    /// <summary>Most recent finite camera-state enum observed while monitoring.</summary>
+    public int? LastCameraState { get; set; }
+
     public bool RadioHeightCoverageAvailable { get; set; }
     public bool HeadingAltitudeAutomationCoverageAvailable { get; set; }
     public bool FullAutomationCoverageAvailable { get; set; }
@@ -76,6 +90,9 @@ public sealed class LandingGateObservations
         SimulationRateCoverageAvailable = false;
         ReducedSimulationRateViolation = false;
         MinimumSimulationRate = null;
+        CameraStateCoverageAvailable = false;
+        CockpitViewExitCount = 0;
+        LastCameraState = null;
         RadioHeightCoverageAvailable = false;
         HeadingAltitudeAutomationCoverageAvailable = false;
         FullAutomationCoverageAvailable = false;

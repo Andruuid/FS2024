@@ -16,7 +16,7 @@ public sealed class OperationalLandingGateTests
         var free = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey);
 
         Assert.True(challenge.IsValid, string.Join("; ", challenge.Errors));
-        Assert.Equal(21, challenge.Key!.Version);
+        Assert.Equal(23, challenge.Key!.Version);
         var touchdown = challenge.Key.Phases.Single(p => p.Id == "touchdown").Penalties!;
         var approach = challenge.Key.Phases.Single(p => p.Id == "approach").Penalties!;
         var rollout = challenge.Key.Phases.Single(p => p.Id == "rollout").Penalties!;
@@ -28,13 +28,16 @@ public sealed class OperationalLandingGateTests
         Assert.NotNull(rollout.ReverseThrust);
         Assert.NotNull(challenge.Key.GeneralPenalties!.PauseUsage);
         Assert.NotNull(challenge.Key.GeneralPenalties.SimulationRate);
+        Assert.NotNull(challenge.Key.GeneralPenalties.CockpitView);
+        Assert.Equal(0.95, challenge.Key.GeneralPenalties.CockpitView!.MultiplierPerSwitch, 6);
         Assert.Equal(0.8, rollout.Rollout!.MultiplierOnFail, 6);
 
         Assert.True(free.IsValid, string.Join("; ", free.Errors));
-        Assert.Equal(8, free.Key!.Version);
+        Assert.Equal(9, free.Key!.Version);
         Assert.NotNull(free.Key.FreeMode);
         Assert.NotNull(free.Key.GeneralPenalties?.PauseUsage);
         Assert.NotNull(free.Key.GeneralPenalties?.SimulationRate);
+        Assert.NotNull(free.Key.GeneralPenalties?.CockpitView);
         Assert.NotNull(free.Key.Phases.Single(p => p.Id == "touchdown").Penalties?.SpoilerDeployment);
         Assert.NotNull(free.Key.Phases.Single(p => p.Id == "touchdown").Penalties?.NoseGearImpact);
         Assert.NotNull(free.Key.Phases.Single(p => p.Id == "approach").Penalties?.Automation);
@@ -56,6 +59,7 @@ public sealed class OperationalLandingGateTests
         automation.AllAutomationOffRadioHeightFeet = 1000;
         key.GeneralPenalties!.PauseUsage!.MultiplierOnFail = 0;
         key.GeneralPenalties.SimulationRate!.MinimumAllowedRate = 0;
+        key.GeneralPenalties.CockpitView!.MultiplierPerSwitch = 0;
         key.Phases.Single(p => p.Id == "touchdown").Penalties!.NoseGearImpact!
             .SevereDeltaG = 0.1;
         key.Phases.Single(p => p.Id == "rollout").Penalties!.ReverseThrust!
@@ -67,6 +71,7 @@ public sealed class OperationalLandingGateTests
         Assert.Contains(errors, error => error.Contains("headingAltitudeOffRadioHeightFeet"));
         Assert.Contains(errors, error => error.Contains("pauseUsage.multiplierOnFail"));
         Assert.Contains(errors, error => error.Contains("simulationRate.minimumAllowedRate"));
+        Assert.Contains(errors, error => error.Contains("cockpitView.multiplierPerSwitch"));
         Assert.Contains(errors, error => error.Contains("noseGearImpact.severeDeltaG"));
         Assert.Contains(errors, error => error.Contains("reverseThrust.stowGroundSpeedKts"));
     }
@@ -697,6 +702,53 @@ public sealed class OperationalLandingGateTests
     }
 
     [Fact]
+    public void CockpitView_CountsEachExitFromCockpit_AndIgnoresPostTouchdown()
+    {
+        var session = CreateSession();
+        session.Arm();
+        session.Ingest(AirSample(10, 1500, cameraState: CameraStates.Cockpit));
+        Assert.True(session.Snapshot.GateObservations.CameraStateCoverageAvailable);
+        Assert.Equal(0, session.Snapshot.GateObservations.CockpitViewExitCount);
+
+        // Exterior (chase) once.
+        session.Ingest(AirSample(11, 1400, cameraState: 3));
+        Assert.Equal(1, session.Snapshot.GateObservations.CockpitViewExitCount);
+
+        // Stay exterior — no additional count.
+        session.Ingest(AirSample(12, 1300, cameraState: 3));
+        Assert.Equal(1, session.Snapshot.GateObservations.CockpitViewExitCount);
+
+        // Back to cockpit then out again — second exit.
+        session.Ingest(AirSample(13, 1200, cameraState: CameraStates.Cockpit));
+        session.Ingest(AirSample(14, 1100, cameraState: 8));
+        Assert.Equal(2, session.Snapshot.GateObservations.CockpitViewExitCount);
+
+        // Build airborne history, then touchdown; exterior after TD must not count.
+        for (var t = 15; t < 25; t++)
+            session.Ingest(AirSample(t, 200, cameraState: CameraStates.Cockpit));
+        session.Ingest(GroundSample(30, 120, spoilers: 0.5, brakes: 0.2, cameraState: CameraStates.Cockpit));
+        Assert.True(session.Snapshot.GateObservations.MainGearTouchdownTimeSeconds is not null);
+        session.Ingest(GroundSample(31, 100, spoilers: 0.5, brakes: 0.2, cameraState: 3));
+        Assert.Equal(2, session.Snapshot.GateObservations.CockpitViewExitCount);
+    }
+
+    [Fact]
+    public void CockpitView_StacksPerSwitchOnCombinedScore()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var snapshot = PassingSnapshot();
+        snapshot.GateObservations.CockpitViewExitCount = 2;
+
+        var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
+        Assert.Equal(Math.Round(100 * 0.95 * 0.95, 1), result.ScorePercent);
+        var criterion = result.Criteria.Single(c => c.Id == "cockpit_view");
+        Assert.Equal(MetricStatus.GateFailed, criterion.Status);
+        Assert.Equal(0.95 * 0.95, criterion.AppliedMultiplier!.Value, 6);
+        Assert.Null(criterion.PhaseId);
+        Assert.All(result.PhaseScores, phase => Assert.Equal(100.0, phase.ScorePercent));
+    }
+
+    [Fact]
     public void AllOperationalFailuresStackOnce_AndOnlyFinalScoreIsRounded()
     {
         var (key, challenge) = LoadChallengeProfile();
@@ -710,6 +762,7 @@ public sealed class OperationalLandingGateTests
         obs.PauseViolation = true;
         obs.ReducedSimulationRateViolation = true;
         obs.MinimumSimulationRate = 0.5;
+        obs.CockpitViewExitCount = 1;
         obs.NoseGearImpact = ImpactAnalysis(NoseGearImpactSeverity.Severe, 0.9, 0.7, 1.8);
         obs.RolloutEndOfRunwayViolation = true;
         obs.RemainingRunwayMetersAtSettleSpeed = 200;
@@ -718,11 +771,11 @@ public sealed class OperationalLandingGateTests
         var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
         var expected = Math.Round(
             (70 * 0.9 * 0.9 + 25 * 0.9 + 5 * 0.9 * 0.8)
-            * 0.95 * 0.8,
+            * 0.95 * 0.8 * 0.95,
             1);
         Assert.Equal(expected, result.ScorePercent);
-        Assert.Equal(7, result.Criteria.Count(c => c.Status == MetricStatus.GateFailed
-                                                   && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "rollout_distance"));
+        Assert.Equal(8, result.Criteria.Count(c => c.Status == MetricStatus.GateFailed
+                                                   && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "cockpit_view" or "rollout_distance"));
     }
 
     [Fact]
@@ -971,7 +1024,8 @@ public sealed class OperationalLandingGateTests
         bool paused = false,
         bool activePaused = false,
         long pauseGeneration = 0,
-        double simulationRate = 1) => new()
+        double simulationRate = 1,
+        int? cameraState = CameraStates.Cockpit) => new()
     {
         Timestamp = DateTimeOffset.UnixEpoch.AddSeconds(time),
         SimulationTimeSeconds = time,
@@ -1011,14 +1065,16 @@ public sealed class OperationalLandingGateTests
         NormalPauseActive = paused,
         ActivePauseActive = activePaused,
         PauseGeneration = pauseGeneration,
-        SimulationRate = simulationRate
+        SimulationRate = simulationRate,
+        CameraState = cameraState
     };
 
     private static TelemetrySample GroundSample(
         double time,
         double groundSpeed,
         double spoilers,
-        double brakes) => new()
+        double brakes,
+        int? cameraState = CameraStates.Cockpit) => new()
     {
         Timestamp = DateTimeOffset.UnixEpoch.AddSeconds(time),
         SimulationTimeSeconds = time,
@@ -1060,7 +1116,8 @@ public sealed class OperationalLandingGateTests
         AutothrustArmed = false,
         PauseStateAvailable = true,
         PauseGeneration = 0,
-        SimulationRate = 1
+        SimulationRate = 1,
+        CameraState = cameraState
     };
 
     private static TelemetrySample GearSample(
@@ -1206,12 +1263,6 @@ public sealed class OperationalLandingGateTests
             ApproachLateralWeaveIndex = 0.01,
             ApproachLateralDistanceM = 2000,
             ApproachMetricDurationSec = 45,
-            GroundTrackSampleCount = 4,
-            GroundTrackBeforeSegmentCount = 2,
-            GroundTrackAfterSegmentCount = 2,
-            GroundTrackErrorMeanDeg = 1,
-            GroundTrackErrorRmsDeg = 1,
-            GroundTrackErrorPeakDeg = 2,
             PostTouchdownAlignmentSampleCount = 2,
             PostTouchdownAlignmentMeanDeg = 1,
             RolloutPathSampleCount = 3,
@@ -1239,6 +1290,8 @@ public sealed class OperationalLandingGateTests
         obs.PauseCoverageAvailable = true;
         obs.SimulationRateCoverageAvailable = true;
         obs.MinimumSimulationRate = 1;
+        obs.CameraStateCoverageAvailable = true;
+        obs.CockpitViewExitCount = 0;
         obs.RadioHeightCoverageAvailable = true;
         obs.HeadingAltitudeAutomationCoverageAvailable = true;
         obs.FullAutomationCoverageAvailable = true;

@@ -115,7 +115,6 @@ public sealed class SimConnectClient : ISimBridge
         public double Altitude;
         public double Agl;
         public double Heading;
-        public double GroundTrack;
         public double Pitch;
         public double Bank;
         public double Airspeed;
@@ -164,6 +163,7 @@ public sealed class SimConnectClient : ISimBridge
         public double BrakeRight;
         public double AutoBrakesActive;
         public double SimulationRate;
+        public double CameraState;
         public double AutopilotHeadingLock;
         public double AutopilotAltitudeLock;
         public double AutopilotMaster;
@@ -1839,7 +1839,6 @@ public sealed class SimConnectClient : ISimBridge
                 AltitudeFeet = t.Altitude,
                 AglFeet = t.Agl,
                 HeadingTrueDeg = t.Heading,
-                GroundTrackTrueDeg = t.GroundTrack,
                 PitchDeg = t.Pitch,
                 BankDeg = t.Bank,
                 AirspeedKts = t.Airspeed,
@@ -1933,6 +1932,9 @@ public sealed class SimConnectClient : ISimBridge
                 SimulationRate = t.SimulationRate > 0 && double.IsFinite(t.SimulationRate)
                     ? t.SimulationRate
                     : null,
+                CameraState = t.CameraState > 0 && double.IsFinite(t.CameraState)
+                    ? (int)Math.Round(t.CameraState)
+                    : null,
                 PauseStateAvailable = pauseStateAvailable,
                 NormalPauseActive = normalPauseActive,
                 ActivePauseActive = activePauseActive,
@@ -2019,9 +2021,6 @@ public sealed class SimConnectClient : ISimBridge
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "PLANE HEADING DEGREES TRUE", "degrees",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
-        // Direction of CG motion over ground (not fuselage crab heading)
-        _sim.AddToDataDefinition(Definitions.Telemetry, "GPS GROUND TRUE TRACK", "degrees",
-            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "PLANE PITCH DEGREES", "degrees",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "PLANE BANK DEGREES", "degrees",
@@ -2090,6 +2089,8 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.Telemetry, "AUTOBRAKES ACTIVE", "bool",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "SIMULATION RATE", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "CAMERA STATE", "Enum",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "AUTOPILOT HEADING LOCK", "bool",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);

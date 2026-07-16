@@ -324,7 +324,6 @@ public sealed class FlightTapeTests
             RadioHeightFeet = agl,
             RadioHeightAvailable = true,
             HeadingTrueDeg = rwy.HeadingTrueDeg,
-            GroundTrackTrueDeg = rwy.HeadingTrueDeg,
             PitchDeg = onGround ? 0 : 2,
             BankDeg = 0,
             GroundSpeedKts = gs,

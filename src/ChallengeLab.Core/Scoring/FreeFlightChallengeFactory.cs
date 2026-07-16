@@ -30,7 +30,7 @@ public static class FreeFlightChallengeFactory
             },
             HudTips =
             [
-                "Runway locked from true ground track. Fly the landing normally.",
+                "Runway locked from position and aircraft heading. Fly the landing normally.",
                 $"Path angle {target.Runway.GlideslopeDeg:0.##}° ({target.Runway.GlideslopeSource}).",
                 "Clear releases this runway and starts detection again from your current flight."
             ]

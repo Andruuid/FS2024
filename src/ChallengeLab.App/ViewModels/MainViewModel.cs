@@ -974,7 +974,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         if (mode == HudOperatingMode.Free)
         {
             PhaseLabel = "Detecting";
-            HudTip = "Free mode observes this flight and detects the runway from your true ground track.";
+            HudTip = "Free mode observes this flight and detects the runway from position and aircraft heading.";
             SpeedTargetInfo = "Optimal landing speed: —";
             FreeAirportStatus = HasValidFreeScoringConfiguration
                 ? "Detecting airport and runway..."
@@ -1166,7 +1166,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         AppendLog(
             $"Free armed: {airport} RWY {runway} · {target.ThresholdDistanceNm:0.0} NM · " +
-            $"track error {target.TrackErrorDeg:0.0}° · cross-track {target.CrossTrackNm:0.00} NM · " +
+            $"heading error {target.HeadingErrorDeg:0.0}° · cross-track {target.CrossTrackNm:0.00} NM · " +
             $"gear gate={(challenge.RequireGearDown ? "on" : "not applicable")} Â· " +
             $"capabilities frozen ({challenge.FreeFlightCapabilities?.GateDecisions.Count ?? 0} gate decisions).");
     }
@@ -1712,7 +1712,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             ResultVisible = false;
             StopFreeInference(resetTarget: true);
             PhaseLabel = "Detecting";
-            HudTip = "Cleared · detecting again from your current position and true ground track.";
+            HudTip = "Cleared · detecting again from your current position and aircraft heading.";
             FreeAirportStatus = "Detecting airport and runway...";
             SpeedTargetInfo = "Optimal landing speed: —";
             _freeFlightCts = new CancellationTokenSource();

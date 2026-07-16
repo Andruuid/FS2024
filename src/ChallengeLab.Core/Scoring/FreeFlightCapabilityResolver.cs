@@ -17,9 +17,10 @@ public static class FreeFlightGateIds
     public const string ReverseThrust = "reverse_thrust";
     public const string PauseUsage = "pause_usage";
     public const string SimulationRate = "simulation_rate";
+    public const string CockpitView = "cockpit_view";
 
     public static bool IsUniversal(string gateId) => gateId is
-        StallWarning or RolloutDistance or PauseUsage or SimulationRate;
+        StallWarning or RolloutDistance or PauseUsage or SimulationRate or CockpitView;
 }
 
 /// <summary>Resolves and freezes Free Flight gate applicability at runway lock/arm time.</summary>
@@ -108,6 +109,8 @@ public static class FreeFlightCapabilityResolver
             "Pause-use gate applies to every armed Free Flight attempt.", "");
         Set(context, FreeFlightGateIds.SimulationRate, FreeFlightGateApplicability.Applicable,
             "Simulation-rate gate applies to every armed Free Flight attempt.", "");
+        Set(context, FreeFlightGateIds.CockpitView, FreeFlightGateApplicability.Applicable,
+            "Cockpit-view gate applies to every armed Free Flight attempt.", "");
         return context;
     }
 

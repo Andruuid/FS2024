@@ -25,6 +25,7 @@ public sealed class LandingSession
     private bool _touchdownVerticalSpeedDegraded;
     private string _touchdownVerticalSpeedSource = "instantaneous vertical speed";
     private double? _noseImpactAirborneSince;
+    private bool? _previousCameraInCockpit;
 
     public LandingPhase Phase { get; private set; } = LandingPhase.Idle;
     public LandingSnapshot Snapshot { get; } = new();
@@ -72,6 +73,7 @@ public sealed class LandingSession
         _touchdownVerticalSpeedDegraded = false;
         _touchdownVerticalSpeedSource = "instantaneous vertical speed";
         _noseImpactAirborneSince = null;
+        _previousCameraInCockpit = null;
         // Re-open post-arm grace and seed ground so a mid-clean on the runway
         // does not instantly re-fire touchdown on the next frame.
         _armedAt = DateTimeOffset.UtcNow;
@@ -98,6 +100,7 @@ public sealed class LandingSession
         _touchdownVerticalSpeedDegraded = false;
         _touchdownVerticalSpeedSource = "instantaneous vertical speed";
         _noseImpactAirborneSince = null;
+        _previousCameraInCockpit = null;
     }
 
     private void ClearCapturedMetrics()
@@ -118,12 +121,6 @@ public sealed class LandingSession
         Snapshot.ApproachMetricDurationSec = 0;
         Snapshot.RolloutHeadingVariance = 0;
         Snapshot.CrabAngleAtFlareDeg = 0;
-        Snapshot.GroundTrackErrorMeanDeg = 0;
-        Snapshot.GroundTrackErrorRmsDeg = 0;
-        Snapshot.GroundTrackErrorPeakDeg = 0;
-        Snapshot.GroundTrackSampleCount = 0;
-        Snapshot.GroundTrackBeforeSegmentCount = 0;
-        Snapshot.GroundTrackAfterSegmentCount = 0;
         Snapshot.PostTouchdownAlignmentMeanDeg = 0;
         Snapshot.PostTouchdownAlignmentRmsDeg = 0;
         Snapshot.PostTouchdownAlignmentPeakDeg = 0;
@@ -299,7 +296,6 @@ public sealed class LandingSession
         if (_touchdownCaptured)
         {
             ComputeTouchdownEventMetrics(finalizing);
-            ComputeGroundTrackWindowMetrics();
             ComputePostTouchdownAlignmentMetrics();
             ComputeRolloutPathIntegralMetrics();
         }
@@ -371,11 +367,12 @@ public sealed class LandingSession
         UpdateManualBrakingGate(sample, logical, timeSeconds);
         UpdateReverseThrustGate(sample, timeSeconds, anyMainOnGround);
 
-        // General pause/rate monitoring and the approach automation gate stop at accepted main touchdown.
+        // General pause/rate/cockpit monitoring and the approach automation gate stop at accepted main touchdown.
         if (!_touchdownCaptured)
         {
             UpdatePauseGate(sample);
             UpdateSimulationRateGate(sample);
+            UpdateCockpitViewGate(sample);
             UpdateAutomationGate(sample);
         }
 
@@ -609,6 +606,22 @@ public sealed class LandingSession
             : rate;
         if (rate < gate.MinimumAllowedRate)
             observations.ReducedSimulationRateViolation = true;
+    }
+
+    private void UpdateCockpitViewGate(TelemetrySample sample)
+    {
+        if (_settings.OperationalGates.CockpitView is null
+            || sample.CameraState is not { } cameraState)
+            return;
+
+        var observations = Snapshot.GateObservations;
+        observations.CameraStateCoverageAvailable = true;
+        observations.LastCameraState = cameraState;
+
+        var inCockpit = CameraStates.IsCockpit(cameraState);
+        if (_previousCameraInCockpit == true && !inCockpit)
+            observations.CockpitViewExitCount++;
+        _previousCameraInCockpit = inCockpit;
     }
 
     private void UpdateAutomationGate(TelemetrySample sample)
@@ -1053,90 +1066,6 @@ public sealed class LandingSession
         Snapshot.RolloutWeaveIndex = totalVariation / alongTrack;
         // Keep max lateral for whole landing at least as large as rollout peak
         Snapshot.MaxLateralOffsetM = Math.Max(Snapshot.MaxLateralOffsetM, peak);
-    }
-
-    /// <summary>
-    /// Score path of the CG over the ground vs runway centerline course:
-    /// samples from (touchdown − before) through (touchdown + after).
-    /// Uses ground track (motion direction), not fuselage crab heading.
-    /// </summary>
-    private void ComputeGroundTrackWindowMetrics()
-    {
-        if (Snapshot.Touchdown is null)
-            return;
-
-        var td = _touchdownTimeSeconds;
-        var windowStart = td - _settings.GroundTrackWindowBeforeSeconds;
-        var windowEnd = td + _settings.GroundTrackWindowAfterSeconds;
-
-        var window = Snapshot.ApproachSamples
-            .Concat(Snapshot.RolloutSamples)
-            .Where(s => SampleTimeSeconds(s) >= windowStart && SampleTimeSeconds(s) <= windowEnd)
-            .OrderBy(SampleTimeSeconds)
-            .ToList();
-
-        if (window.Count < 2)
-            return;
-
-        var runway = _challenge.Runway.HeadingTrueDeg;
-        var errors = new List<double>();
-        var beforeSegments = 0;
-        var afterSegments = 0;
-
-        for (var i = 1; i < window.Count; i++)
-        {
-            var prev = window[i - 1];
-            var cur = window[i];
-            var track = ResolveGroundTrackDeg(prev, cur);
-            if (track is null)
-                continue;
-
-            var err = Math.Abs(NormalizeHeading(track.Value - runway));
-            // Wrap: 350° error to runway 0 is 10°, already handled by NormalizeHeading abs
-            if (err > 90)
-                err = 180 - err; // treat reciprocal as same path axis for runway alignment quality
-            errors.Add(err);
-
-            var midpoint = 0.5 * (SampleTimeSeconds(prev) + SampleTimeSeconds(cur));
-            if (midpoint < td) beforeSegments++;
-            else afterSegments++;
-        }
-
-        if (errors.Count == 0)
-            return;
-
-        Snapshot.GroundTrackSampleCount = errors.Count;
-        Snapshot.GroundTrackBeforeSegmentCount = beforeSegments;
-        Snapshot.GroundTrackAfterSegmentCount = afterSegments;
-        Snapshot.GroundTrackErrorMeanDeg = errors.Average();
-        Snapshot.GroundTrackErrorRmsDeg = Math.Sqrt(errors.Average(e => e * e));
-        Snapshot.GroundTrackErrorPeakDeg = errors.Max();
-    }
-
-    /// <summary>
-    /// Prefer reported ground track; else derive from lat/lon motion of the CG.
-    /// </summary>
-    private static double? ResolveGroundTrackDeg(TelemetrySample prev, TelemetrySample cur)
-    {
-        // Prefer sim/GPS ground track when the aircraft is clearly moving
-        if (cur.GroundSpeedKts >= 8)
-            return NormalizeTrack(cur.GroundTrackTrueDeg);
-
-        var dist = GeoUtil.HaversineMetersPublic(prev.Latitude, prev.Longitude, cur.Latitude, cur.Longitude);
-        if (dist >= 1.5)
-            return GeoUtil.BearingDegrees(prev.Latitude, prev.Longitude, cur.Latitude, cur.Longitude);
-
-        if (cur.GroundSpeedKts >= 5)
-            return NormalizeTrack(cur.GroundTrackTrueDeg);
-
-        return null;
-    }
-
-    private static double NormalizeTrack(double deg)
-    {
-        deg %= 360.0;
-        if (deg < 0) deg += 360.0;
-        return deg;
     }
 
     private void SetPhase(LandingPhase phase)

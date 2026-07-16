@@ -9,15 +9,15 @@ namespace ChallengeLab.Core.Tests;
 public sealed class FreeModeScoringParityTests
 {
     [Fact]
-    public void FreeV8_IsAStructuralOverlayOfLandingV21()
+    public void FreeV9_IsAStructuralOverlayOfLandingV22()
     {
         var loader = new ConfigLoader(FindConfig());
         var catalog = loader.LoadCatalog();
         var normal = loader.LoadEvaluationKey(catalog.EvaluationKey).Key!;
         var free = loader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey).Key!;
 
-        Assert.Equal(21, normal.Version);
-        Assert.Equal(8, free.Version);
+        Assert.Equal(23, normal.Version);
+        Assert.Equal(9, free.Version);
         Assert.NotNull(free.FreeMode);
         Assert.Equal(50, free.FreeMode!.UnavailableMetricScorePercent);
         Assert.Equal(0.5, free.FreeMode.MissingGatePenaltyFraction);
@@ -115,7 +115,8 @@ public sealed class FreeModeScoringParityTests
             [FreeFlightGateIds.RolloutDistance] = 0.90,
             [FreeFlightGateIds.ReverseThrust] = 0.95,
             [FreeFlightGateIds.PauseUsage] = 0.975,
-            [FreeFlightGateIds.SimulationRate] = 0.90
+            [FreeFlightGateIds.SimulationRate] = 0.90,
+            [FreeFlightGateIds.CockpitView] = 0.975
         };
         foreach (var (id, multiplier) in expected)
         {
@@ -474,6 +475,8 @@ public sealed class FreeModeScoringParityTests
         observations.PauseCoverageAvailable = true;
         observations.SimulationRateCoverageAvailable = true;
         observations.MinimumSimulationRate = 1;
+        observations.CameraStateCoverageAvailable = true;
+        observations.CockpitViewExitCount = 0;
         observations.RadioHeightCoverageAvailable = true;
         observations.HeadingAltitudeAutomationCoverageAvailable = true;
         observations.FullAutomationCoverageAvailable = true;

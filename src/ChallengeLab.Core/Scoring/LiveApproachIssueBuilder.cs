@@ -217,7 +217,7 @@ public static class LiveApproachIssueBuilder
             issues.Add(new Issue("stall-warning penalty", 1.2));
         foreach (var criterion in preview.Criteria.Where(c =>
                      c.Status == MetricStatus.GateFailed
-                     && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate"))
+                     && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "cockpit_view"))
             issues.Add(new Issue(
                 ScoreBreakdownFormatter.ShortName(criterion.Id, criterion.DisplayName) + " penalty",
                 1.1));
@@ -245,7 +245,6 @@ public static class LiveApproachIssueBuilder
                 ? new Issue("excess energy", 0, $"+{snapshot.ExcessSpeedOverVappKts:0} kt")
                 : null,
             "centerline" => new Issue("off centerline @ TD", 0),
-            "ground_track" => new Issue("track off runway", 0),
             "bank" => new Issue("bank @ TD", 0),
             "alignment" => new Issue("heading misaligned", 0),
             "post_td_alignment" => new Issue("late de-crab", 0),

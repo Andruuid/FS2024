@@ -25,6 +25,8 @@ public static class EvaluationKeyValidator
             "generalPenalties.pauseUsage.multiplierOnFail", errors);
         ValidateSimulationRateGate(key.GeneralPenalties?.SimulationRate,
             "generalPenalties.simulationRate", errors);
+        ValidateCockpitViewGate(key.GeneralPenalties?.CockpitView,
+            "generalPenalties.cockpitView", errors);
         ValidateContactMapping(key.ContactMapping, errors);
         ValidateFreeMode(key.FreeMode, errors);
 
@@ -382,8 +384,6 @@ public static class EvaluationKeyValidator
     private static void ValidateTiming(EvaluationTiming? timing, List<string> errors)
     {
         if (timing is null) { errors.Add("timing is required."); return; }
-        if (!IsPositiveFinite(timing.GroundTrackWindowBeforeSeconds)) errors.Add("timing.groundTrackWindowBeforeSeconds must be greater than zero.");
-        if (!IsPositiveFinite(timing.GroundTrackWindowAfterSeconds)) errors.Add("timing.groundTrackWindowAfterSeconds must be greater than zero.");
         if (!double.IsFinite(timing.PostTouchdownAlignmentDelaySeconds) || timing.PostTouchdownAlignmentDelaySeconds < 0)
             errors.Add("timing.postTouchdownAlignmentDelaySeconds must be at least zero.");
         if (!IsPositiveFinite(timing.FlareAglFeet)) errors.Add("timing.flareAglFeet must be greater than zero.");
@@ -503,6 +503,16 @@ public static class EvaluationKeyValidator
             errors.Add($"{path}.minimumAllowedRate must be greater than 0 and at most 1.");
         ValidateOptionalMultiplier(gate.MultiplierOnFail,
             $"{path}.multiplierOnFail", errors);
+    }
+
+    private static void ValidateCockpitViewGate(
+        CockpitViewGateConfig? gate,
+        string path,
+        List<string> errors)
+    {
+        if (gate is null) return;
+        ValidateOptionalMultiplier(gate.MultiplierPerSwitch,
+            $"{path}.multiplierPerSwitch", errors);
     }
 
     private static void ValidateNoseGearImpactGate(

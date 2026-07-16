@@ -34,7 +34,7 @@ public static class ScoreBreakdownFormatter
             && c.Status == MetricStatus.GateFailed);
         var operationalPenalties = criteria.Where(c =>
                 c.Status == MetricStatus.GateFailed
-                && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "rollout_distance" or "reverse_thrust")
+                && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "cockpit_view" or "rollout_distance" or "reverse_thrust")
             .ToList();
         var assumedAdjustments = criteria.Where(c =>
             c.Status == MetricStatus.Assumed && c.AppliedMultiplier is < 1).ToList();
@@ -202,7 +202,6 @@ public static class ScoreBreakdownFormatter
         "contact_stability" => "contact",
         "airspeed" => "airspeed",
         "centerline" => "centerline",
-        "ground_track" => "groundTrack",
         "excess_speed" => "excessSpeed",
         "bank" => "bank",
         "alignment" => "alignment",
@@ -213,6 +212,7 @@ public static class ScoreBreakdownFormatter
         "automation" => "automation",
         "pause_usage" => "pause",
         "simulation_rate" => "sim rate",
+        "cockpit_view" => "cockpit view",
         "approach_path" => "3° path accuracy",
         "approach_glideslope" => "avg glideslope",
         "approach_vertical_steady" => "vert steady",

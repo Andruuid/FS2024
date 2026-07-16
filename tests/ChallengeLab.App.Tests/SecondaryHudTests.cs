@@ -34,17 +34,17 @@ public sealed class SecondaryHudTests
             monitor.Update(Sample(4.5, start.AddSeconds(1)), challenge, settings, 135, 98, LandingPhase.Approach, true);
             Assert.True(monitor.IsCollecting);
             Assert.Single(monitor.GraphPoints);
-            Assert.Equal("02:42", monitor.EtaDisplay);
-            Assert.InRange(monitor.GraphHorizonSeconds, 171.9, 172.1);
+            Assert.Equal("03:07", monitor.EtaDisplay);
+            Assert.InRange(monitor.GraphHorizonSeconds, 196.9, 197.2);
 
             monitor.Update(Sample(4.4, start.AddSeconds(1.1)), challenge, settings, 135, 96, LandingPhase.Approach, true);
             Assert.Single(monitor.GraphPoints);
             monitor.Update(Sample(4.3, start.AddSeconds(1.25)), challenge, settings, 135, 94, LandingPhase.Approach, true);
             Assert.Equal(2, monitor.GraphPoints.Count);
 
-            monitor.Update(Sample(4.2, start.AddSeconds(2), track: 270), challenge, settings, 135, 90, LandingPhase.Approach, true);
+            monitor.Update(Sample(4.2, start.AddSeconds(2), heading: 270), challenge, settings, 135, 90, LandingPhase.Approach, true);
             Assert.Equal("--:--", monitor.EtaDisplay);
-            Assert.InRange(monitor.GraphHorizonSeconds, 171.9, 172.1);
+            Assert.InRange(monitor.GraphHorizonSeconds, 196.9, 197.2);
 
             monitor.CompleteAttempt(87, start.AddSeconds(10));
             Assert.Equal("00:00", monitor.EtaDisplay);
@@ -239,12 +239,11 @@ public sealed class SecondaryHudTests
     };
 
     private static LandingSessionSettings Settings() => new(
-        35, 1, 3, 3, 2, 50, 4, true, 80, 8, .2, 4.5, 143, 5, 1.3);
+        35, 1, 2, 50, 4, true, 80, 8, .2, 4.5, 143, 5, 1.3);
 
     private static TelemetrySample Sample(
         double distanceNm,
         DateTimeOffset timestamp,
-        double track = 90,
         double heading = 120,
         double windDirection = 0,
         double windSpeed = 0)
@@ -263,7 +262,6 @@ public sealed class SecondaryHudTests
             RadioHeightFeet = heightFeet,
             AirspeedKts = 135,
             GroundSpeedKts = 100,
-            GroundTrackTrueDeg = track,
             HeadingTrueDeg = heading,
             VerticalSpeedFpm = -700,
             WindDirectionDeg = windDirection,

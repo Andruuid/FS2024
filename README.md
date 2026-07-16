@@ -40,7 +40,7 @@ dotnet run --project src\ChallengeLab.App
 5. Start the revealed assignment or default challenge — watch the progress bar, then fly the landing.
 6. After touchdown, slow below **50 knots**. Score appears on the **Companion HUD** and under the **Session** tab.
 
-For a flight that is already in progress, select **Free** on the HUD instead. Challenge Lab reads the installed MSFS airport/runway facilities, detects the approached runway from position and true ground track, and arms after the same target wins three one-second scans. Free mode does not change the aircraft, time, weather, position, or pause state. **Clear** releases the current runway and immediately starts detection again in place.
+For a flight that is already in progress, select **Free** on the HUD instead. Challenge Lab reads the installed MSFS airport/runway facilities, detects the approached runway from position and aircraft heading, and arms after the same target wins three one-second scans. Free mode does not change the aircraft, time, weather, position, or pause state. **Clear** releases the current runway and immediately starts detection again in place.
 
 ## Career Mode — classified promotion flights
 
@@ -133,10 +133,10 @@ Spawn verified: horiz=… m · altErr=… ft · ias=… kt
 
 `config/scoring/profiles/free-flight-evaluation-key.json` (Free, generic VS0-based VAPP and no flap-index gate)
 
-Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, phase/general penalties, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v18 and the Free key is v5. Session log confirms load:
+Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, phase/general penalties, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v23 and the Free key is v9. Session log confirms load:
 
 ```
-Evaluation key loaded: landing-evaluation-key v18 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%
+Evaluation key loaded: landing-evaluation-key v23 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%
   path: ...\config\scoring\profiles\landing-evaluation-key.json
 ```
 
@@ -150,7 +150,7 @@ final % = subtotal × every applicable general penalty; round only the final res
 
 Within each phase, metrics use the same literal formula: `metric score × importancePercent / 100`. Validation requires metric and phase weights to total exactly 100. There is no Easy/Strict split — every metric in the key is always scored.
 
-### Touchdown evaluation (v18)
+### Touchdown evaluation (v23)
 
 The touchdown phase keeps its 70% overall weight and separates the initial impact from flare/float; later recontacts are handled by a penalty-only gate:
 
@@ -159,12 +159,12 @@ The touchdown phase keeps its 70% overall weight and separates the initial impac
 - `airspeed` (13%) scores IAS versus the touchdown target (VAPP − 5 kt by default). Fast is punished more than slow; there is no separate excess-over-VAPP metric.
 - `contact_stability` is a Touchdown penalty. The initial landing is the baseline; one valid airborne/recontact cycle (second touchdown) applies ×0.9 to Touchdown, while two or more cycles (third touchdown or later) apply ×0.8. One-main-first touchdown and contact chatter are not bounces.
 - `stall_warning` is an Approach penalty. Any `STALL WARNING` activation during the armed attempt applies ×0.5 to Approach; a warning-free attempt earns no points.
-- `ground_track` is not scored in the Normal profile.
 - Ground spoilers must deploy on both sides by main TD+2 s (×0.9 to Touchdown on failure).
 - Manual brake pedals must remain released while the nose gear is airborne and both be applied by nose TD+4 s; autobrake is ignored (×0.9 to Rollout on failure).
 - Heading/altitude hold must be off at or below 2,000 ft RA. AP master/AP1/AP2 and active/armed autothrust must be off at or below 1,000 ft RA; flight directors may remain on (×0.9 to Approach on failure).
 - Normal pause or Active Pause after the controlled start hold and before touchdown applies the general ×0.95 factor.
 - Reducing simulation rate below 0.99× before touchdown applies the general ×0.8 factor.
+- Each switch from cockpit view (`CAMERA STATE` 2) to exterior or any other non-cockpit camera multiplies the combined score by ×0.95 (stacking) until main-gear touchdown.
 
 Composite components use weighted penalty RMS:
 
@@ -202,7 +202,7 @@ A challenge can deterministically override existing composite parameters and rep
 }
 ```
 
-Every attempt freezes and hashes its complete effective scoring key (including contact mapping). Ranked buckets include challenge ID, key ID, key version, and profile hash, so legacy, v8–v14, and differently tuned profiles cannot mix silently.
+Every attempt freezes and hashes its complete effective scoring key (including contact mapping). Ranked buckets include challenge ID, key ID, key version, and profile hash, so legacy, v8–v23, and differently tuned profiles cannot mix silently.
 
 ### Also editable
 

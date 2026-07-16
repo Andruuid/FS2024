@@ -28,7 +28,6 @@ public static class MetricResolver
         "approachVerticalVariationFtPerSec",
         "approachLateralWeaveIndex",
         "approachBankMeanAbsDeg",
-        "groundTrackErrorMeanDeg",
         "postTouchdownAlignmentMeanDeg",
         "rolloutLateralMeanM",
         "rolloutLateralPeakM",
@@ -81,11 +80,6 @@ public static class MetricResolver
                 MetricObservation.Available(snap.ApproachBankMeanAbsDeg),
             "approachbankmeanabsdeg" =>
                 MetricObservation.Unavailable("Approach bank stability requires a short-final sample window."),
-            "groundtrackerrormeandeg" when snap.GroundTrackBeforeSegmentCount >= 1
-                                                   && snap.GroundTrackAfterSegmentCount >= 1 =>
-                MetricObservation.Available(snap.GroundTrackErrorMeanDeg),
-            "groundtrackerrormeandeg" =>
-                MetricObservation.Unavailable("Ground track requires valid movement segments before and after touchdown."),
             "posttouchdownalignmentmeandeg" when snap.PostTouchdownAlignmentSampleCount >= 2 =>
                 MetricObservation.Available(snap.PostTouchdownAlignmentMeanDeg),
             "posttouchdownalignmentmeandeg" =>

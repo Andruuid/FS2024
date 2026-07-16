@@ -98,7 +98,6 @@ public sealed class LandingTraceStore
                 RolloutLateralPeakM = snapshot.RolloutLateralPeakM,
                 RolloutWeaveIndex = snapshot.RolloutWeaveIndex,
                 RolloutDistanceM = snapshot.RolloutDistanceM,
-                GroundTrackErrorMeanDeg = snapshot.GroundTrackErrorMeanDeg,
                 PostTouchdownAlignmentMeanDeg = snapshot.PostTouchdownAlignmentMeanDeg,
                 VappKts = snapshot.VappKts,
                 TargetTouchdownIasKts = snapshot.TargetTouchdownIasKts,
@@ -189,7 +188,6 @@ public sealed class LandingTraceSnapshot
     public double RolloutLateralPeakM { get; set; }
     public double RolloutWeaveIndex { get; set; }
     public double RolloutDistanceM { get; set; }
-    public double GroundTrackErrorMeanDeg { get; set; }
     public double PostTouchdownAlignmentMeanDeg { get; set; }
     public double VappKts { get; set; }
     public double TargetTouchdownIasKts { get; set; }
@@ -218,7 +216,6 @@ public sealed class LandingTraceSample
     public double AltFt { get; set; }
     public double AglFt { get; set; }
     public double Hdg { get; set; }
-    public double Track { get; set; }
     public double Pitch { get; set; }
     public double Bank { get; set; }
     public double Ias { get; set; }
@@ -249,6 +246,7 @@ public sealed class LandingTraceSample
     public bool? AutothrustActive { get; set; }
     public bool? AutothrustArmed { get; set; }
     public double? SimRate { get; set; }
+    public int? CameraState { get; set; }
     public bool? Paused { get; set; }
     public bool? ActivePaused { get; set; }
     public long? PauseGeneration { get; set; }
@@ -262,7 +260,6 @@ public sealed class LandingTraceSample
         AltFt = s.AltitudeFeet,
         AglFt = s.RadioHeightFeet > 0 ? s.RadioHeightFeet : s.AglFeet,
         Hdg = s.HeadingTrueDeg,
-        Track = s.GroundTrackTrueDeg,
         Pitch = s.PitchDeg,
         Bank = s.BankDeg,
         Ias = s.AirspeedKts,
@@ -293,6 +290,7 @@ public sealed class LandingTraceSample
         AutothrustActive = s.AutothrustActive,
         AutothrustArmed = s.AutothrustArmed,
         SimRate = s.SimulationRate,
+        CameraState = s.CameraState,
         Paused = s.PauseStateAvailable ? s.NormalPauseActive : null,
         ActivePaused = s.PauseStateAvailable ? s.ActivePauseActive : null,
         PauseGeneration = s.PauseStateAvailable ? s.PauseGeneration : null

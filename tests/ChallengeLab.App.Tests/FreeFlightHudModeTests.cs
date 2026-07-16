@@ -214,7 +214,6 @@ public sealed class FreeFlightHudModeTests
         RadioHeightFeet = 1000,
         AirspeedKts = 90,
         GroundSpeedKts = 90,
-        GroundTrackTrueDeg = 90,
         HeadingTrueDeg = 110,
         SimOnGround = false,
         DesignSpeedVs0Kts = 45,

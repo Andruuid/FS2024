@@ -100,13 +100,13 @@ public static class LandingMonitorCalculator
         double? closingSpeed = null;
         if (double.IsFinite(sample.GroundSpeedKts)
             && sample.GroundSpeedKts >= 0
-            && double.IsFinite(sample.GroundTrackTrueDeg)
+            && double.IsFinite(sample.HeadingTrueDeg)
             && double.IsFinite(runway.HeadingTrueDeg))
         {
-            var trackErrorRadians = NormalizeSignedDegrees(
-                    sample.GroundTrackTrueDeg - runway.HeadingTrueDeg)
+            var headingErrorRadians = NormalizeSignedDegrees(
+                    sample.HeadingTrueDeg - runway.HeadingTrueDeg)
                 * Math.PI / 180.0;
-            closingSpeed = sample.GroundSpeedKts * Math.Cos(trackErrorRadians);
+            closingSpeed = sample.GroundSpeedKts * Math.Cos(headingErrorRadians);
         }
 
         var progress = (1.0 - Math.Clamp(path.ApproachDistanceNm, 0, approachPathMaxDistNm)

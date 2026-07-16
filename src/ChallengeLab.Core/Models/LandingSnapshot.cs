@@ -48,23 +48,6 @@ public sealed class LandingSnapshot
     public double CrabAngleAtFlareDeg { get; set; }
 
     /// <summary>
-    /// Mean absolute ground-track error vs runway heading over the TD±window (degrees).
-    /// Measures where the CG is moving, not nose crab into wind.
-    /// </summary>
-    public double GroundTrackErrorMeanDeg { get; set; }
-
-    /// <summary>RMS ground-track error over the same window (degrees).</summary>
-    public double GroundTrackErrorRmsDeg { get; set; }
-
-    /// <summary>Peak absolute ground-track error in the window (degrees).</summary>
-    public double GroundTrackErrorPeakDeg { get; set; }
-
-    /// <summary>How many track samples were used in the window.</summary>
-    public int GroundTrackSampleCount { get; set; }
-    public int GroundTrackBeforeSegmentCount { get; set; }
-    public int GroundTrackAfterSegmentCount { get; set; }
-
-    /// <summary>
     /// Mean |heading − runway| from TD+2s until GS &lt; settle speed (de-crab / rudder alignment).
     /// </summary>
     public double PostTouchdownAlignmentMeanDeg { get; set; }

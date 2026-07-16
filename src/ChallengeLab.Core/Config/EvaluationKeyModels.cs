@@ -23,9 +23,7 @@ public sealed class LandingEvaluationKey
         return new LandingSessionSettings(
         Settle!.GroundSpeedKts,
         Settle.HoldSeconds,
-        Timing!.GroundTrackWindowBeforeSeconds,
-        Timing.GroundTrackWindowAfterSeconds,
-        Timing.PostTouchdownAlignmentDelaySeconds,
+        Timing!.PostTouchdownAlignmentDelaySeconds,
         Timing.FlareAglFeet,
         Timing.PostArmIgnoreSeconds,
         Timing.RequireAirborneBeforeTouchdown,
@@ -53,6 +51,7 @@ public sealed class LandingEvaluationKey
                 FindPhasePenalty(p => p.Automation),
                 GeneralPenalties?.PauseUsage,
                 GeneralPenalties?.SimulationRate,
+                GeneralPenalties?.CockpitView,
                 FindPhasePenalty(p => p.NoseGearImpact),
                 FindPhasePenalty(p => p.Rollout),
                 FindPhasePenalty(p => p.ReverseThrust))
@@ -81,8 +80,6 @@ public sealed class FreeModeScoringPolicy
 public sealed record LandingSessionSettings(
     double SettledGroundSpeedKts,
     double SettledHoldSeconds,
-    double GroundTrackWindowBeforeSeconds,
-    double GroundTrackWindowAfterSeconds,
     double PostTouchdownAlignmentDelaySeconds,
     double FlareAglFeet,
     double PostArmIgnoreSeconds,
@@ -111,8 +108,6 @@ public sealed record LandingSessionSettings(
     public LandingSessionSettings(
         double SettledGroundSpeedKts,
         double SettledHoldSeconds,
-        double GroundTrackWindowBeforeSeconds,
-        double GroundTrackWindowAfterSeconds,
         double PostTouchdownAlignmentDelaySeconds,
         double FlareAglFeet,
         double PostArmIgnoreSeconds,
@@ -126,7 +121,6 @@ public sealed record LandingSessionSettings(
         double Vs0Factor)
         : this(
             SettledGroundSpeedKts, SettledHoldSeconds,
-            GroundTrackWindowBeforeSeconds, GroundTrackWindowAfterSeconds,
             PostTouchdownAlignmentDelaySeconds, FlareAglFeet, PostArmIgnoreSeconds,
             RequireAirborneBeforeTouchdown, MinAirborneAglFeet, MinAirborneSamples,
             ApproachPathMinDistNm, ApproachPathMaxDistNm,
@@ -143,6 +137,7 @@ public sealed record OperationalGateSessionSettings(
     AutomationGateConfig? Automation = null,
     PauseUsageGateConfig? PauseUsage = null,
     SimulationRateGateConfig? SimulationRate = null,
+    CockpitViewGateConfig? CockpitView = null,
     NoseGearImpactGateConfig? NoseGearImpact = null,
     RolloutGateConfig? Rollout = null,
     ReverseThrustGateConfig? ReverseThrust = null)
@@ -152,6 +147,7 @@ public sealed record OperationalGateSessionSettings(
                            || Automation is not null
                            || PauseUsage is not null
                            || SimulationRate is not null
+                           || CockpitView is not null
                            || NoseGearImpact is not null
                            || Rollout is not null
                            || ReverseThrust is not null;
@@ -165,8 +161,6 @@ public sealed class EvaluationSettle
 
 public sealed class EvaluationTiming
 {
-    public double GroundTrackWindowBeforeSeconds { get; set; } = 3;
-    public double GroundTrackWindowAfterSeconds { get; set; } = 3;
     public double PostTouchdownAlignmentDelaySeconds { get; set; } = 2;
     public double FlareAglFeet { get; set; } = 50;
 
@@ -280,6 +274,7 @@ public sealed class GeneralPenaltyConfig
 {
     public PauseUsageGateConfig? PauseUsage { get; set; }
     public SimulationRateGateConfig? SimulationRate { get; set; }
+    public CockpitViewGateConfig? CockpitView { get; set; }
 }
 
 /// <summary>
@@ -386,6 +381,28 @@ public sealed class SimulationRateGateConfig
     public double MinimumAllowedRate { get; set; } = 0.99;
     public double MultiplierOnFail { get; set; } = 0.8;
     public string? PenaltyDescription { get; set; }
+}
+
+/// <summary>
+/// General penalty stacked once per cockpit → non-cockpit camera transition before touchdown.
+/// </summary>
+public sealed class CockpitViewGateConfig
+{
+    /// <summary>
+    /// Multiplier applied to the combined score for each exit from cockpit view (CAMERA STATE 2).
+    /// Two exits apply this factor squared, and so on.
+    /// </summary>
+    public double MultiplierPerSwitch { get; set; } = 0.95;
+    public string? PenaltyDescription { get; set; }
+}
+
+/// <summary>MSFS CAMERA STATE values used by Challenge Lab gates.</summary>
+public static class CameraStates
+{
+    /// <summary>Pilot/cockpit camera (MSFS CAMERA STATE = 2).</summary>
+    public const int Cockpit = 2;
+
+    public static bool IsCockpit(int cameraState) => cameraState == Cockpit;
 }
 
 /// <summary>Penalty-only gate latched by any stall warning during an armed attempt.</summary>

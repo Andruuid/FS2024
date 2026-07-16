@@ -62,12 +62,6 @@ public sealed class ScoreEngineTests
         ApproachLateralWeaveIndex = 0.01,
         ApproachLateralDistanceM = 2000,
         ApproachMetricDurationSec = 45,
-        GroundTrackSampleCount = 4,
-        GroundTrackBeforeSegmentCount = 1,
-        GroundTrackAfterSegmentCount = 1,
-        GroundTrackErrorMeanDeg = 1,
-        GroundTrackErrorRmsDeg = 1,
-        GroundTrackErrorPeakDeg = 2,
         PostTouchdownAlignmentSampleCount = 2,
         PostTouchdownAlignmentMeanDeg = 1,
         PostTouchdownAlignmentRmsDeg = 1,
@@ -94,6 +88,8 @@ public sealed class ScoreEngineTests
             PauseCoverageAvailable = true,
             SimulationRateCoverageAvailable = true,
             MinimumSimulationRate = 1,
+            CameraStateCoverageAvailable = true,
+            CockpitViewExitCount = 0,
             RadioHeightCoverageAvailable = true,
             HeadingAltitudeAutomationCoverageAvailable = true,
             FullAutomationCoverageAvailable = true,
@@ -384,13 +380,12 @@ public sealed class ScoreEngineTests
     }
 
     [Fact]
-    public void TouchdownPhase_ExcludesPenaltyGatesAndGroundTrack()
+    public void TouchdownPhase_ExcludesPenaltyGates()
     {
         var (key, _) = Load();
         var td = key.Phases.Single(p => p.Id == "touchdown");
         Assert.DoesNotContain(td.Metrics, m => m.Id == "flaps");
         Assert.DoesNotContain(td.Metrics, m => m.Id == "contact_stability");
-        Assert.DoesNotContain(td.Metrics, m => m.Id == "ground_track");
         Assert.DoesNotContain(td.Metrics, m => m.Id == "excess_speed");
         Assert.DoesNotContain(td.Metrics, m => m.Id == "alignment");
         Assert.Equal(20, td.Metrics.Single(m => m.Id == "touchdown_point").ImportancePercent);
@@ -405,7 +400,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(21, loaded.Key.Version);
+        Assert.Equal(23, loaded.Key.Version);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
 
@@ -418,7 +413,7 @@ public sealed class ScoreEngineTests
 
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("free-flight-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(8, loaded.Key.Version);
+        Assert.Equal(9, loaded.Key.Version);
         Assert.Equal(70, loaded.Key.SpeedTarget!.DefaultVappKts);
         Assert.NotNull(loaded.Key.FreeMode);
         Assert.NotNull(loaded.Key.Phases.Single(p => p.Id == "touchdown").Penalties!.Flaps);

@@ -18,12 +18,6 @@ public sealed class TelemetrySample
 
     public double HeadingTrueDeg { get; init; }
 
-    /// <summary>
-    /// Ground track (direction of CG motion over the ground), true degrees.
-    /// Prefer this over heading for path-over-ground scoring (crab is wind-dependent).
-    /// </summary>
-    public double GroundTrackTrueDeg { get; init; }
-
     public double PitchDeg { get; init; }
     public double BankDeg { get; init; }
 
@@ -121,6 +115,12 @@ public sealed class TelemetrySample
 
     /// <summary>Internal simulation-time rate; 1 is normal real-time speed.</summary>
     public double? SimulationRate { get; init; }
+
+    /// <summary>
+    /// MSFS <c>CAMERA STATE</c> enum when sampled. Cockpit is 2; exterior/chase/drone and
+    /// menus use other values. Null when the SimVar was not present in the sample.
+    /// </summary>
+    public int? CameraState { get; init; }
 
     /// <summary>Pause_EX1 state copied into every telemetry sample.</summary>
     public bool PauseStateAvailable { get; init; }

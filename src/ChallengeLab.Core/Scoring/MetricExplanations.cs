@@ -78,9 +78,6 @@ public static class MetricExplanations
         "approach_bank_stability" =>
             "Bank angle stability on short final: time-weighted mean absolute bank (∫|φ|dt / T). " +
             "Wings level scores high; sustained bank and left/right rocking score low.",
-        "ground_track" =>
-            "Mean error between ground track (direction the CG moves over the ground) and runway heading, " +
-            "from 3 seconds before touchdown to 3 seconds after. Not wind-dependent crab angle.",
         "post_td_alignment" =>
             "From 2 seconds after touchdown until about 50 kt: fuselage should be de-crabbed and " +
             "held parallel to the runway with rudder.",
@@ -97,7 +94,7 @@ public static class MetricExplanations
         "reverse_thrust" =>
             "Operational gate for timely reverse selection, challenge-specific reverse restrictions, and complete low-speed stow.",
         "crab" =>
-            "Legacy crab-at-flare metric (replaced by ground track / rollout alignment).",
+            "Legacy crab-at-flare metric (replaced by rollout alignment).",
         _ => $"{displayName}: part of the configurable landing evaluation."
     };
 
@@ -151,9 +148,6 @@ public static class MetricExplanations
             "approach_bank_stability" =>
                 $"Measured: mean |bank| {snap.ApproachBankMeanAbsDeg:0.0}° " +
                 $"(window {snap.ApproachMetricDurationSec:0.0}s, n={snap.ApproachPathSampleCount}).",
-            "ground_track" =>
-                $"Measured: mean track error {snap.GroundTrackErrorMeanDeg:0.0}° " +
-                $"(peak {snap.GroundTrackErrorPeakDeg:0.0}°, n={snap.GroundTrackSampleCount}).",
             "post_td_alignment" =>
                 $"Measured: mean heading error {snap.PostTouchdownAlignmentMeanDeg:0.0}° after TD+2 s " +
                 $"(peak {snap.PostTouchdownAlignmentPeakDeg:0.0}°, n={snap.PostTouchdownAlignmentSampleCount}).",

@@ -49,8 +49,8 @@ public sealed class TouchdownEvaluationV9Tests
         var catalog = loader.LoadCatalog();
         foreach (var (path, version) in new[]
                  {
-                     (catalog.EvaluationKey, 21),
-                     (catalog.FreeFlightEvaluationKey, 8)
+                     (catalog.EvaluationKey, 23),
+                     (catalog.FreeFlightEvaluationKey, 9)
                  })
         {
             var loaded = loader.LoadEvaluationKey(path);
@@ -64,7 +64,6 @@ public sealed class TouchdownEvaluationV9Tests
             Assert.Equal(20, touchdown.Metrics.Single(m => m.Id == "touchdown_point").ImportancePercent);
             Assert.Equal(8, touchdown.Metrics.Single(m => m.Id == "flare_efficiency").ImportancePercent);
             Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "contact_stability");
-            Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "ground_track");
             Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "touchdown_vs");
             Assert.Equal(70, touchdown.WeightPercent);
             Assert.Equal(25, loaded.Key.Phases.Single(p => p.Id == "approach").WeightPercent);
@@ -189,7 +188,7 @@ public sealed class TouchdownEvaluationV9Tests
         var result = new ScoreEngine(profile11.Key, profile11.ProfileHash)
             .EvaluatePreview(challenge, new LandingSnapshot());
         Assert.Equal(profile11.Key.Id, result.EvaluationKeyId);
-        Assert.Equal(21, result.EvaluationKeyVersion);
+        Assert.Equal(23, result.EvaluationKeyVersion);
         Assert.Equal(profile11.ProfileHash, result.ScoringProfileHash);
         Assert.Equal(profile11.BucketId(challenge.Id), result.RankedBucketId);
 
@@ -516,7 +515,6 @@ public sealed class TouchdownEvaluationV9Tests
             Latitude = challenge.Runway.ThresholdLatitude,
             Longitude = challenge.Runway.ThresholdLongitude,
             HeadingTrueDeg = challenge.Runway.HeadingTrueDeg,
-            GroundTrackTrueDeg = challenge.Runway.HeadingTrueDeg
         };
 
         session.Arm();

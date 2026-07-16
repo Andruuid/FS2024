@@ -250,7 +250,6 @@ public sealed class TouchdownPointScoringTests
             Latitude = latitude,
             Longitude = longitude,
             HeadingTrueDeg = runway.HeadingTrueDeg,
-            GroundTrackTrueDeg = runway.HeadingTrueDeg,
             SimOnGround = contact,
             AglFeet = contact ? 0 : 100,
             RadioHeightFeet = contact ? 0 : 100,

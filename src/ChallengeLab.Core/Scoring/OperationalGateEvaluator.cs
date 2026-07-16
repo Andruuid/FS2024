@@ -54,6 +54,8 @@ internal static class OperationalGateEvaluator
             multiplier *= AppendPause(pause, observations, criteria, incompleteReasons, preview, scoreTarget, context);
         if (penalties.SimulationRate is { } rate)
             multiplier *= AppendSimulationRate(rate, observations, criteria, incompleteReasons, preview, scoreTarget, context);
+        if (penalties.CockpitView is { } cockpit)
+            multiplier *= AppendCockpitView(cockpit, observations, criteria, incompleteReasons, preview, scoreTarget, context);
 
         return multiplier;
     }
@@ -299,6 +301,40 @@ internal static class OperationalGateEvaluator
         AddFailed(criteria, id, name, obs.MinimumSimulationRate, "x", cfg.MultiplierOnFail, scoreTarget,
             $"Simulation rate fell below {cfg.MinimumAllowedRate:0.###}x before touchdown. {cfg.PenaltyDescription}");
         return cfg.MultiplierOnFail;
+    }
+
+    private static double AppendCockpitView(
+        CockpitViewGateConfig cfg,
+        LandingGateObservations obs,
+        List<CriterionScore> criteria,
+        List<string> incomplete,
+        bool preview,
+        string scoreTarget,
+        FreeGateEvaluationContext context)
+    {
+        const string id = "cockpit_view";
+        const string name = "Cockpit view discipline";
+        var configuredSingle = cfg.MultiplierPerSwitch;
+        if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview, configuredSingle, context,
+                out var monitoringMultiplier))
+            return monitoringMultiplier;
+        if (!obs.CameraStateCoverageAvailable)
+            return PendingOrUnavailable(id, name, "CAMERA STATE telemetry is unavailable.",
+                criteria, incomplete, preview, configuredSingle, context);
+
+        var exits = Math.Max(0, obs.CockpitViewExitCount);
+        if (exits == 0)
+        {
+            AddPassed(criteria, id, name, 0, "exterior switches",
+                "No cockpit → exterior (or other non-cockpit) camera transitions before main-gear touchdown.");
+            return 1;
+        }
+
+        var applied = Math.Pow(configuredSingle, exits);
+        AddFailed(criteria, id, name, exits, "exterior switches", applied, scoreTarget,
+            $"Left cockpit view {exits} time{(exits == 1 ? "" : "s")} before touchdown " +
+            $"(×{configuredSingle:0.###} each). {cfg.PenaltyDescription}");
+        return applied;
     }
 
     private static double AppendRollout(

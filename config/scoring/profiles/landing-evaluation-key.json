@@ -1,15 +1,13 @@
 {
   "id": "landing-evaluation-key",
-  "version": 21,
-  "description": "Single authoritative Challenge/Career landing score. Phase penalties affect only their owning phase; pause usage and reduced simulation rate are general penalties on the combined score.",
+  "version": 23,
+  "description": "Single authoritative Challenge/Career landing score. Phase penalties affect only their owning phase; pause usage, reduced simulation rate, and cockpit-view exits are general penalties on the combined score.",
   "formula": "phaseAfterPenalties = phaseScore * product(phase penalty multipliers); subtotal = sum(phaseAfterPenalties * phaseWeightPercent / 100); final = round(subtotal * product(general penalty multipliers), 1)",
   "settle": {
     "groundSpeedKts": 50,
     "holdSeconds": 1.0
   },
   "timing": {
-    "groundTrackWindowBeforeSeconds": 3,
-    "groundTrackWindowAfterSeconds": 3,
     "postTouchdownAlignmentDelaySeconds": 2,
     "flareAglFeet": 50,
     "postArmIgnoreSeconds": 4,
@@ -45,6 +43,10 @@
       "minimumAllowedRate": 0.99,
       "multiplierOnFail": 0.8,
       "penaltyDescription": "Reducing the simulation rate below normal speed before touchdown applies this general factor to the combined score once."
+    },
+    "cockpitView": {
+      "multiplierPerSwitch": 0.95,
+      "penaltyDescription": "Each transition from cockpit view (CAMERA STATE 2) to any exterior or other non-cockpit camera multiplies the combined score by 0.95. Multiple exits stack multiplicatively from the first unpaused challenge sample through main-gear touchdown."
     }
   },
   "phases": [

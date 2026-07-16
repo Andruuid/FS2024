@@ -48,7 +48,7 @@ public sealed class LandingMonitorCalculatorTests
         Assert.Equal(expected, LandingMonitorCalculator.ClassifyGlideslope(measured, target));
 
     [Fact]
-    public void Calculate_UsesGeometricPathAndTrueGroundTrackUnderCrab()
+    public void Calculate_UsesGeometricPathAndHeadingComponent()
     {
         var sample = SampleAtDistance(2, 3.0, heading: 120, airspeed: 140, verticalSpeed: -650);
 
@@ -58,14 +58,14 @@ public sealed class LandingMonitorCalculatorTests
         Assert.Equal(LandingMonitorStatus.Green, reading.GlideslopeStatus);
         Assert.Equal(LandingMonitorStatus.Green, reading.VerticalSpeedStatus);
         Assert.InRange(reading.GlideslopeDeg!.Value, 2.999, 3.001);
-        Assert.InRange(reading.ClosingSpeedKts!.Value, 99.999, 100.001);
+        Assert.InRange(reading.ClosingSpeedKts!.Value, 86.59, 86.61);
         Assert.True(reading.IsInsideCollectionWindow);
     }
 
     [Fact]
-    public void Calculate_UsesGroundTrackComponentForCrosswindClosure()
+    public void Calculate_UsesHeadingComponentForClosure()
     {
-        var sample = SampleAtDistance(2, 3, track: 120);
+        var sample = SampleAtDistance(2, 3, heading: 120);
 
         var reading = LandingMonitorCalculator.Calculate(sample, Runway, 135, .2, 4.5);
 
@@ -116,7 +116,6 @@ public sealed class LandingMonitorCalculatorTests
         double distanceNm,
         double angleDeg,
         double heading = 90,
-        double track = 90,
         double groundSpeed = 100,
         double airspeed = 135,
         double verticalSpeed = -700,
@@ -138,7 +137,6 @@ public sealed class LandingMonitorCalculatorTests
             RadioHeightFeet = heightFeet,
             AirspeedKts = airspeed,
             GroundSpeedKts = groundSpeed,
-            GroundTrackTrueDeg = track,
             HeadingTrueDeg = heading,
             VerticalSpeedFpm = verticalSpeed,
             SimOnGround = onGround

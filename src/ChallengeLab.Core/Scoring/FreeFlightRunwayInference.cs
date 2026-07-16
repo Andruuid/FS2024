@@ -7,7 +7,7 @@ public sealed record FreeFlightInferenceSettings(
     int NearbyAirportCount = 5,
     double NearbyAirportRadiusNm = 25,
     double MaximumThresholdDistanceNm = 12,
-    double MaximumTrackErrorDeg = 30,
+    double MaximumHeadingErrorDeg = 30,
     double MaximumCrossTrackNm = 1.5,
     double MinimumGroundSpeedKts = 30,
     int StableSamplesToLock = 3);
@@ -17,7 +17,7 @@ public sealed record AirportDistance(AirportFacility Airport, double DistanceNm)
 public sealed record FreeFlightTarget(
     RunwayEndFacility Runway,
     double ThresholdDistanceNm,
-    double TrackErrorDeg,
+    double HeadingErrorDeg,
     double CrossTrackNm);
 
 public sealed record FreeFlightInferenceResult(
@@ -27,8 +27,8 @@ public sealed record FreeFlightInferenceResult(
     int StableSamples);
 
 /// <summary>
-/// Pure, deterministic airport/runway inference. It deliberately uses ground track rather
-/// than aircraft heading so a wind-crabbed final still selects the correct runway.
+/// Pure, deterministic airport/runway inference using position, runway geometry,
+/// and aircraft heading.
 /// </summary>
 public sealed class FreeFlightRunwayInference
 {
@@ -125,18 +125,18 @@ public sealed class FreeFlightRunwayInference
             sample.Longitude,
             end.ThresholdLatitude,
             end.ThresholdLongitude) / 1852.0;
-        var trackError = Math.Abs(NormalizeSigned(sample.GroundTrackTrueDeg - end.HeadingTrueDeg));
+        var headingError = Math.Abs(NormalizeSigned(sample.HeadingTrueDeg - end.HeadingTrueDeg));
         var crossTrackNm = Math.Abs(state.LateralMeters) / 1852.0;
 
         if (thresholdDistanceNm > _settings.MaximumThresholdDistanceNm
-            || trackError > _settings.MaximumTrackErrorDeg
+            || headingError > _settings.MaximumHeadingErrorDeg
             || crossTrackNm > _settings.MaximumCrossTrackNm)
             return null;
 
-        var rank = trackError / _settings.MaximumTrackErrorDeg
+        var rank = headingError / _settings.MaximumHeadingErrorDeg
                    + crossTrackNm / _settings.MaximumCrossTrackNm
                    + thresholdDistanceNm / _settings.MaximumThresholdDistanceNm;
-        return (new FreeFlightTarget(end, thresholdDistanceNm, trackError, crossTrackNm), rank);
+        return (new FreeFlightTarget(end, thresholdDistanceNm, headingError, crossTrackNm), rank);
     }
 
     private static bool IsFinitePosition(double latitude, double longitude)
