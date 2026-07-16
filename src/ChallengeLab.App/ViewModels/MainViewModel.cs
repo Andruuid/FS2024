@@ -89,6 +89,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private bool _resultVisible;
     private int _selectedTab;
     private HighscoreEntry? _selectedHighscore;
+    private int _selectedResultTab;
     private FlightTapeListItem? _selectedFlightTape;
     private string _testingStatus = "Select a recorded flight tape and evaluate offline.";
     private bool _isEvaluatingFlightTape;
@@ -413,9 +414,16 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         get => _selectedHighscore;
         set
         {
+            SelectedResultTab = 0;
             SetProperty(ref _selectedHighscore, value);
             RebuildLandingReport(value);
         }
+    }
+
+    public int SelectedResultTab
+    {
+        get => _selectedResultTab;
+        set => SetProperty(ref _selectedResultTab, value);
     }
 
     public FlightTapeListItem? SelectedFlightTape
@@ -2445,7 +2453,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             EvaluationKeyVersion = result.EvaluationKeyVersion,
             ScoringProfileHash = result.ScoringProfileHash,
             RankedBucketId = result.RankedBucketId,
-            Diagnostics = result.Diagnostics
+            Diagnostics = result.Diagnostics,
+            LandingVisualization = result.LandingVisualization
         };
     }
 

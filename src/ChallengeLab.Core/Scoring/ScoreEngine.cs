@@ -390,9 +390,67 @@ public sealed class ScoreEngine
             EvaluationKeyVersion = _key.Version,
             ScoringProfileHash = _profileHash,
             RankedBucketId = $"{challenge.Id}|{_key.Id}|v{_key.Version}|{_profileHash}",
-            Diagnostics = diagnostics
+            Diagnostics = diagnostics,
+            LandingVisualization = BuildLandingVisualization(challenge, snapshot, diagnostics)
         };
     }
+
+    private static LandingVisualizationData? BuildLandingVisualization(
+        ChallengeConfig challenge,
+        LandingSnapshot snapshot,
+        LandingResultDiagnostics diagnostics)
+    {
+        if (snapshot.Touchdown is null
+            || !TouchdownPointCalculator.TryCalculate(
+                challenge.Runway,
+                snapshot.Touchdown,
+                out var point,
+                out _)
+            || !double.IsFinite(challenge.Runway.WidthM)
+            || challenge.Runway.WidthM <= 0
+            || !double.IsFinite(snapshot.TouchdownLateralOffsetM))
+        {
+            return null;
+        }
+
+        var impact = snapshot.InitialImpact;
+        var rawPeakG = VisualizationFiniteFallback(
+            diagnostics.TouchdownRawPeakG,
+            impact?.RawPeakG ?? snapshot.PeakGForce);
+        var robustPeakG = VisualizationFiniteFallback(
+            diagnostics.TouchdownRobustPeakG,
+            impact?.RobustPeakG ?? snapshot.PeakGForce);
+        var verticalSpeed = VisualizationFiniteFallback(
+            diagnostics.TouchdownVerticalSpeedFpm,
+            snapshot.VerticalSpeedAtTouchdownFpm);
+
+        return new LandingVisualizationData
+        {
+            AirportIcao = challenge.Runway.AirportIcao,
+            RunwayId = challenge.Runway.RunwayId,
+            RunwayHeadingTrueDeg = VisualizationFiniteOrZero(challenge.Runway.HeadingTrueDeg),
+            RunwayLengthM = challenge.Runway.LengthM,
+            RunwayWidthM = challenge.Runway.WidthM,
+            TouchdownDistanceFromThresholdM = point.ActualDistanceFeet * RunwayPathGeometry.MetersPerFoot,
+            IdealTouchdownDistanceFromThresholdM = point.PerfectDistanceFeet * RunwayPathGeometry.MetersPerFoot,
+            TouchdownLateralOffsetM = snapshot.TouchdownLateralOffsetM,
+            TouchdownHeadingErrorDeg = VisualizationFiniteOrZero(snapshot.TouchdownHeadingErrorDeg),
+            TouchdownBankDeg = VisualizationFiniteOrZero(snapshot.BankAtTouchdownDeg),
+            TouchdownPitchDeg = VisualizationFiniteOrZero(snapshot.PitchAtTouchdownDeg),
+            TouchdownVerticalSpeedFpm = verticalSpeed,
+            TouchdownRawPeakG = rawPeakG,
+            TouchdownRobustPeakG = robustPeakG,
+            TouchdownAirspeedKts = VisualizationFiniteOrZero(snapshot.AirspeedAtTouchdownKts),
+            TargetTouchdownAirspeedKts = VisualizationFiniteOrZero(snapshot.TargetTouchdownIasKts)
+        };
+    }
+
+    private static double VisualizationFiniteFallback(double preferred, double fallback) =>
+        double.IsFinite(preferred) && Math.Abs(preferred) > .000_001
+            ? preferred
+            : VisualizationFiniteOrZero(fallback);
+
+    private static double VisualizationFiniteOrZero(double value) => double.IsFinite(value) ? value : 0;
 
     /// <summary>Before bounce analysis completes, preview assumes no bounce penalty.</summary>
     private double AppendContactStabilityGatePreview(

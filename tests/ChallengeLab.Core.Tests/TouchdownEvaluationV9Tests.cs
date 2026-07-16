@@ -637,6 +637,24 @@ public sealed class TouchdownEvaluationV9Tests
                     TouchdownImpactScore = 92,
                     TouchdownRobustPeakG = 1.33
                 },
+                LandingVisualization = new LandingVisualizationData
+                {
+                    AirportIcao = "TEST",
+                    RunwayId = "09",
+                    RunwayHeadingTrueDeg = 90,
+                    RunwayLengthM = 3000,
+                    RunwayWidthM = 45,
+                    TouchdownDistanceFromThresholdM = 365.76,
+                    IdealTouchdownDistanceFromThresholdM = 365.76,
+                    TouchdownLateralOffsetM = 2.5,
+                    TouchdownBankDeg = 1.2,
+                    TouchdownPitchDeg = 5,
+                    TouchdownVerticalSpeedFpm = -250,
+                    TouchdownRawPeakG = 1.4,
+                    TouchdownRobustPeakG = 1.33,
+                    TouchdownAirspeedKts = 138,
+                    TargetTouchdownAirspeedKts = 138
+                },
                 PhaseScores = new[]
                 {
                     new PhaseScore
@@ -666,6 +684,10 @@ public sealed class TouchdownEvaluationV9Tests
             Assert.Equal(-250, reloaded.ResolveVerticalSpeedFpm());
             Assert.Equal("-250", reloaded.VerticalSpeedDisplay);
             Assert.NotNull(reloaded.Diagnostics);
+            Assert.NotNull(reloaded.LandingVisualization);
+            Assert.Equal("TEST", reloaded.LandingVisualization!.AirportIcao);
+            Assert.Equal(365.76, reloaded.LandingVisualization.TouchdownDistanceFromThresholdM, 3);
+            Assert.Equal(1.33, reloaded.LandingVisualization.TouchdownRobustPeakG);
             Assert.True(reloaded.HasProjectedScoreHistory);
             Assert.NotNull(reloaded.ProjectedScoreHistory);
             Assert.InRange(reloaded.ProjectedScoreHistory!.Count, 2, 600);
@@ -681,6 +703,7 @@ public sealed class TouchdownEvaluationV9Tests
             Assert.Equal("legacy|unknown-scoring-profile", legacy.EffectiveRankedBucketId);
             Assert.Equal(-300, legacy.ResolveVerticalSpeedFpm());
             Assert.False(legacy.HasProjectedScoreHistory);
+            Assert.Null(legacy.LandingVisualization);
             legacyStore.RewriteClean();
             var rewritten = File.ReadAllText(path);
             Assert.DoesNotContain("HasDetail", rewritten, StringComparison.Ordinal);

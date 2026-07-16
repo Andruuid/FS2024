@@ -20,6 +20,7 @@ public sealed class ScoreResult
     public string ScoringProfileHash { get; init; } = "";
     public string RankedBucketId { get; init; } = "";
     public LandingResultDiagnostics Diagnostics { get; init; } = new();
+    public LandingVisualizationData? LandingVisualization { get; init; }
 
     /// <summary>
     /// True when this result is a live projection (missing metrics assumed 100%), not a final ranked score.

@@ -6,6 +6,66 @@
         Height="820" Width="1180"
         MinHeight="640" MinWidth="960"
         WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style x:Key="ResultTabControlStyle" TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Border Margin="18,0,18,0" Padding="4" CornerRadius="10"
+                                    Background="#FF0B1020" BorderBrush="#2FFFFFFF" BorderThickness="1">
+                                <TabPanel IsItemsHost="True" Background="Transparent"/>
+                            </Border>
+                            <ContentPresenter Grid.Row="1" x:Name="PART_SelectedContentHost"
+                                              ContentSource="SelectedContent"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ResultTabItemStyle" TargetType="TabItem">
+            <Setter Property="Foreground" Value="#FF8B9BB8"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="ResultTabBorder" Padding="{TemplateBinding Padding}" Margin="0,0,4,0"
+                                CornerRadius="7" Background="Transparent">
+                            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"
+                                              TextElement.FontWeight="{TemplateBinding FontWeight}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ResultTabBorder" Property="Background" Value="#332DE2E6"/>
+                                <Setter Property="Foreground" Value="#FF2DE2E6"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ResultTabBorder" Property="Background" Value="#18FFFFFF"/>
+                                <Setter Property="Foreground" Value="#FFFFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="VisualMetricCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="#CC121D32"/>
+            <Setter Property="BorderBrush" Value="#334A90A4"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="11"/>
+        </Style>
+    </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -450,36 +510,211 @@
                     <Border Grid.Column="2" Background="#FF121A2E" BorderBrush="#33FFFFFF" BorderThickness="1"
                             CornerRadius="14" Padding="0"
                             Visibility="{Binding LandingReport, Converter={StaticResource NullToVis}}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <Border Padding="18,16,18,12" BorderBrush="#22FFFFFF" BorderThickness="0,0,0,1">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="LANDING RESULT" FontSize="10" FontWeight="Bold"
+                                                   Foreground="#FF2DE2E6"/>
+                                        <TextBlock Text="{Binding LandingReport.Title, Mode=OneWay}" FontSize="21"
+                                                   FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                        <TextBlock Text="{Binding LandingReport.Subtitle, Mode=OneWay}" FontSize="11"
+                                                   Foreground="#FF8B9BB8" Margin="0,3,0,0"/>
+                                        <TextBlock Text="{Binding SelectedHighscore.CareerDisplay, Mode=OneWay}"
+                                                   Foreground="#FFFFB020" Margin="0,3,0,0" FontSize="10" FontWeight="Bold"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0">
+                                        <TextBlock Text="{Binding LandingReport.ScorePercent, Mode=OneWay, StringFormat={}{0:0.0}%}"
+                                                   FontSize="30" FontWeight="Bold" Foreground="#FF2DE2E6"/>
+                                        <TextBlock Text="{Binding LandingReport.Grade, Mode=OneWay}" FontSize="30" FontWeight="Bold"
+                                                   Margin="10,0,0,0" Foreground="#FFFFB020"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="2" Content="Close" Style="{StaticResource GhostButton}"
+                                            Padding="10,4" VerticalAlignment="Center"
+                                            Command="{Binding ClearHighscoreSelectionCommand}"/>
+                                </Grid>
+                            </Border>
+
+                            <TabControl Grid.Row="1" Style="{StaticResource ResultTabControlStyle}"
+                                        SelectedIndex="{Binding SelectedResultTab, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                        Margin="0,10,0,0">
+                                <TabItem Header="LANDING VISUAL" Style="{StaticResource ResultTabItemStyle}">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                                  Padding="18,14,18,18">
+                                        <Grid>
+                                            <StackPanel Visibility="{Binding LandingReport.HasVisualization, Converter={StaticResource BoolToVis}}">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding LandingReport.Visualization.RunwayTitle, Mode=OneWay}"
+                                                                   FontSize="16" FontWeight="Bold" Foreground="#FFF4F7FF"/>
+                                                        <TextBlock Text="{Binding LandingReport.Visualization.RunwayDetail, Mode=OneWay}"
+                                                                   FontSize="10" Foreground="#FF8B9BB8" Margin="0,3,0,0"
+                                                                   FontFamily="{StaticResource MonoFont}"/>
+                                                    </StackPanel>
+                                                    <Border Grid.Column="1" CornerRadius="12" Padding="10,5"
+                                                            Background="#222DE2E6" BorderBrush="#552DE2E6" BorderThickness="1">
+                                                        <TextBlock Text="EXACT TOUCHDOWN PLOT" FontSize="9" FontWeight="Bold"
+                                                                   Foreground="#FF2DE2E6"/>
+                                                    </Border>
+                                                </Grid>
+
+                                                <Border Margin="0,10,0,0" CornerRadius="14" Background="#FF09131E"
+                                                        BorderBrush="#334A90A4" BorderThickness="1" Padding="5">
+                                                    <controls:PrecisionRunwayView Height="292"
+                                                        Data="{Binding LandingReport.Visualization.Data, Mode=OneWay}"
+                                                        AutomationProperties.Name="Exact runway-relative touchdown position"/>
+                                                </Border>
+
+                                                <Border Margin="0,10,0,0" Padding="14,11" CornerRadius="11"
+                                                        Background="#CC10243A" BorderBrush="#552DE2E6" BorderThickness="1">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Text="{Binding LandingReport.Visualization.PositionHeadline, Mode=OneWay}"
+                                                                   FontSize="15" FontWeight="Bold" Foreground="#FFFFFFFF"/>
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding LandingReport.Visualization.PositionDetail, Mode=OneWay}"
+                                                                   FontSize="10" Foreground="#FFB8F0F2" VerticalAlignment="Center"
+                                                                   Margin="12,0,0,0" FontFamily="{StaticResource MonoFont}"/>
+                                                    </Grid>
+                                                </Border>
+
+                                                <Grid Margin="0,12,0,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="1.02*"/>
+                                                        <ColumnDefinition Width="12"/>
+                                                        <ColumnDefinition Width="0.98*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <controls:TouchdownAttitudeView Grid.Column="0" Height="222"
+                                                        Data="{Binding LandingReport.Visualization.Data, Mode=OneWay}"
+                                                        AutomationProperties.Name="Touchdown bank and pitch attitude"/>
+
+                                                    <Grid Grid.Column="2">
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="*"/>
+                                                            <RowDefinition Height="8"/>
+                                                            <RowDefinition Height="*"/>
+                                                        </Grid.RowDefinitions>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="8"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource VisualMetricCardStyle}">
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.VerticalSpeed.Label, Mode=OneWay}" FontSize="8" FontWeight="Bold" Foreground="#FF8B9BB8"/>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.VerticalSpeed.Value, Mode=OneWay}" FontSize="25" FontWeight="Bold" Margin="0,2,0,0"/>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.VerticalSpeed.UnitDetail, Mode=OneWay}" FontSize="9" Foreground="#FFFFC766"/>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.VerticalSpeed.Result, Mode=OneWay}" FontSize="8" Foreground="#FFFFB020" Margin="0,5,0,0" TextWrapping="Wrap"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource VisualMetricCardStyle}">
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.PeakG.Label, Mode=OneWay}" FontSize="8" FontWeight="Bold" Foreground="#FF8B9BB8"/>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.PeakG.Value, Mode=OneWay}" FontSize="25" FontWeight="Bold" Margin="0,2,0,0"/>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.PeakG.UnitDetail, Mode=OneWay}" FontSize="9" Foreground="#FFFFC766"/>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.PeakG.Result, Mode=OneWay}" FontSize="8" Foreground="#FFFFB020" Margin="0,5,0,0" TextWrapping="Wrap"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource VisualMetricCardStyle}">
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.Bank.Label, Mode=OneWay}" FontSize="8" FontWeight="Bold" Foreground="#FF8B9BB8"/>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.Bank.Value, Mode=OneWay}" FontSize="25" FontWeight="Bold" Margin="0,2,0,0"/>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.Bank.UnitDetail, Mode=OneWay}" FontSize="9" Foreground="#FFB8F0F2"/>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.Bank.Result, Mode=OneWay}" FontSize="8" Foreground="#FF2DE2E6" Margin="0,5,0,0" TextWrapping="Wrap"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <Border Grid.Row="2" Grid.Column="2" Style="{StaticResource VisualMetricCardStyle}">
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.Airspeed.Label, Mode=OneWay}" FontSize="8" FontWeight="Bold" Foreground="#FF8B9BB8"/>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.Airspeed.Value, Mode=OneWay}" FontSize="25" FontWeight="Bold" Margin="0,2,0,0"/>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.Airspeed.UnitDetail, Mode=OneWay}" FontSize="8" Foreground="#FFB8F0F2" TextWrapping="Wrap"/>
+                                                                <TextBlock Text="{Binding LandingReport.Visualization.Airspeed.Result, Mode=OneWay}" FontSize="8" Foreground="#FF2DE2E6" Margin="0,5,0,0" TextWrapping="Wrap"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </Grid>
+                                                </Grid>
+
+                                                <Border Margin="0,12,0,0" Padding="15" CornerRadius="13"
+                                                        Background="#B3182238" BorderBrush="#334A90A4" BorderThickness="1">
+                                                    <StackPanel>
+                                                        <TextBlock Text="LANDING COACH" FontSize="9" FontWeight="Bold" Foreground="#FF2DE2E6"/>
+                                                        <TextBlock Text="{Binding LandingReport.Visualization.VerdictHeadline, Mode=OneWay}"
+                                                                   FontSize="20" FontWeight="Bold" Margin="0,4,0,0"/>
+                                                        <TextBlock Text="{Binding LandingReport.Visualization.VerdictSummary, Mode=OneWay}"
+                                                                   TextWrapping="Wrap" FontSize="12" LineHeight="18" Foreground="#FFDCE6F8" Margin="0,6,0,0"/>
+                                                        <Grid Margin="0,12,0,0">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="10"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <Border Grid.Column="0" Padding="12" CornerRadius="10" Background="#3324B47E" BorderBrush="#5562E6A7" BorderThickness="1">
+                                                                <StackPanel>
+                                                                    <TextBlock Text="WHAT WENT WELL" FontSize="8" FontWeight="Bold" Foreground="#FF62E6A7"/>
+                                                                    <TextBlock Text="{Binding LandingReport.Visualization.StrengthTitle, Mode=OneWay}" FontWeight="Bold" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                                                    <TextBlock Text="{Binding LandingReport.Visualization.StrengthBody, Mode=OneWay}" FontSize="11" Foreground="#FFDCE6F8" Margin="0,5,0,0" TextWrapping="Wrap" LineHeight="16"/>
+                                                                </StackPanel>
+                                                            </Border>
+                                                            <Border Grid.Column="2" Padding="12" CornerRadius="10" Background="#333A2810" BorderBrush="#66FFB020" BorderThickness="1">
+                                                                <StackPanel>
+                                                                    <TextBlock Text="IMPROVE NEXT" FontSize="8" FontWeight="Bold" Foreground="#FFFFB020"/>
+                                                                    <TextBlock Text="{Binding LandingReport.Visualization.ImprovementTitle, Mode=OneWay}" FontWeight="Bold" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                                                    <TextBlock Text="{Binding LandingReport.Visualization.ImprovementBody, Mode=OneWay}" FontSize="11" Foreground="#FFFFE9C2" Margin="0,5,0,0" TextWrapping="Wrap" LineHeight="16"/>
+                                                                </StackPanel>
+                                                            </Border>
+                                                        </Grid>
+                                                    </StackPanel>
+                                                </Border>
+                                            </StackPanel>
+
+                                            <Border Padding="28" CornerRadius="14" Background="#AA0B1020"
+                                                    BorderBrush="#334A90A4" BorderThickness="1"
+                                                    Visibility="{Binding LandingReport.HasVisualization, Converter={StaticResource BoolToVisInvert}}">
+                                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="390">
+                                                    <TextBlock Text="RUNWAY POSITION NOT RECORDED" FontSize="14" FontWeight="Bold"
+                                                               Foreground="#FFFFB020" HorizontalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding LandingReport.VisualizationUnavailableText, Mode=OneWay}"
+                                                               TextWrapping="Wrap" TextAlignment="Center" Foreground="#FFC5D0E6"
+                                                               Margin="0,10,0,0" LineHeight="19"/>
+                                                    <TextBlock Text="The detailed score report is still fully available in the next tab."
+                                                               TextWrapping="Wrap" TextAlignment="Center" Foreground="#FF8B9BB8"
+                                                               Margin="0,8,0,0" FontSize="11"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </Grid>
+                                    </ScrollViewer>
+                                </TabItem>
+
+                                <TabItem Header="DETAILED REPORT" Style="{StaticResource ResultTabItemStyle}">
                         <ScrollViewer VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled" Padding="18">
                             <StackPanel>
-                                <DockPanel>
-                                    <Button DockPanel.Dock="Right" Content="Close" Style="{StaticResource GhostButton}"
-                                            Padding="10,4" Command="{Binding ClearHighscoreSelectionCommand}"/>
-                                    <TextBlock Text="LANDING REPORT" FontSize="11" FontWeight="Bold"
-                                               Foreground="#FF2DE2E6" VerticalAlignment="Center"/>
-                                </DockPanel>
-                                <DockPanel Margin="0,8,0,0" LastChildFill="True">
+                                <DockPanel Margin="0,0,0,4" LastChildFill="True">
                                     <TextBlock DockPanel.Dock="Right"
-                                               Text="{Binding LandingReport.RunwayLengthDisplay}"
-                                               FontSize="14" FontWeight="SemiBold"
+                                               Text="{Binding LandingReport.RunwayLengthDisplay, Mode=OneWay}"
+                                               FontSize="13" FontWeight="SemiBold"
                                                Foreground="#FF8B9BB8" VerticalAlignment="Center"
                                                Margin="16,0,0,0"
                                                Visibility="{Binding LandingReport.HasRunwayLength, Converter={StaticResource BoolToVis}}"/>
-                                    <TextBlock Text="{Binding LandingReport.Title}" FontSize="22" FontWeight="SemiBold"
-                                               TextWrapping="Wrap" Foreground="#FFF2F6FF"
-                                               VerticalAlignment="Center"/>
+                                    <TextBlock Text="COMPLETE SCORE BREAKDOWN" FontSize="10" FontWeight="Bold"
+                                               Foreground="#FF2DE2E6" VerticalAlignment="Center"/>
                                 </DockPanel>
-                                <TextBlock Text="{Binding LandingReport.Subtitle}" Foreground="#FFC5D0E6"
-                                           Margin="0,4,0,0" FontSize="12"/>
-                                <TextBlock Text="{Binding SelectedHighscore.CareerDisplay, Mode=OneWay}"
-                                           Foreground="#FFFFB020" Margin="0,4,0,0" FontSize="11" FontWeight="Bold"/>
-
-                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                                    <TextBlock Text="{Binding LandingReport.ScorePercent, StringFormat={}{0:0.0}%}"
-                                               FontSize="44" FontWeight="Bold" Foreground="#FF2DE2E6"/>
-                                    <TextBlock Text="{Binding LandingReport.Grade}" FontSize="44" FontWeight="Bold"
-                                               Margin="16,0,0,0" Foreground="#FFFFB020"/>
-                                </StackPanel>
 
                                 <Border x:Name="PhaseSummarySection" Margin="0,12,0,0" Padding="12"
                                         CornerRadius="10" Background="#331A2540" BorderBrush="#334A90A4" BorderThickness="1">
@@ -579,6 +814,9 @@
                                 <TextBlock x:Name="ReportBodyBlock" Visibility="Collapsed"/>
                             </StackPanel>
                         </ScrollViewer>
+                                </TabItem>
+                            </TabControl>
+                        </Grid>
                     </Border>
                 </Grid>
             </TabItem>

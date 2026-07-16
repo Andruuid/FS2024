@@ -70,6 +70,9 @@ public sealed class HighscoreEntry
     public string? RankedBucketId { get; set; }
     public LandingResultDiagnostics? Diagnostics { get; set; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LandingVisualizationData? LandingVisualization { get; set; }
+
     /// <summary>Runway length used for scoring (metres). Stored so the report can show it without re-resolving facilities.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? RunwayLengthMeters { get; set; }
@@ -291,6 +294,7 @@ public sealed class HighscoreStore
             ScoringProfileHash = result.ScoringProfileHash,
             RankedBucketId = result.RankedBucketId,
             Diagnostics = result.Diagnostics,
+            LandingVisualization = result.LandingVisualization,
             RunwayLengthMeters = ResolveRunwayLengthMeters(result),
             ProjectedScoreHistory = NormalizeScoreHistory(projectedScoreHistory),
             CareerStageNumber = careerStageNumber,
@@ -349,7 +353,8 @@ public sealed class HighscoreStore
                 }
 
                 // Prefer explicit field; recover from gate diagnostics when older saves only latched length there.
-                entry.RunwayLengthMeters ??= ResolveRunwayLengthMetersFromDiagnostics(entry.Diagnostics);
+                entry.RunwayLengthMeters ??= ResolveRunwayLengthMetersFromVisualization(entry.LandingVisualization)
+                                               ?? ResolveRunwayLengthMetersFromDiagnostics(entry.Diagnostics);
             }
         }
         catch
@@ -359,7 +364,14 @@ public sealed class HighscoreStore
     }
 
     private static double? ResolveRunwayLengthMeters(ScoreResult result)
-        => ResolveRunwayLengthMetersFromDiagnostics(result.Diagnostics);
+        => ResolveRunwayLengthMetersFromVisualization(result.LandingVisualization)
+           ?? ResolveRunwayLengthMetersFromDiagnostics(result.Diagnostics);
+
+    private static double? ResolveRunwayLengthMetersFromVisualization(LandingVisualizationData? visualization)
+    {
+        var length = visualization?.RunwayLengthM;
+        return length is > 0 && double.IsFinite(length.Value) ? length : null;
+    }
 
     private static double? ResolveRunwayLengthMetersFromDiagnostics(LandingResultDiagnostics? diagnostics)
     {

@@ -26,6 +26,9 @@ public sealed class LandingReportViewModel : ViewModelBase
             ? history
             : Array.Empty<ScoreHistoryPoint>();
         HasProjectedScoreHistory = ProjectedScoreHistory.Count > 0;
+        Visualization = entry.LandingVisualization is { } visualization
+            ? new LandingVisualizationViewModel(entry, visualization)
+            : null;
 
         Phases = new ObservableCollection<ReportPhaseViewModel>(
             entry.Phases
@@ -104,6 +107,10 @@ public sealed class LandingReportViewModel : ViewModelBase
     public string Notes { get; }
     public IReadOnlyList<ScoreHistoryPoint> ProjectedScoreHistory { get; }
     public bool HasProjectedScoreHistory { get; }
+    public LandingVisualizationViewModel? Visualization { get; }
+    public bool HasVisualization => Visualization is not null;
+    public string VisualizationUnavailableText =>
+        "This landing was recorded before the landing visual was available, so its exact runway position was not stored.";
     public string ProjectedScoreHistoryUnavailableText =>
         "Projected score history was not stored for this landing.";
     public bool HasDetail { get; }
@@ -258,6 +265,9 @@ public sealed class LandingReportViewModel : ViewModelBase
     {
         if (entry.RunwayLengthMeters is { } stored && stored > 0 && double.IsFinite(stored))
             return stored;
+        var fromVisualization = entry.LandingVisualization?.RunwayLengthM;
+        if (fromVisualization is { } visual && visual > 0 && double.IsFinite(visual))
+            return visual;
         var fromGates = entry.Diagnostics?.OperationalGates?.RunwayLengthMeters;
         if (fromGates is { } gates && gates > 0 && double.IsFinite(gates))
             return gates;
