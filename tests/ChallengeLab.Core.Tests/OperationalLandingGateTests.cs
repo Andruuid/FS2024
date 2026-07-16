@@ -16,37 +16,46 @@ public sealed class OperationalLandingGateTests
         var free = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey);
 
         Assert.True(challenge.IsValid, string.Join("; ", challenge.Errors));
-        Assert.Equal(17, challenge.Key!.Version);
-        Assert.NotNull(challenge.Key.Gates!.SpoilerDeployment);
-        Assert.NotNull(challenge.Key.Gates.ManualBraking);
-        Assert.NotNull(challenge.Key.Gates.Automation);
-        Assert.NotNull(challenge.Key.Gates.PauseUsage);
-        Assert.NotNull(challenge.Key.Gates.SimulationRate);
-        Assert.NotNull(challenge.Key.Gates.NoseGearImpact);
-        Assert.NotNull(challenge.Key.Gates.Rollout);
-        Assert.Equal(0.8, challenge.Key.Gates.Rollout!.MultiplierOnFail, 6);
+        Assert.Equal(18, challenge.Key!.Version);
+        var touchdown = challenge.Key.Phases.Single(p => p.Id == "touchdown").Penalties!;
+        var approach = challenge.Key.Phases.Single(p => p.Id == "approach").Penalties!;
+        var rollout = challenge.Key.Phases.Single(p => p.Id == "rollout").Penalties!;
+        Assert.NotNull(touchdown.SpoilerDeployment);
+        Assert.NotNull(touchdown.NoseGearImpact);
+        Assert.NotNull(approach.Automation);
+        Assert.NotNull(rollout.ManualBraking);
+        Assert.NotNull(rollout.Rollout);
+        Assert.NotNull(challenge.Key.GeneralPenalties!.PauseUsage);
+        Assert.NotNull(challenge.Key.GeneralPenalties.SimulationRate);
+        Assert.Equal(0.8, rollout.Rollout!.MultiplierOnFail, 6);
 
         Assert.True(free.IsValid, string.Join("; ", free.Errors));
-        Assert.Null(free.Key!.Gates!.SpoilerDeployment);
-        Assert.Null(free.Key.Gates.ManualBraking);
-        Assert.Null(free.Key.Gates.Automation);
-        Assert.Null(free.Key.Gates.PauseUsage);
-        Assert.Null(free.Key.Gates.SimulationRate);
-        Assert.Null(free.Key.Gates.NoseGearImpact);
-        Assert.Null(free.Key.Gates.Rollout);
+        Assert.Null(free.Key!.GeneralPenalties);
+        Assert.All(free.Key.Phases, phase =>
+        {
+            Assert.Null(phase.Penalties?.SpoilerDeployment);
+            Assert.Null(phase.Penalties?.ManualBraking);
+            Assert.Null(phase.Penalties?.Automation);
+            Assert.Null(phase.Penalties?.NoseGearImpact);
+            Assert.Null(phase.Penalties?.Rollout);
+        });
     }
 
     [Fact]
     public void OperationalGateConfiguration_RejectsInvalidThresholdsAndMultipliers()
     {
         var (key, _) = LoadChallengeProfile();
-        key.Gates!.SpoilerDeployment!.MinimumSurfacePosition = 1.1;
-        key.Gates.ManualBraking!.DeadlineSecondsAfterNoseTouchdown = -1;
-        key.Gates.Automation!.HeadingAltitudeOffRadioHeightFeet = 500;
-        key.Gates.Automation.AllAutomationOffRadioHeightFeet = 1000;
-        key.Gates.PauseUsage!.MultiplierOnFail = 0;
-        key.Gates.SimulationRate!.MinimumAllowedRate = 0;
-        key.Gates.NoseGearImpact!.SevereDeltaG = 0.1;
+        key.Phases.Single(p => p.Id == "touchdown").Penalties!.SpoilerDeployment!
+            .MinimumSurfacePosition = 1.1;
+        key.Phases.Single(p => p.Id == "rollout").Penalties!.ManualBraking!
+            .DeadlineSecondsAfterNoseTouchdown = -1;
+        var automation = key.Phases.Single(p => p.Id == "approach").Penalties!.Automation!;
+        automation.HeadingAltitudeOffRadioHeightFeet = 500;
+        automation.AllAutomationOffRadioHeightFeet = 1000;
+        key.GeneralPenalties!.PauseUsage!.MultiplierOnFail = 0;
+        key.GeneralPenalties.SimulationRate!.MinimumAllowedRate = 0;
+        key.Phases.Single(p => p.Id == "touchdown").Penalties!.NoseGearImpact!
+            .SevereDeltaG = 0.1;
 
         var errors = EvaluationKeyValidator.Validate(key);
         Assert.Contains(errors, error => error.Contains("minimumSurfacePosition"));
@@ -55,6 +64,18 @@ public sealed class OperationalLandingGateTests
         Assert.Contains(errors, error => error.Contains("pauseUsage.multiplierOnFail"));
         Assert.Contains(errors, error => error.Contains("simulationRate.minimumAllowedRate"));
         Assert.Contains(errors, error => error.Contains("noseGearImpact.severeDeltaG"));
+    }
+
+    [Fact]
+    public void PhasePenaltyConfiguration_RejectsPenaltyInWrongPhase()
+    {
+        var (key, _) = LoadChallengeProfile();
+        var approach = key.Phases.Single(p => p.Id == "approach");
+        var rollout = key.Phases.Single(p => p.Id == "rollout");
+        rollout.Penalties!.StallWarning = approach.Penalties!.StallWarning;
+
+        Assert.Contains(EvaluationKeyValidator.Validate(key), error =>
+            error.Contains("stallWarning must belong to phase 'approach'", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -80,7 +101,7 @@ public sealed class OperationalLandingGateTests
         foreach (var (mutate, path) in invalidCases)
         {
             var (key, _) = LoadChallengeProfile();
-            mutate(key.Gates!.NoseGearImpact!);
+            mutate(key.Phases.Single(p => p.Id == "touchdown").Penalties!.NoseGearImpact!);
             Assert.Contains(EvaluationKeyValidator.Validate(key), error => error.Contains(path));
         }
     }
@@ -143,8 +164,9 @@ public sealed class OperationalLandingGateTests
         failedSnapshot.GateObservations.FirstAutomationViolationRadioHeightFeet = 900;
 
         var failed = new ScoreEngine(key).Evaluate(challenge, failedSnapshot);
-        Assert.Equal(Math.Round(clean.ScorePercent!.Value * 0.9, 1), failed.ScorePercent);
+        Assert.Equal(97.5, failed.ScorePercent);
         Assert.Single(failed.Criteria, c => c.Id == "automation");
+        Assert.Equal("approach", failed.Criteria.Single(c => c.Id == "automation").PhaseId);
     }
 
     [Fact]
@@ -175,8 +197,8 @@ public sealed class OperationalLandingGateTests
         severeSnapshot.GateObservations.NoseGearImpact = severeAnalysis;
         var severe = new ScoreEngine(key).Evaluate(challenge, severeSnapshot);
 
-        Assert.Equal(Math.Round(clean.ScorePercent!.Value * 0.95, 1), moderate.ScorePercent);
-        Assert.Equal(Math.Round(clean.ScorePercent.Value * 0.9, 1), severe.ScorePercent);
+        Assert.Equal(96.5, moderate.ScorePercent);
+        Assert.Equal(93.0, severe.ScorePercent);
         Assert.Single(severe.Criteria, c => c.Id == "nose_gear_impact");
         var note = severe.Criteria.Single(c => c.Id == "nose_gear_impact").Note;
         Assert.Contains("Severe", note);
@@ -355,11 +377,27 @@ public sealed class OperationalLandingGateTests
         obs.RequiredRemainingRunwayMeters = 525;
 
         var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
-        var expected = Math.Round(result.ScoreBeforeGatesPercent!.Value
-                                  * 0.9 * 0.9 * 0.9 * 0.9 * 0.95 * 0.8 * 0.8, 1);
+        var expected = Math.Round(
+            (70 * 0.9 * 0.9 + 25 * 0.9 + 5 * 0.9 * 0.8)
+            * 0.95 * 0.8,
+            1);
         Assert.Equal(expected, result.ScorePercent);
         Assert.Equal(7, result.Criteria.Count(c => c.Status == MetricStatus.GateFailed
                                                    && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "rollout_distance"));
+    }
+
+    [Fact]
+    public void GeneralPausePenalty_AppliesToCombinedScoreAndHasNoPhaseOwner()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var snapshot = PassingSnapshot();
+        snapshot.GateObservations.PauseViolation = true;
+
+        var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
+
+        Assert.Equal(95.0, result.ScorePercent);
+        Assert.All(result.PhaseScores, phase => Assert.Equal(100.0, phase.ScorePercent));
+        Assert.Null(result.Criteria.Single(c => c.Id == "pause_usage").PhaseId);
     }
 
     [Fact]
@@ -401,9 +439,10 @@ public sealed class OperationalLandingGateTests
         failedSnapshot.GateObservations.GroundSpeedKtsAtRolloutCheck = 49;
 
         var failed = new ScoreEngine(key).Evaluate(challenge, failedSnapshot);
-        Assert.Equal(Math.Round(clean.ScorePercent!.Value * 0.8, 1), failed.ScorePercent);
+        Assert.Equal(99.0, failed.ScorePercent);
         Assert.Equal(MetricStatus.GateFailed,
             failed.Criteria.Single(c => c.Id == "rollout_distance").Status);
+        Assert.Equal("rollout", failed.Criteria.Single(c => c.Id == "rollout_distance").PhaseId);
         Assert.Contains("100", failed.Criteria.Single(c => c.Id == "rollout_distance").Note);
     }
 

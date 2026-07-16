@@ -1,8 +1,8 @@
 {
   "id": "landing-evaluation-key",
-  "version": 17,
-  "description": "Single authoritative Challenge/Career landing score. Metric phases are followed by multiplicative safety and operational gates for bounce, stall warning, gear, flaps, spoilers, manual braking, nose-gear impact, automation, pause usage, reduced simulation rate, and rollout remaining runway.",
-  "formula": "raw = sum(phaseScore * phaseWeightPercent / 100); final = round(raw * each applicable safety/operational gate multiplier, 1)",
+  "version": 18,
+  "description": "Single authoritative Challenge/Career landing score. Phase penalties affect only their owning phase; pause usage and reduced simulation rate are general penalties on the combined score.",
+  "formula": "phaseAfterPenalties = phaseScore * product(phase penalty multipliers); subtotal = sum(phaseAfterPenalties * phaseWeightPercent / 100); final = round(subtotal * product(general penalty multipliers), 1)",
   "settle": {
     "groundSpeedKts": 50,
     "holdSeconds": 1.0
@@ -36,72 +36,15 @@
     "touchdownOffsetKts": 5,
     "vs0Factor": 1.3
   },
-  "gates": {
-    "contactStability": {
-      "oneBounceMultiplier": 0.9,
-      "twoOrMoreBouncesMultiplier": 0.8,
-      "penaltyDescription": "The initial landing is the baseline. One valid airborne/recontact cycle (the second touchdown) multiplies the complete ranked score by 0.9; two or more cycles (the third touchdown or later) multiply it by 0.8."
-    },
-    "stallWarning": {
-      "multiplierOnWarning": 0.5,
-      "penaltyDescription": "If a stall warning occurs at any time after the attempt is armed, multiply the complete ranked score by 0.5. No stall warning is the required baseline and awards no points."
-    },
-    "gear": {
-      "multiplierOnFail": 0.1,
-      "penaltyDescription": "If gear is required and up, multiply the complete ranked score by 0.1. Gear down is the required baseline and awards no points."
-    },
-    "flaps": {
-      "minIndex": 2,
-      "maxIndex": 5,
-      "multiplierOnFail": 0.8,
-      "penaltyDescription": "If flaps are not set for landing (index below min / above max), multiply the complete ranked score by 0.8. Correct flaps award no points."
-    },
-    "spoilerDeployment": {
-      "minimumSurfacePosition": 0.15,
-      "deadlineSecondsAfterTouchdown": 2.0,
-      "multiplierOnFail": 0.9,
-      "penaltyDescription": "Both left and right spoiler surfaces must deploy at least 15% no later than two seconds after the accepted main-gear touchdown."
-    },
-    "manualBraking": {
-      "pedalPressThreshold": 0.05,
-      "deadlineSecondsAfterNoseTouchdown": 4.0,
-      "multiplierOnFail": 0.9,
-      "penaltyDescription": "Manual brake pedals must remain released while the nose gear is airborne, then both must be applied within four seconds of nose-gear touchdown. Autobrake does not satisfy this gate."
-    },
-    "noseGearImpact": {
-      "preContactWindowSeconds": 0.25,
-      "postContactWindowSeconds": 0.75,
-      "filterCutoffHz": 10.0,
-      "peakQuantile": 0.99,
-      "minimumPostContactSamples": 8,
-      "moderateDeltaG": 0.25,
-      "moderatePeakG": 1.30,
-      "moderateMultiplier": 0.95,
-      "severeDeltaG": 0.50,
-      "severePeakG": 1.70,
-      "severeMultiplier": 0.90,
-      "recontactDebounceSeconds": 0.08,
-      "compressionNoiseThreshold": 0.02,
-      "penaltyDescription": "A moderate nose-gear impact multiplies the complete ranked score by 0.95; a severe impact multiplies it by 0.9. The worst verified nose contact or recontact applies once."
-    },
-    "automation": {
-      "headingAltitudeOffRadioHeightFeet": 2000,
-      "allAutomationOffRadioHeightFeet": 1000,
-      "multiplierOnFail": 0.9,
-      "penaltyDescription": "Heading and altitude hold must be off at or below 2000 ft RA. AP master/AP1/AP2 and active or armed autothrust must be off at or below 1000 ft RA; flight directors may remain on."
-    },
+  "generalPenalties": {
     "pauseUsage": {
       "multiplierOnFail": 0.95,
-      "penaltyDescription": "Normal pause and Active Pause are prohibited from the first unpaused challenge-flight sample through main-gear touchdown."
+      "penaltyDescription": "Normal pause and Active Pause are prohibited from the first unpaused challenge-flight sample through main-gear touchdown. This general factor applies to the combined score."
     },
     "simulationRate": {
       "minimumAllowedRate": 0.99,
       "multiplierOnFail": 0.8,
-      "penaltyDescription": "Reducing the simulation rate below normal speed before touchdown applies this penalty once."
-    },
-    "rollout": {
-      "multiplierOnFail": 0.8,
-      "penaltyDescription": "As soon as groundspeed falls below the settle threshold, remaining runway must be at least max(400 m, 15% of runway length). Falling short multiplies the complete ranked score by 0.8."
+      "penaltyDescription": "Reducing the simulation rate below normal speed before touchdown applies this general factor to the combined score once."
     }
   },
   "phases": [
@@ -110,6 +53,45 @@
       "displayName": "Touchdown",
       "weightPercent": 70,
       "note": "Touchdown technique and aircraft state.",
+      "penalties": {
+        "contactStability": {
+          "oneBounceMultiplier": 0.9,
+          "twoOrMoreBouncesMultiplier": 0.8,
+          "penaltyDescription": "The initial landing is the baseline. One valid airborne/recontact cycle (the second touchdown) multiplies the Touchdown phase by 0.9; two or more cycles (the third touchdown or later) multiply it by 0.8."
+        },
+        "gear": {
+          "multiplierOnFail": 0.1,
+          "penaltyDescription": "If gear is required and up, multiply the Touchdown phase by 0.1. Gear down is the required baseline and awards no points."
+        },
+        "flaps": {
+          "minIndex": 2,
+          "maxIndex": 5,
+          "multiplierOnFail": 0.8,
+          "penaltyDescription": "If flaps are not set for landing (index below min / above max), multiply the Touchdown phase by 0.8. Correct flaps award no points."
+        },
+        "spoilerDeployment": {
+          "minimumSurfacePosition": 0.15,
+          "deadlineSecondsAfterTouchdown": 2.0,
+          "multiplierOnFail": 0.9,
+          "penaltyDescription": "Both left and right spoiler surfaces must deploy at least 15% no later than two seconds after the accepted main-gear touchdown; failure multiplies the Touchdown phase."
+        },
+        "noseGearImpact": {
+          "preContactWindowSeconds": 0.25,
+          "postContactWindowSeconds": 0.75,
+          "filterCutoffHz": 10.0,
+          "peakQuantile": 0.99,
+          "minimumPostContactSamples": 8,
+          "moderateDeltaG": 0.25,
+          "moderatePeakG": 1.30,
+          "moderateMultiplier": 0.95,
+          "severeDeltaG": 0.50,
+          "severePeakG": 1.70,
+          "severeMultiplier": 0.90,
+          "recontactDebounceSeconds": 0.08,
+          "compressionNoiseThreshold": 0.02,
+          "penaltyDescription": "A moderate nose-gear impact multiplies the Touchdown phase by 0.95; a severe impact multiplies it by 0.9. The worst verified nose contact or recontact applies once."
+        }
+      },
       "metrics": [
         {
           "id": "touchdown_impact",
@@ -218,6 +200,18 @@
       "displayName": "Approach",
       "weightPercent": 25,
       "note": "Short final (≈0.2–4.5 NM, includes typical 4 NM spawn): average 3° path match, vertical steadiness, and lateral steadiness share the phase equally.",
+      "penalties": {
+        "stallWarning": {
+          "multiplierOnWarning": 0.5,
+          "penaltyDescription": "If a stall warning occurs at any time after the attempt is armed, multiply the Approach phase by 0.5. No stall warning is the required baseline and awards no points."
+        },
+        "automation": {
+          "headingAltitudeOffRadioHeightFeet": 2000,
+          "allAutomationOffRadioHeightFeet": 1000,
+          "multiplierOnFail": 0.9,
+          "penaltyDescription": "Heading and altitude hold must be off at or below 2000 ft RA. AP master/AP1/AP2 and active or armed autothrust must be off at or below 1000 ft RA; failure multiplies the Approach phase. Flight directors may remain on."
+        }
+      },
       "metrics": [
         {
           "id": "approach_glideslope",
@@ -256,6 +250,18 @@
       "displayName": "Rollout",
       "weightPercent": 5,
       "note": "Heading, centerline path, weave, and peak lateral deviation share the phase equally.",
+      "penalties": {
+        "manualBraking": {
+          "pedalPressThreshold": 0.05,
+          "deadlineSecondsAfterNoseTouchdown": 4.0,
+          "multiplierOnFail": 0.9,
+          "penaltyDescription": "Manual brake pedals must remain released while the nose gear is airborne, then both must be applied within four seconds of nose-gear touchdown. Failure multiplies the Rollout phase; autobrake does not satisfy this gate."
+        },
+        "rollout": {
+          "multiplierOnFail": 0.8,
+          "penaltyDescription": "As soon as groundspeed falls below the settle threshold, remaining runway must be at least max(400 m, 15% of runway length). Falling short multiplies the Rollout phase by 0.8."
+        }
+      },
       "metrics": [
         {
           "id": "post_td_alignment",

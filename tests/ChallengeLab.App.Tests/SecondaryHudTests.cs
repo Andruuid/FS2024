@@ -29,13 +29,11 @@ public sealed class SecondaryHudTests
             monitor.Update(Sample(5, start), challenge, settings, 135, 100, LandingPhase.Approach, true);
             Assert.False(monitor.IsCollecting);
             Assert.Empty(monitor.GraphPoints);
-            Assert.Equal("STANDBY", monitor.ProgressDisplay);
 
             monitor.Update(Sample(4.5, start.AddSeconds(1)), challenge, settings, 135, 98, LandingPhase.Approach, true);
             Assert.True(monitor.IsCollecting);
             Assert.Single(monitor.GraphPoints);
             Assert.Equal("02:42", monitor.EtaDisplay);
-            Assert.Equal(0, monitor.ProgressPercent, 1);
             Assert.InRange(monitor.GraphHorizonSeconds, 171.9, 172.1);
 
             monitor.Update(Sample(4.4, start.AddSeconds(1.1)), challenge, settings, 135, 96, LandingPhase.Approach, true);
@@ -48,15 +46,78 @@ public sealed class SecondaryHudTests
             Assert.InRange(monitor.GraphHorizonSeconds, 171.9, 172.1);
 
             monitor.CompleteAttempt(87, start.AddSeconds(10));
-            Assert.Equal(100, monitor.ProgressPercent);
             Assert.Equal("00:00", monitor.EtaDisplay);
             Assert.Equal(87, monitor.GraphPoints[^1].ScorePercent);
 
             monitor.ResetAttempt();
             Assert.False(monitor.IsCollecting);
             Assert.Empty(monitor.GraphPoints);
-            Assert.Equal("STANDBY", monitor.ProgressDisplay);
             Assert.Equal(30, monitor.GraphHorizonSeconds);
+        });
+    }
+
+    [Theory]
+    [InlineData(0, 0, 10, 0, "From 0°", "Headwind 10.0 kt", "Crosswind 0.0 kt")]
+    [InlineData(0, 180, 10, 180, "From 180°", "Tailwind 10.0 kt", "Crosswind 0.0 kt")]
+    [InlineData(0, 90, 10, 90, "From 90°", "Headwind 0.0 kt", "Crosswind R 10.0 kt")]
+    [InlineData(0, 270, 10, -90, "From 270°", "Headwind 0.0 kt", "Crosswind L 10.0 kt")]
+    [InlineData(350, 10, 10, 20, "From 10°", "Headwind 9.4 kt", "Crosswind R 3.4 kt")]
+    public void WindIndicator_UsesAircraftRelativeFromAngleAndComponents(
+        double heading,
+        double windDirection,
+        double windSpeed,
+        double expectedAngle,
+        string expectedFrom,
+        string expectedLongitudinal,
+        string expectedCrosswind)
+    {
+        RunSta(() =>
+        {
+            var monitor = new SecondaryHudViewModel();
+            monitor.Update(
+                Sample(5, DateTimeOffset.UtcNow, heading: heading, windDirection: windDirection, windSpeed: windSpeed),
+                null,
+                null,
+                null,
+                null,
+                LandingPhase.Idle,
+                true);
+
+            Assert.True(monitor.HasWind);
+            Assert.Equal(expectedAngle, monitor.WindRelativeFromAngleDeg, 6);
+            Assert.Equal(windSpeed, monitor.WindSpeedKts, 6);
+            Assert.Equal(expectedFrom, monitor.WindFromDisplay);
+            Assert.Equal(expectedLongitudinal, monitor.WindLongitudinalDisplay);
+            Assert.Equal(expectedCrosswind, monitor.WindCrosswindDisplay);
+            Assert.Equal($"Wind {windSpeed:0.0} kt", monitor.WindTotalDisplay);
+        });
+    }
+
+    [Fact]
+    public void WindIndicator_CalmAndDisconnectedStatesStopAnimationData()
+    {
+        RunSta(() =>
+        {
+            var monitor = new SecondaryHudViewModel();
+            monitor.Update(
+                Sample(5, DateTimeOffset.UtcNow, heading: 20, windDirection: 80, windSpeed: 0.4),
+                null,
+                null,
+                null,
+                null,
+                LandingPhase.Idle,
+                true);
+
+            Assert.False(monitor.HasWind);
+            Assert.Equal("Calm", monitor.WindFromDisplay);
+            Assert.Equal("Wind 0.4 kt", monitor.WindTotalDisplay);
+
+            monitor.SetDisconnected();
+
+            Assert.False(monitor.HasWind);
+            Assert.Equal(0, monitor.WindSpeedKts);
+            Assert.Equal("From —", monitor.WindFromDisplay);
+            Assert.Equal("Wind —", monitor.WindTotalDisplay);
         });
     }
 
@@ -136,6 +197,31 @@ public sealed class SecondaryHudTests
         });
     }
 
+    [Fact]
+    public void WindFlowIndicator_RendersAircraftAndWindWithoutAnImageAsset()
+    {
+        RunSta(() =>
+        {
+            var indicator = new WindFlowIndicator
+            {
+                Width = 72,
+                Height = 72,
+                RelativeFromAngle = 90,
+                WindSpeedKts = 12,
+                IsActive = true
+            };
+            indicator.Measure(new Size(72, 72));
+            indicator.Arrange(new Rect(0, 0, 72, 72));
+            var bitmap = new RenderTargetBitmap(72, 72, 96, 96, PixelFormats.Pbgra32);
+
+            bitmap.Render(indicator);
+
+            var pixels = new byte[72 * 72 * 4];
+            bitmap.CopyPixels(pixels, 72 * 4, 0);
+            Assert.Contains(pixels.Where((_, index) => index % 4 == 3), alpha => alpha > 0);
+        });
+    }
+
     private static ChallengeConfig Challenge() => new()
     {
         Id = "monitor-test",
@@ -157,7 +243,10 @@ public sealed class SecondaryHudTests
     private static TelemetrySample Sample(
         double distanceNm,
         DateTimeOffset timestamp,
-        double track = 90)
+        double track = 90,
+        double heading = 120,
+        double windDirection = 0,
+        double windSpeed = 0)
     {
         var distanceMeters = distanceNm * RunwayPathGeometry.MetersPerNauticalMile;
         var longitude = -distanceMeters / RunwayPathGeometry.EarthRadiusMeters * 180 / Math.PI;
@@ -174,8 +263,10 @@ public sealed class SecondaryHudTests
             AirspeedKts = 135,
             GroundSpeedKts = 100,
             GroundTrackTrueDeg = track,
-            HeadingTrueDeg = 120,
+            HeadingTrueDeg = heading,
             VerticalSpeedFpm = -700,
+            WindDirectionDeg = windDirection,
+            WindVelocityKts = windSpeed,
             SimOnGround = false
         };
     }

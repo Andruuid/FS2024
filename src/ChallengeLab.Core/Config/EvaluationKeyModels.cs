@@ -12,7 +12,7 @@ public sealed class LandingEvaluationKey
     public EvaluationTiming? Timing { get; set; }
     public EvaluationSpeedTarget? SpeedTarget { get; set; }
     public List<EvaluationPhase> Phases { get; set; } = new();
-    public EvaluationGates? Gates { get; set; }
+    public GeneralPenaltyConfig? GeneralPenalties { get; set; }
     public LandingContactMapping ContactMapping { get; set; } = new();
 
     public LandingSessionSettings ToSessionSettings()
@@ -47,15 +47,20 @@ public sealed class LandingEvaluationKey
         flare?.Params.GetValueOrDefault("minSustainSeconds", 0.15) ?? 0.15)
         {
             OperationalGates = new OperationalGateSessionSettings(
-                Gates?.SpoilerDeployment,
-                Gates?.ManualBraking,
-                Gates?.Automation,
-                Gates?.PauseUsage,
-                Gates?.SimulationRate,
-                Gates?.NoseGearImpact,
-                Gates?.Rollout)
+                FindPhasePenalty(p => p.SpoilerDeployment),
+                FindPhasePenalty(p => p.ManualBraking),
+                FindPhasePenalty(p => p.Automation),
+                GeneralPenalties?.PauseUsage,
+                GeneralPenalties?.SimulationRate,
+                FindPhasePenalty(p => p.NoseGearImpact),
+                FindPhasePenalty(p => p.Rollout))
         };
     }
+
+    private T? FindPhasePenalty<T>(Func<EvaluationPhasePenalties, T?> selector)
+        where T : class => Phases
+            .Select(phase => phase.Penalties is null ? null : selector(phase.Penalties))
+            .FirstOrDefault(penalty => penalty is not null);
 }
 
 public sealed record LandingSessionSettings(
@@ -211,6 +216,7 @@ public sealed class EvaluationPhase
     public string DisplayName { get; set; } = "";
     public double WeightPercent { get; set; }
     public string? Note { get; set; }
+    public EvaluationPhasePenalties? Penalties { get; set; }
     public List<EvaluationMetric> Metrics { get; set; } = new();
 }
 
@@ -232,7 +238,11 @@ public sealed class EvaluationMetric
         new(StringComparer.OrdinalIgnoreCase);
 }
 
-public sealed class EvaluationGates
+/// <summary>
+/// Penalty gates owned by a scoring phase. Their multipliers affect only that
+/// phase's score before the weighted phase contributions are summed.
+/// </summary>
+public sealed class EvaluationPhasePenalties
 {
     public ContactStabilityGateConfig? ContactStability { get; set; }
     public StallWarningGateConfig? StallWarning { get; set; }
@@ -241,10 +251,17 @@ public sealed class EvaluationGates
     public SpoilerDeploymentGateConfig? SpoilerDeployment { get; set; }
     public ManualBrakingGateConfig? ManualBraking { get; set; }
     public AutomationGateConfig? Automation { get; set; }
-    public PauseUsageGateConfig? PauseUsage { get; set; }
-    public SimulationRateGateConfig? SimulationRate { get; set; }
     public NoseGearImpactGateConfig? NoseGearImpact { get; set; }
     public RolloutGateConfig? Rollout { get; set; }
+}
+
+/// <summary>
+/// Attempt-wide penalties applied after all phase contributions are summed.
+/// </summary>
+public sealed class GeneralPenaltyConfig
+{
+    public PauseUsageGateConfig? PauseUsage { get; set; }
+    public SimulationRateGateConfig? SimulationRate { get; set; }
 }
 
 /// <summary>
@@ -349,7 +366,7 @@ public sealed class GearGateConfig
 
 /// <summary>
 /// Flaps safety gate (like gear): correct setting awards no points;
-/// out of range multiplies the overall ranked score.
+/// out of range multiplies the owning phase score.
 /// </summary>
 public sealed class FlapsGateConfig
 {

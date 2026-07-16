@@ -49,8 +49,8 @@ public sealed class TouchdownEvaluationV9Tests
         var catalog = loader.LoadCatalog();
         foreach (var (path, version) in new[]
                  {
-                     (catalog.EvaluationKey, 17),
-                     (catalog.FreeFlightEvaluationKey, 4)
+                     (catalog.EvaluationKey, 18),
+                     (catalog.FreeFlightEvaluationKey, 5)
                  })
         {
             var loaded = loader.LoadEvaluationKey(path);
@@ -77,16 +77,19 @@ public sealed class TouchdownEvaluationV9Tests
         }
 
         var normal = loader.LoadEvaluationKey(catalog.EvaluationKey).Key!;
-        Assert.Equal(0.1, normal.Gates!.Gear!.MultiplierOnFail, 6);
-        Assert.Equal(0.9, normal.Gates.ContactStability!.OneBounceMultiplier, 6);
-        Assert.Equal(0.8, normal.Gates.ContactStability.TwoOrMoreBouncesMultiplier, 6);
-        Assert.Equal(0.5, normal.Gates.StallWarning!.MultiplierOnWarning, 6);
-        Assert.Equal(2, normal.Gates.Flaps!.MinIndex, 6);
-        Assert.Equal(5, normal.Gates.Flaps.MaxIndex, 6);
-        Assert.Equal(0.8, normal.Gates.Flaps.MultiplierOnFail, 6);
+        var touchdownPenalties = normal.Phases.Single(p => p.Id == "touchdown").Penalties!;
+        var approachPenalties = normal.Phases.Single(p => p.Id == "approach").Penalties!;
+        Assert.Equal(0.1, touchdownPenalties.Gear!.MultiplierOnFail, 6);
+        Assert.Equal(0.9, touchdownPenalties.ContactStability!.OneBounceMultiplier, 6);
+        Assert.Equal(0.8, touchdownPenalties.ContactStability.TwoOrMoreBouncesMultiplier, 6);
+        Assert.Equal(0.5, approachPenalties.StallWarning!.MultiplierOnWarning, 6);
+        Assert.Equal(2, touchdownPenalties.Flaps!.MinIndex, 6);
+        Assert.Equal(5, touchdownPenalties.Flaps.MaxIndex, 6);
+        Assert.Equal(0.8, touchdownPenalties.Flaps.MultiplierOnFail, 6);
         var free = loader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey).Key!;
-        Assert.Equal(0.1, free.Gates!.Gear!.MultiplierOnFail, 6);
-        Assert.Null(free.Gates.Flaps);
+        var freeTouchdownPenalties = free.Phases.Single(p => p.Id == "touchdown").Penalties!;
+        Assert.Equal(0.1, freeTouchdownPenalties.Gear!.MultiplierOnFail, 6);
+        Assert.Null(freeTouchdownPenalties.Flaps);
     }
 
     [Fact]
@@ -191,7 +194,7 @@ public sealed class TouchdownEvaluationV9Tests
         var result = new ScoreEngine(profile11.Key, profile11.ProfileHash)
             .EvaluatePreview(challenge, new LandingSnapshot());
         Assert.Equal(profile11.Key.Id, result.EvaluationKeyId);
-        Assert.Equal(17, result.EvaluationKeyVersion);
+        Assert.Equal(18, result.EvaluationKeyVersion);
         Assert.Equal(profile11.ProfileHash, result.ScoringProfileHash);
         Assert.Equal(profile11.BucketId(challenge.Id), result.RankedBucketId);
 

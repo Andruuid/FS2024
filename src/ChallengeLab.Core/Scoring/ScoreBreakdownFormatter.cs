@@ -34,7 +34,7 @@ public static class ScoreBreakdownFormatter
             && c.Status == MetricStatus.GateFailed);
         var operationalPenalties = criteria.Where(c =>
                 c.Status == MetricStatus.GateFailed
-                && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate")
+                && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "rollout_distance")
             .ToList();
         if (scorePercent is not null)
             sb.Append("Total Grade ").Append(grade).Append("  ").Append(Pct(scorePercent));
@@ -45,7 +45,7 @@ public static class ScoreBreakdownFormatter
         if (contactPenaltyApplied || stallWarningPenaltyApplied
             || gearUpPenaltyApplied || flapsPenaltyApplied || operationalPenalties.Count > 0)
         {
-            sb.Append("(pre-gate ").Append(Pct(scoreBeforeGatesPercent));
+            sb.Append("(pre-penalty metric total ").Append(Pct(scoreBeforeGatesPercent));
             if (contactPenaltyApplied) sb.Append(" · bounce penalty");
             if (stallWarningPenaltyApplied) sb.Append(" · stall-warning penalty");
             if (gearUpPenaltyApplied) sb.Append(" · gear-up penalty");

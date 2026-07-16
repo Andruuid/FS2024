@@ -41,11 +41,14 @@ public sealed class SecondaryHudViewModel : ViewModelBase
     private string _verticalSpeedDisplay = "—";
     private string _verticalSpeedDetail = "GREEN −700–0 FPM";
     private Brush _verticalSpeedBrush = NeutralBrush;
-    private double _progressPercent;
-    private double _airplaneOffset;
-    private string _progressDisplay = "STANDBY";
     private string _etaDisplay = "--:--";
-    private string _distanceDisplay = "DIST —";
+    private double _windRelativeFromAngleDeg;
+    private double _windSpeedKts;
+    private bool _hasWind;
+    private string _windFromDisplay = "From —";
+    private string _windLongitudinalDisplay = "Head/tailwind —";
+    private string _windCrosswindDisplay = "Crosswind —";
+    private string _windTotalDisplay = "Wind —";
     private IReadOnlyList<LandingMonitorGraphPoint> _graphSnapshot = Array.Empty<LandingMonitorGraphPoint>();
     private bool _isCollecting;
     private double _graphHorizonSeconds = 30;
@@ -63,11 +66,14 @@ public sealed class SecondaryHudViewModel : ViewModelBase
     public string VerticalSpeedDisplay { get => _verticalSpeedDisplay; private set => SetProperty(ref _verticalSpeedDisplay, value); }
     public string VerticalSpeedDetail { get => _verticalSpeedDetail; private set => SetProperty(ref _verticalSpeedDetail, value); }
     public Brush VerticalSpeedBrush { get => _verticalSpeedBrush; private set => SetProperty(ref _verticalSpeedBrush, value); }
-    public double ProgressPercent { get => _progressPercent; private set => SetProperty(ref _progressPercent, value); }
-    public double AirplaneOffset { get => _airplaneOffset; private set => SetProperty(ref _airplaneOffset, value); }
-    public string ProgressDisplay { get => _progressDisplay; private set => SetProperty(ref _progressDisplay, value); }
     public string EtaDisplay { get => _etaDisplay; private set => SetProperty(ref _etaDisplay, value); }
-    public string DistanceDisplay { get => _distanceDisplay; private set => SetProperty(ref _distanceDisplay, value); }
+    public double WindRelativeFromAngleDeg { get => _windRelativeFromAngleDeg; private set => SetProperty(ref _windRelativeFromAngleDeg, value); }
+    public double WindSpeedKts { get => _windSpeedKts; private set => SetProperty(ref _windSpeedKts, value); }
+    public bool HasWind { get => _hasWind; private set => SetProperty(ref _hasWind, value); }
+    public string WindFromDisplay { get => _windFromDisplay; private set => SetProperty(ref _windFromDisplay, value); }
+    public string WindLongitudinalDisplay { get => _windLongitudinalDisplay; private set => SetProperty(ref _windLongitudinalDisplay, value); }
+    public string WindCrosswindDisplay { get => _windCrosswindDisplay; private set => SetProperty(ref _windCrosswindDisplay, value); }
+    public string WindTotalDisplay { get => _windTotalDisplay; private set => SetProperty(ref _windTotalDisplay, value); }
     public IReadOnlyList<LandingMonitorGraphPoint> GraphPoints { get => _graphSnapshot; private set => SetProperty(ref _graphSnapshot, value); }
     public bool IsCollecting { get => _isCollecting; private set => SetProperty(ref _isCollecting, value); }
     public double GraphHorizonSeconds { get => _graphHorizonSeconds; private set => SetProperty(ref _graphHorizonSeconds, value); }
@@ -93,6 +99,7 @@ public sealed class SecondaryHudViewModel : ViewModelBase
             settings?.ApproachPathMinDistNm ?? .2,
             settings?.ApproachPathMaxDistNm ?? 4.5);
         ApplyIndicators(reading, challenge?.Runway);
+        ApplyWind(sample, isConnected);
 
         if (!isConnected)
         {
@@ -115,9 +122,6 @@ public sealed class SecondaryHudViewModel : ViewModelBase
 
         if (_collectionStartedAt is null)
         {
-            ProgressPercent = 0;
-            AirplaneOffset = 0;
-            ProgressDisplay = "STANDBY";
             EtaDisplay = "--:--";
             MonitorStatus = reading.ApproachDistanceNm is > 0
                 ? $"Collection starts at {settings.ApproachPathMaxDistNm:0.0} NM"
@@ -125,11 +129,6 @@ public sealed class SecondaryHudViewModel : ViewModelBase
             return;
         }
 
-        var progress = sample.SimOnGround ? 100 : reading.ProgressPercent;
-        SetProgress(progress);
-        DistanceDisplay = reading.ApproachDistanceNm is { } distance
-            ? $"DIST {Math.Max(0, distance):0.00} NM"
-            : "DIST —";
         UpdateEta(sample.Timestamp, reading.ApproachDistanceNm, reading.ClosingSpeedKts, sample.SimOnGround);
 
         if (!sample.SimOnGround && phase is not LandingPhase.Scored)
@@ -143,7 +142,6 @@ public sealed class SecondaryHudViewModel : ViewModelBase
         if (_collectionStartedAt is null)
             return;
 
-        SetProgress(100);
         EtaDisplay = "00:00";
         AddGraphPoint(timestamp, finalScorePercent, force: true);
     }
@@ -178,9 +176,8 @@ public sealed class SecondaryHudViewModel : ViewModelBase
         GlideslopeBrush = NeutralBrush;
         VerticalSpeedDisplay = "—";
         VerticalSpeedBrush = NeutralBrush;
-        DistanceDisplay = "DIST —";
         EtaDisplay = "--:--";
-        SetProgress(0, "STANDBY");
+        ResetWind();
     }
 
     private void ApplyIndicators(LandingMonitorReading reading, RunwayConfig? runway)
@@ -202,6 +199,49 @@ public sealed class SecondaryHudViewModel : ViewModelBase
             ? $"{(Math.Abs(verticalSpeed) < .5 ? 0 : verticalSpeed):0} FPM"
             : "—";
         VerticalSpeedBrush = StatusBrush(reading.VerticalSpeedStatus);
+    }
+
+    private void ApplyWind(TelemetrySample sample, bool isConnected)
+    {
+        if (!isConnected
+            || !double.IsFinite(sample.WindDirectionDeg)
+            || !double.IsFinite(sample.WindVelocityKts)
+            || !double.IsFinite(sample.HeadingTrueDeg)
+            || sample.WindVelocityKts < 0)
+        {
+            ResetWind();
+            return;
+        }
+
+        var direction = NormalizeDirection(sample.WindDirectionDeg);
+        var speed = sample.WindVelocityKts;
+        var relativeFrom = NormalizeSignedAngle(direction - NormalizeDirection(sample.HeadingTrueDeg));
+        var relativeRadians = relativeFrom * Math.PI / 180.0;
+        var longitudinal = speed * Math.Cos(relativeRadians);
+        var crosswind = speed * Math.Sin(relativeRadians);
+
+        WindRelativeFromAngleDeg = relativeFrom;
+        WindSpeedKts = speed;
+        HasWind = speed >= 0.5;
+        WindFromDisplay = HasWind ? $"From {FormatDirection(direction)}°" : "Calm";
+        WindLongitudinalDisplay = longitudinal >= -0.05
+            ? $"Headwind {Math.Abs(longitudinal):0.0} kt"
+            : $"Tailwind {Math.Abs(longitudinal):0.0} kt";
+        WindCrosswindDisplay = Math.Abs(crosswind) < 0.05
+            ? "Crosswind 0.0 kt"
+            : $"Crosswind {(crosswind > 0 ? "R" : "L")} {Math.Abs(crosswind):0.0} kt";
+        WindTotalDisplay = $"Wind {speed:0.0} kt";
+    }
+
+    private void ResetWind()
+    {
+        WindRelativeFromAngleDeg = 0;
+        WindSpeedKts = 0;
+        HasWind = false;
+        WindFromDisplay = "From —";
+        WindLongitudinalDisplay = "Head/tailwind —";
+        WindCrosswindDisplay = "Crosswind —";
+        WindTotalDisplay = "Wind —";
     }
 
     private void UpdateEta(
@@ -275,13 +315,6 @@ public sealed class SecondaryHudViewModel : ViewModelBase
         GraphPoints = _graphPoints.ToArray();
     }
 
-    private void SetProgress(double progress, string? display = null)
-    {
-        ProgressPercent = Math.Clamp(progress, 0, 100);
-        AirplaneOffset = ProgressPercent / 100.0 * 304.0;
-        ProgressDisplay = display ?? $"{ProgressPercent:0}%";
-    }
-
     private static string FormatEta(double seconds)
     {
         if (!double.IsFinite(seconds) || seconds < 0)
@@ -289,6 +322,21 @@ public sealed class SecondaryHudViewModel : ViewModelBase
         var rounded = Math.Min(5999, (int)Math.Round(seconds));
         return $"{rounded / 60:00}:{rounded % 60:00}";
     }
+
+    private static double NormalizeDirection(double degrees)
+    {
+        var normalized = degrees % 360.0;
+        return normalized < 0 ? normalized + 360.0 : normalized;
+    }
+
+    private static double NormalizeSignedAngle(double degrees)
+    {
+        var normalized = NormalizeDirection(degrees);
+        return normalized > 180.0 ? normalized - 360.0 : normalized;
+    }
+
+    private static int FormatDirection(double direction) =>
+        (int)Math.Round(NormalizeDirection(direction), MidpointRounding.AwayFromZero) % 360;
 
     private static Brush StatusBrush(LandingMonitorStatus status) => status switch
     {

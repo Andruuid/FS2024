@@ -244,7 +244,12 @@ public sealed class ScoreEngineTests
         var down = engine.Evaluate(challenge, CompleteSnapshot(true));
         var up = engine.Evaluate(challenge, CompleteSnapshot(false));
         Assert.True(down.IsRanked && up.IsRanked);
-        Assert.Equal(Math.Round(down.ScorePercent!.Value * key.Gates!.Gear!.MultiplierOnFail, 1), up.ScorePercent!.Value, 6);
+        var touchdown = key.Phases.Single(p => p.Id == "touchdown");
+        var multiplier = touchdown.Penalties!.Gear!.MultiplierOnFail;
+        Assert.Equal(multiplier * 100,
+            up.PhaseScores.Single(p => p.PhaseId == "touchdown").ScorePercent!.Value, 6);
+        Assert.Equal(Math.Round(100 - touchdown.WeightPercent * (1 - multiplier), 1),
+            up.ScorePercent!.Value, 6);
         challenge.RequireGearDown = false;
         var free = engine.Evaluate(challenge, CompleteSnapshot(false));
         Assert.Equal(down.ScorePercent, free.ScorePercent);
@@ -254,7 +259,8 @@ public sealed class ScoreEngineTests
     public void FlapsGate_IsInformationalWhenSet_PenaltyWhenNot()
     {
         var (key, challenge) = Load();
-        Assert.NotNull(key.Gates?.Flaps);
+        var touchdown = key.Phases.Single(p => p.Id == "touchdown");
+        Assert.NotNull(touchdown.Penalties?.Flaps);
         var engine = new ScoreEngine(key);
 
         var ok = engine.Evaluate(challenge, CompleteSnapshot(flapsIndex: 3));
@@ -267,11 +273,12 @@ public sealed class ScoreEngineTests
         var bare = engine.Evaluate(challenge, CompleteSnapshot(flapsIndex: 0));
         Assert.True(bare.IsRanked);
         Assert.True(bare.FlapsPenaltyApplied);
+        var multiplier = touchdown.Penalties!.Flaps!.MultiplierOnFail;
         Assert.Equal(
-            Math.Round(ok.ScorePercent!.Value * key.Gates!.Flaps!.MultiplierOnFail, 1),
+            Math.Round(100 - touchdown.WeightPercent * (1 - multiplier), 1),
             bare.ScorePercent!.Value,
             6);
-        Assert.DoesNotContain(ok.Criteria, c =>
+        Assert.Contains(ok.Criteria, c =>
             c.Id == "flaps" && c.PhaseId == "touchdown");
     }
 
@@ -280,7 +287,8 @@ public sealed class ScoreEngineTests
     {
         var (key, challenge) = Load();
         var engine = new ScoreEngine(key);
-        var gate = Assert.IsType<ContactStabilityGateConfig>(key.Gates!.ContactStability);
+        var touchdown = key.Phases.Single(p => p.Id == "touchdown");
+        var gate = Assert.IsType<ContactStabilityGateConfig>(touchdown.Penalties!.ContactStability);
 
         ScoreResult ScoreWithBounces(int count)
         {
@@ -299,8 +307,8 @@ public sealed class ScoreEngineTests
         var three = ScoreWithBounces(3);
 
         Assert.Equal(100, clean.ScorePercent);
-        Assert.Equal(Math.Round(clean.ScorePercent!.Value * gate.OneBounceMultiplier, 1), one.ScorePercent);
-        Assert.Equal(Math.Round(clean.ScorePercent.Value * gate.TwoOrMoreBouncesMultiplier, 1), two.ScorePercent);
+        Assert.Equal(Math.Round(100 - touchdown.WeightPercent * (1 - gate.OneBounceMultiplier), 1), one.ScorePercent);
+        Assert.Equal(Math.Round(100 - touchdown.WeightPercent * (1 - gate.TwoOrMoreBouncesMultiplier), 1), two.ScorePercent);
         Assert.Equal(two.ScorePercent, three.ScorePercent);
         Assert.Contains("second touchdown", one.Criteria.Single(c => c.Id == "contact_stability").Note);
         Assert.Contains("third touchdown", two.Criteria.Single(c => c.Id == "contact_stability").Note);
@@ -313,7 +321,8 @@ public sealed class ScoreEngineTests
     {
         var (key, challenge) = Load();
         var engine = new ScoreEngine(key);
-        var gate = Assert.IsType<StallWarningGateConfig>(key.Gates!.StallWarning);
+        var approach = key.Phases.Single(p => p.Id == "approach");
+        var gate = Assert.IsType<StallWarningGateConfig>(approach.Penalties!.StallWarning);
 
         var clean = engine.Evaluate(challenge, CompleteSnapshot());
         var warnedSnapshot = CompleteSnapshot();
@@ -321,7 +330,7 @@ public sealed class ScoreEngineTests
         var warned = engine.Evaluate(challenge, warnedSnapshot);
 
         Assert.Equal(0.5, gate.MultiplierOnWarning, 6);
-        Assert.Equal(Math.Round(clean.ScorePercent!.Value * 0.5, 1), warned.ScorePercent);
+        Assert.Equal(Math.Round(100 - approach.WeightPercent * 0.5, 1), warned.ScorePercent);
         Assert.Equal(MetricStatus.Informational,
             clean.Criteria.Single(c => c.Id == "stall_warning").Status);
         Assert.Equal(MetricStatus.GateFailed,
@@ -350,7 +359,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(17, loaded.Key.Version);
+        Assert.Equal(18, loaded.Key.Version);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
 
@@ -363,9 +372,9 @@ public sealed class ScoreEngineTests
 
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("free-flight-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(4, loaded.Key.Version);
+        Assert.Equal(5, loaded.Key.Version);
         Assert.Equal(70, loaded.Key.SpeedTarget!.DefaultVappKts);
-        Assert.Null(loaded.Key.Gates!.Flaps);
+        Assert.Null(loaded.Key.Phases.Single(p => p.Id == "touchdown").Penalties!.Flaps);
     }
 
     [Fact]
@@ -412,13 +421,15 @@ public sealed class ScoreEngineTests
         var result = new ScoreEngine(key).Evaluate(challenge, snap);
         Assert.True(result.IsRanked, string.Join("; ", result.IncompleteReasons));
         var approachIds = result.Criteria
-            .Where(c => c.PhaseId == "approach")
+            .Where(c => c.PhaseId == "approach" && c.Status == MetricStatus.Scored)
             .Select(c => c.Id)
             .OrderBy(x => x)
             .ToList();
         Assert.Equal(
             new[] { "approach_glideslope", "approach_lateral_steady", "approach_vertical_steady" },
             approachIds);
+        Assert.Contains(result.Criteria, c => c.Id == "stall_warning" && c.PhaseId == "approach");
+        Assert.Contains(result.Criteria, c => c.Id == "automation" && c.PhaseId == "approach");
     }
 
     [Fact]

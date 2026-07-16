@@ -51,7 +51,7 @@ At each rank:
 1. Accept a classified assignment knowing only that an **A330** is required and the pass mark is a ranked **80.0%**.
 2. The app reveals one random playable landing from the Barcelona, La Paz, and Skiathos pool.
 3. That assignment stays locked across app restarts. There is no abandon or reroll, but retries are unlimited.
-4. Earn a ranked final score of **at least 80.0% after contact-stability/stall-warning/gear/flap gates** to pass. Lower or unranked results retain the assignment.
+4. Earn a ranked final score of **at least 80.0% after all configured phase and general penalties** to pass. Lower or unranked results retain the assignment.
 5. Passing reveals one future challenge reward and advances Cadet → First Officer → Senior First Officer → Captain → Command Captain.
 
 The fifth pass shows **CAREER COMPLETE**. The five revealed rewards are honest UI previews only—Madeira, Innsbruck, Kai Tak, Paro, and the Arctic ice runway are `available=false` and their simulator scenarios remain future work. Locked rewards stay out of the regular Challenges list; revealed rewards appear there as non-playable **Coming Soon** cards.
@@ -133,37 +133,38 @@ Spawn verified: horiz=… m · altErr=… ft · ias=… kt
 
 `config/scoring/profiles/free-flight-evaluation-key.json` (Free, generic VS0-based VAPP and no flap-index gate)
 
-Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, safety/operational gates, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v15 and the Free key is v4. Session log confirms load:
+Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, phase/general penalties, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v18 and the Free key is v5. Session log confirms load:
 
 ```
-Evaluation key loaded: landing-evaluation-key v15 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%
+Evaluation key loaded: landing-evaluation-key v18 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%
   path: ...\config\scoring\profiles\landing-evaluation-key.json
 ```
 
 ### Formula
 
 ```
-final % = (touchdown × 0.70) + (approach × 0.25) + (rollout × 0.05)
-then each applicable safety/operational gate once: final × multiplier; round only the final result
+phase after penalties = raw phase score × every applicable penalty owned by that phase
+subtotal = (touchdown after penalties × 0.70) + (approach after penalties × 0.25) + (rollout after penalties × 0.05)
+final % = subtotal × every applicable general penalty; round only the final result
 ```
 
 Within each phase, metrics use the same literal formula: `metric score × importancePercent / 100`. Validation requires metric and phase weights to total exactly 100. There is no Easy/Strict split — every metric in the key is always scored.
 
-### Touchdown evaluation (v15)
+### Touchdown evaluation (v18)
 
 The touchdown phase keeps its 70% overall weight and separates the initial impact from flare/float; later recontacts are handled by a penalty-only gate:
 
 - `touchdown_impact` (68% of touchdown) combines the first main-gear contact's official touchdown-normal velocity with a filtered 99th-percentile peak G. The raw G peak is diagnostic only.
 - `flare_efficiency` (10%) measures sustained float distance/time and positive-VS duration below flare height. It never reuses IAS inputs.
 - `airspeed` (13%) scores IAS versus the touchdown target (VAPP − 5 kt by default). Fast is punished more than slow; there is no separate excess-over-VAPP metric.
-- `contact_stability` is a penalty-only gate. The initial landing is the baseline; one valid airborne/recontact cycle (second touchdown) applies ×0.9, while two or more cycles (third touchdown or later) apply ×0.8. One-main-first touchdown and contact chatter are not bounces.
-- `stall_warning` is a penalty-only gate. Any `STALL WARNING` activation during the armed attempt applies ×0.5; a warning-free attempt earns no points.
+- `contact_stability` is a Touchdown penalty. The initial landing is the baseline; one valid airborne/recontact cycle (second touchdown) applies ×0.9 to Touchdown, while two or more cycles (third touchdown or later) apply ×0.8. One-main-first touchdown and contact chatter are not bounces.
+- `stall_warning` is an Approach penalty. Any `STALL WARNING` activation during the armed attempt applies ×0.5 to Approach; a warning-free attempt earns no points.
 - `ground_track` is not scored in the Normal profile.
-- Ground spoilers must deploy on both sides by main TD+2 s (×0.9 on failure).
-- Manual brake pedals must remain released while the nose gear is airborne and both be applied by nose TD+4 s; autobrake is ignored (×0.9 on failure).
-- Heading/altitude hold must be off at or below 2,000 ft RA. AP master/AP1/AP2 and active/armed autothrust must be off at or below 1,000 ft RA; flight directors may remain on (one combined ×0.9 gate).
-- Normal pause or Active Pause after the controlled start hold and before touchdown applies ×0.95.
-- Reducing simulation rate below 0.99× before touchdown applies ×0.8.
+- Ground spoilers must deploy on both sides by main TD+2 s (×0.9 to Touchdown on failure).
+- Manual brake pedals must remain released while the nose gear is airborne and both be applied by nose TD+4 s; autobrake is ignored (×0.9 to Rollout on failure).
+- Heading/altitude hold must be off at or below 2,000 ft RA. AP master/AP1/AP2 and active/armed autothrust must be off at or below 1,000 ft RA; flight directors may remain on (×0.9 to Approach on failure).
+- Normal pause or Active Pause after the controlled start hold and before touchdown applies the general ×0.95 factor.
+- Reducing simulation rate below 0.99× before touchdown applies the general ×0.8 factor.
 
 Composite components use weighted penalty RMS:
 
@@ -221,11 +222,20 @@ Every attempt freezes and hashes its complete effective scoring key (including c
 - `params` — validated scalar settings and composite component weights
 - `curves` — named piecewise curves used by a composite evaluator; an override replaces one complete named curve
 
-**Contact stability** is a gate under `gates.contactStability`, not a phase metric: the initial landing earns no credit; valid bounce cycles apply ×0.9 or ×0.8.
+Penalty ownership in the Normal key:
 
-**Stall warning** is a gate under `gates.stallWarning`, not a phase metric: any warning after arming applies ×0.5 to the complete score.
+| Scope | JSON location | Penalties |
+|------|---------------|-----------|
+| General | `generalPenalties` | pause usage, simulation rate |
+| Approach | Approach phase `penalties` | stall warning, automation |
+| Touchdown | Touchdown phase `penalties` | contact stability, gear, flaps, spoiler deployment, nose-gear impact |
+| Rollout | Rollout phase `penalties` | manual braking, remaining-runway rollout |
 
-**Gear** is a safety gate under `gates.gear`, not a phase metric: gear down = no credit; gear up = overall score cut.
+**Contact stability** is under the Touchdown phase's `penalties.contactStability`, not a phase metric: the initial landing earns no credit; valid bounce cycles apply ×0.9 or ×0.8 to Touchdown.
+
+**Stall warning** is under the Approach phase's `penalties.stallWarning`, not a phase metric: any warning after arming applies ×0.5 to Approach.
+
+**Gear** is under the Touchdown phase's `penalties.gear`, not a phase metric: gear down = no credit; gear up reduces only Touchdown.
 
 ## Modes
 

@@ -21,18 +21,10 @@ public static class EvaluationKeyValidator
         ValidateSettle(key.Settle, errors);
         ValidateTiming(key.Timing, errors);
         ValidateSpeedTarget(key.SpeedTarget, errors);
-        ValidateContactStabilityGate(key.Gates?.ContactStability, errors);
-        ValidateStallWarningGate(key.Gates?.StallWarning, errors);
-        ValidateGear(key.Gates?.Gear, errors);
-        ValidateFlapsGate(key.Gates?.Flaps, errors);
-        ValidateSpoilerDeploymentGate(key.Gates?.SpoilerDeployment, errors);
-        ValidateManualBrakingGate(key.Gates?.ManualBraking, errors);
-        ValidateAutomationGate(key.Gates?.Automation, errors);
-        ValidateOptionalMultiplier(key.Gates?.PauseUsage?.MultiplierOnFail,
-            "gates.pauseUsage.multiplierOnFail", errors);
-        ValidateSimulationRateGate(key.Gates?.SimulationRate, errors);
-        ValidateNoseGearImpactGate(key.Gates?.NoseGearImpact, errors);
-        ValidateRolloutGate(key.Gates?.Rollout, errors);
+        ValidateOptionalMultiplier(key.GeneralPenalties?.PauseUsage?.MultiplierOnFail,
+            "generalPenalties.pauseUsage.multiplierOnFail", errors);
+        ValidateSimulationRateGate(key.GeneralPenalties?.SimulationRate,
+            "generalPenalties.simulationRate", errors);
         ValidateContactMapping(key.ContactMapping, errors);
 
         if (key.Phases.Count == 0)
@@ -55,6 +47,8 @@ public static class EvaluationKeyValidator
             foreach (var metric in phase.Metrics)
                 ValidateMetric(metric, phasePath, metricIds, errors);
 
+            ValidatePhasePenalties(phase, phasePath, errors);
+
             var metricWeight = phase.Metrics.Sum(m => m.ImportancePercent);
             if (phase.Metrics.Count > 0 && Math.Abs(metricWeight - 100) > WeightTolerance)
                 errors.Add($"{phasePath} metric importance must total 100, but totals {metricWeight:0.###}.");
@@ -64,36 +58,83 @@ public static class EvaluationKeyValidator
         if (key.Phases.Count > 0 && Math.Abs(phaseWeight - 100) > WeightTolerance)
             errors.Add($"Phase weights must total 100, but total {phaseWeight:0.###}.");
 
+        if (!key.Phases.Any(phase =>
+                phase.Id.Equals("touchdown", StringComparison.OrdinalIgnoreCase)
+                && phase.Penalties?.Gear is not null))
+            errors.Add("phase 'touchdown'.penalties.gear is required.");
+
         return errors;
+    }
+
+    private static void ValidatePhasePenalties(
+        EvaluationPhase phase,
+        string phasePath,
+        List<string> errors)
+    {
+        if (phase.Penalties is not { } penalties) return;
+
+        var path = $"{phasePath}.penalties";
+        ValidateContactStabilityGate(penalties.ContactStability, $"{path}.contactStability", errors);
+        ValidateStallWarningGate(penalties.StallWarning, $"{path}.stallWarning", errors);
+        ValidateGear(penalties.Gear, $"{path}.gear", errors);
+        ValidateFlapsGate(penalties.Flaps, $"{path}.flaps", errors);
+        ValidateSpoilerDeploymentGate(penalties.SpoilerDeployment, $"{path}.spoilerDeployment", errors);
+        ValidateManualBrakingGate(penalties.ManualBraking, $"{path}.manualBraking", errors);
+        ValidateAutomationGate(penalties.Automation, $"{path}.automation", errors);
+        ValidateNoseGearImpactGate(penalties.NoseGearImpact, $"{path}.noseGearImpact", errors);
+        ValidateRolloutGate(penalties.Rollout, $"{path}.rollout", errors);
+
+        RequirePenaltyPhase(phase, penalties.ContactStability is not null, "contactStability", "touchdown", errors);
+        RequirePenaltyPhase(phase, penalties.StallWarning is not null, "stallWarning", "approach", errors);
+        RequirePenaltyPhase(phase, penalties.Gear is not null, "gear", "touchdown", errors);
+        RequirePenaltyPhase(phase, penalties.Flaps is not null, "flaps", "touchdown", errors);
+        RequirePenaltyPhase(phase, penalties.SpoilerDeployment is not null, "spoilerDeployment", "touchdown", errors);
+        RequirePenaltyPhase(phase, penalties.ManualBraking is not null, "manualBraking", "rollout", errors);
+        RequirePenaltyPhase(phase, penalties.Automation is not null, "automation", "approach", errors);
+        RequirePenaltyPhase(phase, penalties.NoseGearImpact is not null, "noseGearImpact", "touchdown", errors);
+        RequirePenaltyPhase(phase, penalties.Rollout is not null, "rollout", "rollout", errors);
+    }
+
+    private static void RequirePenaltyPhase(
+        EvaluationPhase phase,
+        bool configured,
+        string penaltyName,
+        string requiredPhaseId,
+        List<string> errors)
+    {
+        if (configured && !phase.Id.Equals(requiredPhaseId, StringComparison.OrdinalIgnoreCase))
+            errors.Add($"phase '{phase.Id}'.penalties.{penaltyName} must belong to phase '{requiredPhaseId}'.");
     }
 
     private static void ValidateContactStabilityGate(
         ContactStabilityGateConfig? gate,
+        string path,
         List<string> errors)
     {
         if (gate is null) return;
 
         if (!double.IsFinite(gate.OneBounceMultiplier)
             || gate.OneBounceMultiplier is < 0 or > 1)
-            errors.Add("gates.contactStability.oneBounceMultiplier must be between 0 and 1.");
+            errors.Add($"{path}.oneBounceMultiplier must be between 0 and 1.");
         if (!double.IsFinite(gate.TwoOrMoreBouncesMultiplier)
             || gate.TwoOrMoreBouncesMultiplier is < 0 or > 1)
-            errors.Add("gates.contactStability.twoOrMoreBouncesMultiplier must be between 0 and 1.");
+            errors.Add($"{path}.twoOrMoreBouncesMultiplier must be between 0 and 1.");
         if (double.IsFinite(gate.OneBounceMultiplier)
             && double.IsFinite(gate.TwoOrMoreBouncesMultiplier)
             && gate.TwoOrMoreBouncesMultiplier > gate.OneBounceMultiplier)
-            errors.Add("gates.contactStability.twoOrMoreBouncesMultiplier must not exceed oneBounceMultiplier.");
+            errors.Add($"{path}.twoOrMoreBouncesMultiplier must not exceed oneBounceMultiplier.");
     }
 
     private static void ValidateStallWarningGate(
         StallWarningGateConfig? gate,
+        string path,
         List<string> errors)
     {
         if (gate is null) return;
 
         if (!double.IsFinite(gate.MultiplierOnWarning)
             || gate.MultiplierOnWarning is < 0 or > 1)
-            errors.Add("gates.stallWarning.multiplierOnWarning must be between 0 and 1.");
+            errors.Add($"{path}.multiplierOnWarning must be between 0 and 1.");
     }
 
     private static void ValidateMetric(
@@ -339,126 +380,130 @@ public static class EvaluationKeyValidator
             errors.Add("speedTarget.vs0Factor must be greater than 1.");
     }
 
-    private static void ValidateGear(GearGateConfig? gear, List<string> errors)
+    private static void ValidateGear(GearGateConfig? gear, string path, List<string> errors)
     {
-        if (gear is null) { errors.Add("gates.gear is required."); return; }
+        if (gear is null) return;
         if (!double.IsFinite(gear.MultiplierOnFail) || gear.MultiplierOnFail is <= 0 or > 1)
-            errors.Add("gates.gear.multiplierOnFail must be greater than 0 and at most 1.");
+            errors.Add($"{path}.multiplierOnFail must be greater than 0 and at most 1.");
     }
 
-    private static void ValidateFlapsGate(FlapsGateConfig? flaps, List<string> errors)
+    private static void ValidateFlapsGate(FlapsGateConfig? flaps, string path, List<string> errors)
     {
         // Optional for older keys; when present must be well-formed.
         if (flaps is null) return;
         if (!double.IsFinite(flaps.MinIndex) || flaps.MinIndex < 0)
-            errors.Add("gates.flaps.minIndex must be at least zero.");
+            errors.Add($"{path}.minIndex must be at least zero.");
         if (!double.IsFinite(flaps.MaxIndex) || flaps.MaxIndex < flaps.MinIndex)
-            errors.Add("gates.flaps.maxIndex must be >= minIndex.");
+            errors.Add($"{path}.maxIndex must be >= minIndex.");
         if (!double.IsFinite(flaps.MultiplierOnFail) || flaps.MultiplierOnFail is <= 0 or > 1)
-            errors.Add("gates.flaps.multiplierOnFail must be greater than 0 and at most 1.");
+            errors.Add($"{path}.multiplierOnFail must be greater than 0 and at most 1.");
     }
 
     private static void ValidateSpoilerDeploymentGate(
         SpoilerDeploymentGateConfig? gate,
+        string path,
         List<string> errors)
     {
         if (gate is null) return;
         if (!double.IsFinite(gate.MinimumSurfacePosition)
             || gate.MinimumSurfacePosition is < 0 or > 1)
-            errors.Add("gates.spoilerDeployment.minimumSurfacePosition must be between 0 and 1.");
+            errors.Add($"{path}.minimumSurfacePosition must be between 0 and 1.");
         if (!double.IsFinite(gate.DeadlineSecondsAfterTouchdown)
             || gate.DeadlineSecondsAfterTouchdown < 0)
-            errors.Add("gates.spoilerDeployment.deadlineSecondsAfterTouchdown must be at least zero.");
+            errors.Add($"{path}.deadlineSecondsAfterTouchdown must be at least zero.");
         ValidateOptionalMultiplier(gate.MultiplierOnFail,
-            "gates.spoilerDeployment.multiplierOnFail", errors);
+            $"{path}.multiplierOnFail", errors);
     }
 
     private static void ValidateManualBrakingGate(
         ManualBrakingGateConfig? gate,
+        string path,
         List<string> errors)
     {
         if (gate is null) return;
         if (!double.IsFinite(gate.PedalPressThreshold)
             || gate.PedalPressThreshold is < 0 or > 1)
-            errors.Add("gates.manualBraking.pedalPressThreshold must be between 0 and 1.");
+            errors.Add($"{path}.pedalPressThreshold must be between 0 and 1.");
         if (!double.IsFinite(gate.DeadlineSecondsAfterNoseTouchdown)
             || gate.DeadlineSecondsAfterNoseTouchdown < 0)
-            errors.Add("gates.manualBraking.deadlineSecondsAfterNoseTouchdown must be at least zero.");
+            errors.Add($"{path}.deadlineSecondsAfterNoseTouchdown must be at least zero.");
         ValidateOptionalMultiplier(gate.MultiplierOnFail,
-            "gates.manualBraking.multiplierOnFail", errors);
+            $"{path}.multiplierOnFail", errors);
     }
 
-    private static void ValidateAutomationGate(AutomationGateConfig? gate, List<string> errors)
+    private static void ValidateAutomationGate(AutomationGateConfig? gate, string path, List<string> errors)
     {
         if (gate is null) return;
         if (!IsPositiveFinite(gate.HeadingAltitudeOffRadioHeightFeet))
-            errors.Add("gates.automation.headingAltitudeOffRadioHeightFeet must be greater than zero.");
+            errors.Add($"{path}.headingAltitudeOffRadioHeightFeet must be greater than zero.");
         if (!IsPositiveFinite(gate.AllAutomationOffRadioHeightFeet))
-            errors.Add("gates.automation.allAutomationOffRadioHeightFeet must be greater than zero.");
+            errors.Add($"{path}.allAutomationOffRadioHeightFeet must be greater than zero.");
         if (double.IsFinite(gate.HeadingAltitudeOffRadioHeightFeet)
             && double.IsFinite(gate.AllAutomationOffRadioHeightFeet)
             && gate.HeadingAltitudeOffRadioHeightFeet < gate.AllAutomationOffRadioHeightFeet)
-            errors.Add("gates.automation.headingAltitudeOffRadioHeightFeet must be >= allAutomationOffRadioHeightFeet.");
+            errors.Add($"{path}.headingAltitudeOffRadioHeightFeet must be >= allAutomationOffRadioHeightFeet.");
         ValidateOptionalMultiplier(gate.MultiplierOnFail,
-            "gates.automation.multiplierOnFail", errors);
+            $"{path}.multiplierOnFail", errors);
     }
 
     private static void ValidateSimulationRateGate(
         SimulationRateGateConfig? gate,
+        string path,
         List<string> errors)
     {
         if (gate is null) return;
         if (!double.IsFinite(gate.MinimumAllowedRate)
             || gate.MinimumAllowedRate is <= 0 or > 1)
-            errors.Add("gates.simulationRate.minimumAllowedRate must be greater than 0 and at most 1.");
+            errors.Add($"{path}.minimumAllowedRate must be greater than 0 and at most 1.");
         ValidateOptionalMultiplier(gate.MultiplierOnFail,
-            "gates.simulationRate.multiplierOnFail", errors);
+            $"{path}.multiplierOnFail", errors);
     }
 
     private static void ValidateNoseGearImpactGate(
         NoseGearImpactGateConfig? gate,
+        string path,
         List<string> errors)
     {
         if (gate is null) return;
 
         if (!double.IsFinite(gate.PreContactWindowSeconds) || gate.PreContactWindowSeconds < 0)
-            errors.Add("gates.noseGearImpact.preContactWindowSeconds must be at least zero.");
+            errors.Add($"{path}.preContactWindowSeconds must be at least zero.");
         if (!IsPositiveFinite(gate.PostContactWindowSeconds))
-            errors.Add("gates.noseGearImpact.postContactWindowSeconds must be greater than zero.");
+            errors.Add($"{path}.postContactWindowSeconds must be greater than zero.");
         if (!IsPositiveFinite(gate.FilterCutoffHz))
-            errors.Add("gates.noseGearImpact.filterCutoffHz must be greater than zero.");
+            errors.Add($"{path}.filterCutoffHz must be greater than zero.");
         if (!double.IsFinite(gate.PeakQuantile) || gate.PeakQuantile is < 0 or > 1)
-            errors.Add("gates.noseGearImpact.peakQuantile must be between zero and one.");
+            errors.Add($"{path}.peakQuantile must be between zero and one.");
         if (gate.MinimumPostContactSamples < 1)
-            errors.Add("gates.noseGearImpact.minimumPostContactSamples must be at least one.");
+            errors.Add($"{path}.minimumPostContactSamples must be at least one.");
         if (!double.IsFinite(gate.ModerateDeltaG) || gate.ModerateDeltaG < 0)
-            errors.Add("gates.noseGearImpact.moderateDeltaG must be at least zero.");
+            errors.Add($"{path}.moderateDeltaG must be at least zero.");
         if (!double.IsFinite(gate.ModeratePeakG) || gate.ModeratePeakG < 0)
-            errors.Add("gates.noseGearImpact.moderatePeakG must be at least zero.");
+            errors.Add($"{path}.moderatePeakG must be at least zero.");
         if (!double.IsFinite(gate.SevereDeltaG) || gate.SevereDeltaG < gate.ModerateDeltaG)
-            errors.Add("gates.noseGearImpact.severeDeltaG must be at least moderateDeltaG.");
+            errors.Add($"{path}.severeDeltaG must be at least moderateDeltaG.");
         if (!double.IsFinite(gate.SeverePeakG) || gate.SeverePeakG < gate.ModeratePeakG)
-            errors.Add("gates.noseGearImpact.severePeakG must be at least moderatePeakG.");
+            errors.Add($"{path}.severePeakG must be at least moderatePeakG.");
         if (!IsPositiveFinite(gate.RecontactDebounceSeconds))
-            errors.Add("gates.noseGearImpact.recontactDebounceSeconds must be greater than zero.");
+            errors.Add($"{path}.recontactDebounceSeconds must be greater than zero.");
         if (!double.IsFinite(gate.CompressionNoiseThreshold)
             || gate.CompressionNoiseThreshold is < 0 or > 1)
-            errors.Add("gates.noseGearImpact.compressionNoiseThreshold must be between zero and one.");
+            errors.Add($"{path}.compressionNoiseThreshold must be between zero and one.");
         ValidateOptionalMultiplier(gate.ModerateMultiplier,
-            "gates.noseGearImpact.moderateMultiplier", errors);
+            $"{path}.moderateMultiplier", errors);
         ValidateOptionalMultiplier(gate.SevereMultiplier,
-            "gates.noseGearImpact.severeMultiplier", errors);
+            $"{path}.severeMultiplier", errors);
         if (double.IsFinite(gate.ModerateMultiplier)
             && double.IsFinite(gate.SevereMultiplier)
             && gate.SevereMultiplier > gate.ModerateMultiplier)
-            errors.Add("gates.noseGearImpact.severeMultiplier must not exceed moderateMultiplier.");
+            errors.Add($"{path}.severeMultiplier must not exceed moderateMultiplier.");
     }
 
-    private static void ValidateRolloutGate(RolloutGateConfig? gate, List<string> errors)
+    private static void ValidateRolloutGate(RolloutGateConfig? gate, string path, List<string> errors)
     {
         if (gate is null) return;
         ValidateOptionalMultiplier(gate.MultiplierOnFail,
-            "gates.rollout.multiplierOnFail", errors);
+            $"{path}.multiplierOnFail", errors);
     }
 
     private static void ValidateOptionalMultiplier(

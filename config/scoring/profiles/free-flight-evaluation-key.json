@@ -1,8 +1,8 @@
 {
   "id": "free-flight-evaluation-key",
-  "version": 4,
+  "version": 5,
   "description": "Aircraft-generic free-flight landing score. Initial impact, flare/float, and post-contact stability are evaluated separately; flap index is not gated.",
-  "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply the adaptive gear multiplier last only when required",
+  "formula": "phaseAfterPenalties = phaseScore * product(phase penalty multipliers); final = round(sum(phaseAfterPenalties * phaseWeightPercent / 100), 1)",
   "settle": {
     "groundSpeedKts": 50,
     "holdSeconds": 1.0
@@ -36,18 +36,18 @@
     "touchdownOffsetKts": 5,
     "vs0Factor": 1.3
   },
-  "gates": {
-    "gear": {
-      "multiplierOnFail": 0.1,
-      "penaltyDescription": "For retractable wheeled aircraft landing on land, gear up multiplies the complete ranked score by 0.1. Fixed gear and water-runway landings do not use this gate."
-    }
-  },
   "phases": [
     {
       "id": "touchdown",
       "displayName": "Touchdown",
       "weightPercent": 70,
       "note": "Touchdown technique and aircraft state. Ground track covers three seconds before through three seconds after touchdown.",
+      "penalties": {
+        "gear": {
+          "multiplierOnFail": 0.1,
+          "penaltyDescription": "For retractable wheeled aircraft landing on land, gear up multiplies the Touchdown phase by 0.1. Fixed gear and water-runway landings do not use this penalty."
+        }
+      },
       "metrics": [
         {
           "id": "touchdown_impact",

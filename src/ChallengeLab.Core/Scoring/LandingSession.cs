@@ -347,7 +347,7 @@ public sealed class LandingSession
 
         UpdateManualBrakingGate(sample, logical, timeSeconds);
 
-        // Pause, rate, and automation are approach gates and stop at the accepted main touchdown.
+        // General pause/rate monitoring and the approach automation gate stop at accepted main touchdown.
         if (!_touchdownCaptured)
         {
             UpdatePauseGate(sample);

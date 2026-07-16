@@ -5,30 +5,51 @@ namespace ChallengeLab.Core.Scoring;
 
 internal static class OperationalGateEvaluator
 {
-    public static double Append(
-        LandingEvaluationKey key,
+    public static double AppendPhase(
+        EvaluationPhasePenalties? penalties,
+        string phaseDisplayName,
         LandingSnapshot snapshot,
         List<CriterionScore> criteria,
         List<string> incompleteReasons,
         bool preview)
     {
+        if (penalties is null) return 1;
+
         var observations = snapshot.GateObservations;
         var multiplier = 1.0;
+        var scoreTarget = $"{phaseDisplayName} phase";
 
-        if (key.Gates?.SpoilerDeployment is { } spoiler)
-            multiplier *= AppendSpoilers(spoiler, snapshot, observations, criteria, incompleteReasons, preview);
-        if (key.Gates?.ManualBraking is { } brakes)
-            multiplier *= AppendBrakes(brakes, observations, criteria, incompleteReasons, preview);
-        if (key.Gates?.NoseGearImpact is { } noseImpact)
-            multiplier *= AppendNoseGearImpact(noseImpact, observations, criteria, incompleteReasons, preview);
-        if (key.Gates?.Automation is { } automation)
-            multiplier *= AppendAutomation(automation, observations, criteria, incompleteReasons, preview);
-        if (key.Gates?.PauseUsage is { } pause)
-            multiplier *= AppendPause(pause, observations, criteria, incompleteReasons, preview);
-        if (key.Gates?.SimulationRate is { } rate)
-            multiplier *= AppendSimulationRate(rate, observations, criteria, incompleteReasons, preview);
-        if (key.Gates?.Rollout is { } rollout)
-            multiplier *= AppendRollout(rollout, observations, criteria, incompleteReasons, preview);
+        if (penalties.SpoilerDeployment is { } spoiler)
+            multiplier *= AppendSpoilers(spoiler, snapshot, observations, criteria, incompleteReasons, preview, scoreTarget);
+        if (penalties.ManualBraking is { } brakes)
+            multiplier *= AppendBrakes(brakes, observations, criteria, incompleteReasons, preview, scoreTarget);
+        if (penalties.NoseGearImpact is { } noseImpact)
+            multiplier *= AppendNoseGearImpact(noseImpact, observations, criteria, incompleteReasons, preview, scoreTarget);
+        if (penalties.Automation is { } automation)
+            multiplier *= AppendAutomation(automation, observations, criteria, incompleteReasons, preview, scoreTarget);
+        if (penalties.Rollout is { } rollout)
+            multiplier *= AppendRollout(rollout, observations, criteria, incompleteReasons, preview, scoreTarget);
+
+        return multiplier;
+    }
+
+    public static double AppendGeneral(
+        GeneralPenaltyConfig? penalties,
+        LandingSnapshot snapshot,
+        List<CriterionScore> criteria,
+        List<string> incompleteReasons,
+        bool preview)
+    {
+        if (penalties is null) return 1;
+
+        var observations = snapshot.GateObservations;
+        var multiplier = 1.0;
+        const string scoreTarget = "combined ranked score";
+
+        if (penalties.PauseUsage is { } pause)
+            multiplier *= AppendPause(pause, observations, criteria, incompleteReasons, preview, scoreTarget);
+        if (penalties.SimulationRate is { } rate)
+            multiplier *= AppendSimulationRate(rate, observations, criteria, incompleteReasons, preview, scoreTarget);
 
         return multiplier;
     }
@@ -39,7 +60,8 @@ internal static class OperationalGateEvaluator
         LandingGateObservations obs,
         List<CriterionScore> criteria,
         List<string> incomplete,
-        bool preview)
+        bool preview,
+        string scoreTarget)
     {
         const string id = "spoiler_deployment";
         const string name = "Ground spoilers deployed";
@@ -65,7 +87,7 @@ internal static class OperationalGateEvaluator
             return 1;
         }
 
-        AddFailed(criteria, id, name, elapsed, "s after touchdown", cfg.MultiplierOnFail,
+        AddFailed(criteria, id, name, elapsed, "s after touchdown", cfg.MultiplierOnFail, scoreTarget,
             $"Both spoiler surfaces did not reach {cfg.MinimumSurfacePosition:P0} inside the inclusive touchdown window. {cfg.PenaltyDescription}");
         return cfg.MultiplierOnFail;
     }
@@ -75,7 +97,8 @@ internal static class OperationalGateEvaluator
         LandingGateObservations obs,
         List<CriterionScore> criteria,
         List<string> incomplete,
-        bool preview)
+        bool preview,
+        string scoreTarget)
     {
         const string id = "nose_gear_impact";
         const string name = "Nose-gear impact";
@@ -116,7 +139,7 @@ internal static class OperationalGateEvaluator
 
         var severity = impact.Severity == NoseGearImpactSeverity.Severe ? "Severe" : "Moderate";
         AddFailed(criteria, id, $"{name} — {severity.ToLowerInvariant()}", impact.DeltaG, "ΔG",
-            impact.AppliedMultiplier,
+            impact.AppliedMultiplier, scoreTarget,
             $"{severity} nose-gear impact. {measured} {cfg.PenaltyDescription}");
         return impact.AppliedMultiplier;
     }
@@ -126,7 +149,8 @@ internal static class OperationalGateEvaluator
         LandingGateObservations obs,
         List<CriterionScore> criteria,
         List<string> incomplete,
-        bool preview)
+        bool preview,
+        string scoreTarget)
     {
         const string id = "manual_braking";
         const string name = "Manual braking after nose touchdown";
@@ -160,7 +184,7 @@ internal static class OperationalGateEvaluator
         var reason = obs.EarlyOrAirborneBrakeViolation
             ? "A manual brake pedal was pressed while the nose gear was airborne."
             : $"Both pedals were not applied by nose TD+{cfg.DeadlineSecondsAfterNoseTouchdown:0.##} s.";
-        AddFailed(criteria, id, name, elapsed, "s after nose touchdown", cfg.MultiplierOnFail,
+        AddFailed(criteria, id, name, elapsed, "s after nose touchdown", cfg.MultiplierOnFail, scoreTarget,
             $"{reason} {cfg.PenaltyDescription}");
         return cfg.MultiplierOnFail;
     }
@@ -170,7 +194,8 @@ internal static class OperationalGateEvaluator
         LandingGateObservations obs,
         List<CriterionScore> criteria,
         List<string> incomplete,
-        bool preview)
+        bool preview,
+        string scoreTarget)
     {
         const string id = "automation";
         const string name = "Automation disconnected by radio altitude";
@@ -195,7 +220,7 @@ internal static class OperationalGateEvaluator
         }
 
         AddFailed(criteria, id, name, obs.FirstAutomationViolationRadioHeightFeet, "ft RA",
-            cfg.MultiplierOnFail,
+            cfg.MultiplierOnFail, scoreTarget,
             $"First violation: {obs.FirstAutomationViolation} at {obs.FirstAutomationViolationRadioHeightFeet:0} ft RA. {cfg.PenaltyDescription}");
         return cfg.MultiplierOnFail;
     }
@@ -205,7 +230,8 @@ internal static class OperationalGateEvaluator
         LandingGateObservations obs,
         List<CriterionScore> criteria,
         List<string> incomplete,
-        bool preview)
+        bool preview,
+        string scoreTarget)
     {
         const string id = "pause_usage";
         const string name = "No pause before touchdown";
@@ -220,7 +246,7 @@ internal static class OperationalGateEvaluator
             return 1;
         }
 
-        AddFailed(criteria, id, name, 1, "violation", cfg.MultiplierOnFail,
+        AddFailed(criteria, id, name, 1, "violation", cfg.MultiplierOnFail, scoreTarget,
             $"A normal pause or Active Pause occurred before touchdown. {cfg.PenaltyDescription}");
         return cfg.MultiplierOnFail;
     }
@@ -230,7 +256,8 @@ internal static class OperationalGateEvaluator
         LandingGateObservations obs,
         List<CriterionScore> criteria,
         List<string> incomplete,
-        bool preview)
+        bool preview,
+        string scoreTarget)
     {
         const string id = "simulation_rate";
         const string name = "Simulation rate not reduced";
@@ -245,7 +272,7 @@ internal static class OperationalGateEvaluator
             return 1;
         }
 
-        AddFailed(criteria, id, name, obs.MinimumSimulationRate, "x", cfg.MultiplierOnFail,
+        AddFailed(criteria, id, name, obs.MinimumSimulationRate, "x", cfg.MultiplierOnFail, scoreTarget,
             $"Simulation rate fell below {cfg.MinimumAllowedRate:0.###}x before touchdown. {cfg.PenaltyDescription}");
         return cfg.MultiplierOnFail;
     }
@@ -255,7 +282,8 @@ internal static class OperationalGateEvaluator
         LandingGateObservations obs,
         List<CriterionScore> criteria,
         List<string> incomplete,
-        bool preview)
+        bool preview,
+        string scoreTarget)
     {
         const string id = "rollout_distance";
         const string name = "Rollout remaining runway";
@@ -290,7 +318,7 @@ internal static class OperationalGateEvaluator
             return 1;
         }
 
-        AddFailed(criteria, id, name, remaining, "m remaining", cfg.MultiplierOnFail,
+        AddFailed(criteria, id, name, remaining, "m remaining", cfg.MultiplierOnFail, scoreTarget,
             $"{lengthNote}{speedNote}Remaining runway was only {remaining:0} m (< {required:0} m). {cfg.PenaltyDescription}");
         return cfg.MultiplierOnFail;
     }
@@ -369,6 +397,7 @@ internal static class OperationalGateEvaluator
         double? raw,
         string unit,
         double multiplier,
+        string scoreTarget,
         string note) =>
         criteria.Add(new CriterionScore
         {
@@ -377,7 +406,7 @@ internal static class OperationalGateEvaluator
             RawValue = raw,
             Unit = unit,
             Status = MetricStatus.GateFailed,
-            Note = $"{note} Ranked overall score × {multiplier:0.##}."
+            Note = $"{note} {scoreTarget} × {multiplier:0.##}."
         });
 
     private static double LatestTime(LandingSnapshot snapshot)

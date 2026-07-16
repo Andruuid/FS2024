@@ -49,48 +49,42 @@
 
             <Border Grid.Row="1" Margin="0,12,0,10" Padding="12,10" CornerRadius="10"
                     Background="#33102535" BorderBrush="#554A90A4" BorderThickness="1">
-                <StackPanel>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel>
-                            <TextBlock Text="TOUCHDOWN PROGRESS" FontSize="9" FontWeight="Bold"
-                                       Foreground="#FF8B9BB8"/>
-                            <TextBlock Text="{Binding DistanceDisplay}" FontSize="10" Margin="0,2,0,0"
-                                       FontFamily="Cascadia Mono, Consolas" Foreground="#FFC5D0E6"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" HorizontalAlignment="Right">
-                            <TextBlock Text="EST. TOUCHDOWN" FontSize="9" FontWeight="Bold"
-                                       Foreground="#FF8B9BB8" HorizontalAlignment="Right"/>
-                            <TextBlock x:Name="EtaText" Text="{Binding EtaDisplay}" FontSize="24" FontWeight="Bold"
-                                       FontFamily="Cascadia Mono, Consolas" Foreground="#FFFFB020"
-                                       HorizontalAlignment="Right"/>
-                        </StackPanel>
-                    </Grid>
+                <Grid Height="74">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="74"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                    <Grid Height="42" Margin="0,5,0,0" ClipToBounds="True">
-                        <Path Data="M 4,31 L 324,31 M 324,31 L 350,31" Stroke="#447AFFFF"
-                              StrokeThickness="2" StrokeDashArray="4,4"/>
-                        <Path Data="M 326,30 L 362,30 L 362,35 L 326,35 Z"
-                              Fill="#668B9BB8"/>
-                        <Path x:Name="ProgressAirplane"
-                              Data="M 0,19 L 5,18.5 L 1,11 L 5.5,11 L 12.5,17 L 28.5,17 L 17,0 L 23,0 L 42,17 L 54,17 C 60,17 64,18 64,20 C 64,22 60,23 54,23 L 42,23 L 23,40 L 17,40 L 28.5,23 L 12.5,23 L 5.5,29 L 1,29 L 5,21.5 L 0,21 Z"
-                              Fill="#FF2DE2E6" Width="64" Height="40" Stretch="Fill"
-                              VerticalAlignment="Top" HorizontalAlignment="Left" Margin="0,1,0,0">
-                            <Path.RenderTransform>
-                                <TranslateTransform X="{Binding AirplaneOffset, Mode=OneWay}"/>
-                            </Path.RenderTransform>
-                        </Path>
-                    </Grid>
-                    <Grid Margin="0,2,0,0">
-                        <ProgressBar x:Name="ApproachProgressBar" Minimum="0" Maximum="100" Height="5"
-                                     Value="{Binding ProgressPercent, Mode=OneWay, TargetNullValue=0, FallbackValue=0}"/>
-                        <TextBlock Text="{Binding ProgressDisplay}" FontSize="10" FontWeight="Bold"
-                                   Foreground="#FFF2F6FF" HorizontalAlignment="Center" Margin="0,7,0,0"/>
-                    </Grid>
-                </StackPanel>
+                    <Border Width="72" Height="72" CornerRadius="8" ClipToBounds="True"
+                            Background="#55121A2E" BorderBrush="#554A90A4" BorderThickness="1">
+                        <controls:WindFlowIndicator x:Name="WindFlow"
+                                                    RelativeFromAngle="{Binding WindRelativeFromAngleDeg, Mode=OneWay}"
+                                                    WindSpeedKts="{Binding WindSpeedKts, Mode=OneWay}"
+                                                    IsActive="{Binding HasWind, Mode=OneWay}"/>
+                    </Border>
+
+                    <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center">
+                        <TextBlock Text="WIND INDICATOR" FontSize="9" FontWeight="Bold"
+                                   Foreground="#FF2DE2E6"/>
+                        <TextBlock Text="{Binding WindFromDisplay}" FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#FFF2F6FF" Margin="0,1,0,1"/>
+                        <TextBlock Text="{Binding WindLongitudinalDisplay}" FontSize="9"
+                                   FontFamily="Cascadia Mono, Consolas" Foreground="#FFC5D0E6"/>
+                        <TextBlock Text="{Binding WindCrosswindDisplay}" FontSize="9"
+                                   FontFamily="Cascadia Mono, Consolas" Foreground="#FFC5D0E6"/>
+                        <TextBlock Text="{Binding WindTotalDisplay}" FontSize="9"
+                                   FontFamily="Cascadia Mono, Consolas" Foreground="#FF8B9BB8"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Top">
+                        <TextBlock Text="EST. TOUCHDOWN" FontSize="9" FontWeight="Bold"
+                                   Foreground="#FF8B9BB8" HorizontalAlignment="Right"/>
+                        <TextBlock x:Name="EtaText" Text="{Binding EtaDisplay}" FontSize="24" FontWeight="Bold"
+                                   FontFamily="Cascadia Mono, Consolas" Foreground="#FFFFB020"
+                                   HorizontalAlignment="Right"/>
+                    </StackPanel>
+                </Grid>
             </Border>
 
             <Grid Grid.Row="2" Margin="0,0,0,10">

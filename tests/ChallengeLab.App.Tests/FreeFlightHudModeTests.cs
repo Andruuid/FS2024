@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Diagnostics;
 using System.Text;
+using ChallengeLab.App.Controls;
 using ChallengeLab.App.ViewModels;
 using ChallengeLab.App.Views;
 using ChallengeLab.Core.Career;
@@ -79,10 +80,22 @@ public sealed class FreeFlightHudModeTests
                 secondary = new SecondaryHudWindow(vm, positionStore);
                 secondary.Show();
                 secondary.UpdateLayout();
-                var progress = Assert.IsType<ProgressBar>(secondary.FindName("ApproachProgressBar"));
-                var binding = System.Windows.Data.BindingOperations.GetBinding(progress, ProgressBar.ValueProperty);
-                Assert.NotNull(binding);
-                Assert.Equal(System.Windows.Data.BindingMode.OneWay, binding!.Mode);
+                var windFlow = Assert.IsType<WindFlowIndicator>(secondary.FindName("WindFlow"));
+                var angleBinding = System.Windows.Data.BindingOperations.GetBinding(
+                    windFlow,
+                    WindFlowIndicator.RelativeFromAngleProperty);
+                var speedBinding = System.Windows.Data.BindingOperations.GetBinding(
+                    windFlow,
+                    WindFlowIndicator.WindSpeedKtsProperty);
+                var activeBinding = System.Windows.Data.BindingOperations.GetBinding(
+                    windFlow,
+                    WindFlowIndicator.IsActiveProperty);
+                Assert.Equal(System.Windows.Data.BindingMode.OneWay, angleBinding?.Mode);
+                Assert.Equal(System.Windows.Data.BindingMode.OneWay, speedBinding?.Mode);
+                Assert.Equal(System.Windows.Data.BindingMode.OneWay, activeBinding?.Mode);
+                Assert.Null(secondary.FindName("ApproachProgressBar"));
+                Assert.Null(secondary.FindName("ProgressAirplane"));
+                Assert.NotNull(secondary.FindName("EtaText"));
                 Assert.NotNull(secondary.FindName("ScoreGraph"));
 
                 secondary.Left = SystemParameters.WorkArea.Left + 123;

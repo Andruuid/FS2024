@@ -20,11 +20,11 @@ public sealed class CriterionScore
     public MetricStatus Status { get; init; } = MetricStatus.Scored;
     public string? UnavailableReason { get; init; }
 
-    public string? PhaseId { get; init; }
-    public string? PhaseDisplayName { get; init; }
-    public double PhaseImportancePercent { get; init; }
-    public double PhaseWeightPercent { get; init; }
-    public double MaxOverallPoints { get; init; }
+    public string? PhaseId { get; set; }
+    public string? PhaseDisplayName { get; set; }
+    public double PhaseImportancePercent { get; set; }
+    public double PhaseWeightPercent { get; set; }
+    public double MaxOverallPoints { get; set; }
 
     public bool Applied => Status is MetricStatus.Scored or MetricStatus.Degraded;
     public double? ScorePercent => Score01 * 100.0;
