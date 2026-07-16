@@ -35,7 +35,8 @@ public sealed class LandingSessionTests
         double lat = 43.40,
         double lon = 5.25,
         double gs = 140,
-        double ias = 145)
+        double ias = 145,
+        bool stallWarning = false)
         => new()
         {
             Timestamp = t,
@@ -54,8 +55,25 @@ public sealed class LandingSessionTests
             BankDeg = 0,
             GearHandlePosition = 1,
             FlapsHandleIndex = 3,
-            GForce = 1.1
+            GForce = 1.1,
+            StallWarningActive = stallWarning
         };
+
+    [Fact]
+    public void StallWarning_IsLatchedForTheAttemptAndClearedWithMetrics()
+    {
+        var (challenge, settings) = Load();
+        var session = new LandingSession(challenge, settings);
+        var t0 = DateTimeOffset.UtcNow;
+        session.Arm();
+
+        session.Ingest(Sample(t0, onGround: false, stallWarning: true));
+        session.Ingest(Sample(t0.AddSeconds(0.1), onGround: false));
+
+        Assert.True(session.Snapshot.StallWarningOccurred);
+        session.CleanMetrics();
+        Assert.False(session.Snapshot.StallWarningOccurred);
+    }
 
     [Fact]
     public void ArmOnGround_DoesNotCaptureTouchdownDuringGraceOrWhileGrounded()

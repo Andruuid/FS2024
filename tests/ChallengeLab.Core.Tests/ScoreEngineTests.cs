@@ -217,11 +217,69 @@ public sealed class ScoreEngineTests
     }
 
     [Fact]
-    public void TouchdownPhase_NoLongerIncludesFlapsMetric()
+    public void ContactStabilityGate_TreatsRecontactsAsSecondAndThirdTouchdowns()
+    {
+        var (key, challenge) = Load();
+        var engine = new ScoreEngine(key);
+        var gate = Assert.IsType<ContactStabilityGateConfig>(key.Gates!.ContactStability);
+
+        ScoreResult ScoreWithBounces(int count)
+        {
+            var snapshot = CompleteSnapshot();
+            var bounces = Enumerable.Range(1, count)
+                .Select(i => new BounceEvent(i, i + 0.2, 0.2, -100, 1.2, 1.2, false))
+                .ToArray();
+            snapshot.ContactStability = new ContactStabilityAnalysis(
+                true, bounces, count, count == 0 ? 0 : 0.2, null);
+            return engine.Evaluate(challenge, snapshot);
+        }
+
+        var clean = ScoreWithBounces(0);
+        var one = ScoreWithBounces(1);
+        var two = ScoreWithBounces(2);
+        var three = ScoreWithBounces(3);
+
+        Assert.Equal(100, clean.ScorePercent);
+        Assert.Equal(Math.Round(clean.ScorePercent!.Value * gate.OneBounceMultiplier, 1), one.ScorePercent);
+        Assert.Equal(Math.Round(clean.ScorePercent.Value * gate.TwoOrMoreBouncesMultiplier, 1), two.ScorePercent);
+        Assert.Equal(two.ScorePercent, three.ScorePercent);
+        Assert.Contains("second touchdown", one.Criteria.Single(c => c.Id == "contact_stability").Note);
+        Assert.Contains("third touchdown", two.Criteria.Single(c => c.Id == "contact_stability").Note);
+        Assert.Equal(MetricStatus.GateFailed, one.Criteria.Single(c => c.Id == "contact_stability").Status);
+        Assert.Contains("bounce penalty", one.Summary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void StallWarningGate_AppliesHalfScoreAndAwardsNoBaselineCredit()
+    {
+        var (key, challenge) = Load();
+        var engine = new ScoreEngine(key);
+        var gate = Assert.IsType<StallWarningGateConfig>(key.Gates!.StallWarning);
+
+        var clean = engine.Evaluate(challenge, CompleteSnapshot());
+        var warnedSnapshot = CompleteSnapshot();
+        warnedSnapshot.StallWarningOccurred = true;
+        var warned = engine.Evaluate(challenge, warnedSnapshot);
+
+        Assert.Equal(0.5, gate.MultiplierOnWarning, 6);
+        Assert.Equal(Math.Round(clean.ScorePercent!.Value * 0.5, 1), warned.ScorePercent);
+        Assert.Equal(MetricStatus.Informational,
+            clean.Criteria.Single(c => c.Id == "stall_warning").Status);
+        Assert.Equal(MetricStatus.GateFailed,
+            warned.Criteria.Single(c => c.Id == "stall_warning").Status);
+        Assert.Contains("stall-warning penalty", warned.Summary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TouchdownPhase_ExcludesPenaltyGatesAndGroundTrack()
     {
         var (key, _) = Load();
         var td = key.Phases.Single(p => p.Id == "touchdown");
         Assert.DoesNotContain(td.Metrics, m => m.Id == "flaps");
+        Assert.DoesNotContain(td.Metrics, m => m.Id == "contact_stability");
+        Assert.DoesNotContain(td.Metrics, m => m.Id == "ground_track");
+        Assert.DoesNotContain(td.Metrics, m => m.Id == "excess_speed");
+        Assert.Equal(13, td.Metrics.Single(m => m.Id == "airspeed").ImportancePercent);
         Assert.Equal(100, td.Metrics.Sum(m => m.ImportancePercent), 2);
     }
 
@@ -231,7 +289,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(9, loaded.Key.Version);
+        Assert.Equal(13, loaded.Key.Version);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
 
@@ -244,7 +302,7 @@ public sealed class ScoreEngineTests
 
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("free-flight-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(2, loaded.Key.Version);
+        Assert.Equal(3, loaded.Key.Version);
         Assert.Equal(70, loaded.Key.SpeedTarget!.DefaultVappKts);
         Assert.Null(loaded.Key.Gates!.Flaps);
     }

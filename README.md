@@ -51,7 +51,7 @@ At each rank:
 1. Accept a classified assignment knowing only that an **A330** is required and the pass mark is a ranked **80.0%**.
 2. The app reveals one random playable landing from the Barcelona, La Paz, and Skiathos pool.
 3. That assignment stays locked across app restarts. There is no abandon or reroll, but retries are unlimited.
-4. Earn a ranked final score of **at least 80.0% after gear/flap gates** to pass. Lower or unranked results retain the assignment.
+4. Earn a ranked final score of **at least 80.0% after contact-stability/stall-warning/gear/flap gates** to pass. Lower or unranked results retain the assignment.
 5. Passing reveals one future challenge reward and advances Cadet → First Officer → Senior First Officer → Captain → Command Captain.
 
 The fifth pass shows **CAREER COMPLETE**. The five revealed rewards are honest UI previews only—Madeira, Innsbruck, Kai Tak, Paro, and the Arctic ice runway are `available=false` and their simulator scenarios remain future work. Locked rewards stay out of the regular Challenges list; revealed rewards appear there as non-playable **Coming Soon** cards.
@@ -133,10 +133,10 @@ Spawn verified: horiz=… m · altErr=… ft · ias=… kt
 
 `config/scoring/profiles/free-flight-evaluation-key.json` (Free, generic VS0-based VAPP and no flap-index gate)
 
-Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, gear/flap gates, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v9 and the Free key is v2. Session log confirms load:
+Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, contact-stability/stall-warning/gear/flap gates, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v13 and the Free key is v3. Session log confirms load:
 
 ```
-Evaluation key loaded: landing-evaluation-key v9 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%
+Evaluation key loaded: landing-evaluation-key v13 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%
   path: ...\config\scoring\profiles\landing-evaluation-key.json
 ```
 
@@ -144,18 +144,21 @@ Evaluation key loaded: landing-evaluation-key v9 · N metrics · Approach 25% + 
 
 ```
 final % = (touchdown × 0.70) + (approach × 0.25) + (rollout × 0.05)
-then gear/flap gates (when required): final × multiplierOnFail
+then contact-stability/stall-warning/gear/flap gates (when required): final × multiplier
 ```
 
 Within each phase, metrics use the same literal formula: `metric score × importancePercent / 100`. Validation requires metric and phase weights to total exactly 100. There is no Easy/Strict split — every metric in the key is always scored.
 
-### Touchdown evaluation (v9)
+### Touchdown evaluation (v13)
 
-The touchdown phase keeps its 70% overall weight and now separates three physical events:
+The touchdown phase keeps its 70% overall weight and separates the initial impact from flare/float; later recontacts are handled by a penalty-only gate:
 
-- `touchdown_impact` (55% of touchdown) combines the first main-gear contact's official touchdown-normal velocity with a filtered 99th-percentile peak G. The raw G peak is diagnostic only.
-- `flare_efficiency` (10%) measures sustained float distance/time and positive-VS duration below flare height. It never reuses IAS or excess-speed inputs.
-- `contact_stability` (10%) detects both-main-airborne bounce intervals and scores count, duration, and the worst secondary impact. A one-main-first touchdown and contact chatter are not bounces.
+- `touchdown_impact` (68% of touchdown) combines the first main-gear contact's official touchdown-normal velocity with a filtered 99th-percentile peak G. The raw G peak is diagnostic only.
+- `flare_efficiency` (10%) measures sustained float distance/time and positive-VS duration below flare height. It never reuses IAS inputs.
+- `airspeed` (13%) scores IAS versus the touchdown target (VAPP − 5 kt by default). Fast is punished more than slow; there is no separate excess-over-VAPP metric.
+- `contact_stability` is a penalty-only gate. The initial landing is the baseline; one valid airborne/recontact cycle (second touchdown) applies ×0.9, while two or more cycles (third touchdown or later) apply ×0.8. One-main-first touchdown and contact chatter are not bounces.
+- `stall_warning` is a penalty-only gate. Any `STALL WARNING` activation during the armed attempt applies ×0.5; a warning-free attempt earns no points.
+- `ground_track` is not scored in the Normal profile.
 
 Composite components use weighted penalty RMS:
 
@@ -193,7 +196,7 @@ A challenge can deterministically override existing composite parameters and rep
 }
 ```
 
-Every attempt freezes and hashes its complete effective scoring key (including contact mapping). Ranked buckets include challenge ID, key ID, key version, and profile hash, so legacy, v8, v9, and differently tuned profiles cannot mix silently.
+Every attempt freezes and hashes its complete effective scoring key (including contact mapping). Ranked buckets include challenge ID, key ID, key version, and profile hash, so legacy, v8–v13, and differently tuned profiles cannot mix silently.
 
 ### Also editable
 
@@ -212,6 +215,10 @@ Every attempt freezes and hashes its complete effective scoring key (including c
 - `points` — piecewise curve: `v` = measured value, `s` = **metric score 0–100%** (e.g. `{ "v": -100, "s": 100 }`). Each metric always reports 0–100%; phase weights (`importancePercent`) only blend them.
 - `params` — validated scalar settings and composite component weights
 - `curves` — named piecewise curves used by a composite evaluator; an override replaces one complete named curve
+
+**Contact stability** is a gate under `gates.contactStability`, not a phase metric: the initial landing earns no credit; valid bounce cycles apply ×0.9 or ×0.8.
+
+**Stall warning** is a gate under `gates.stallWarning`, not a phase metric: any warning after arming applies ×0.5 to the complete score.
 
 **Gear** is a safety gate under `gates.gear`, not a phase metric: gear down = no credit; gear up = overall score cut.
 

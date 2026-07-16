@@ -137,6 +137,7 @@ public sealed class SimConnectClient : ISimBridge
         public double WindVel;
         public double RadioHeight;
         public double DesignSpeedVs0;
+        public double StallWarning;
         public double TotalWeight;
         public double SpoilersHandle;
         public double SpoilersLeft;
@@ -1619,6 +1620,7 @@ public sealed class SimConnectClient : ISimBridge
                 WindVelocityKts = t.WindVel,
                 RadioHeightFeet = t.RadioHeight,
                 DesignSpeedVs0Kts = t.DesignSpeedVs0,
+                StallWarningActive = t.StallWarning > 0.5,
                 TotalWeightLbs = t.TotalWeight > 0 ? t.TotalWeight : null
             };
             TelemetryReceived?.Invoke(this, sample);
@@ -1686,6 +1688,8 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.Telemetry, "RADIO HEIGHT", "feet",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "DESIGN SPEED VS0", "knots",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "STALL WARNING", "bool",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "TOTAL WEIGHT", "pounds",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);

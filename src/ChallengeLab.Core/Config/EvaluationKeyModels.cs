@@ -204,8 +204,28 @@ public sealed class EvaluationMetric
 
 public sealed class EvaluationGates
 {
+    public ContactStabilityGateConfig? ContactStability { get; set; }
+    public StallWarningGateConfig? StallWarning { get; set; }
     public GearGateConfig? Gear { get; set; }
     public FlapsGateConfig? Flaps { get; set; }
+}
+
+/// <summary>Penalty-only gate latched by any stall warning during an armed attempt.</summary>
+public sealed class StallWarningGateConfig
+{
+    public double MultiplierOnWarning { get; set; } = 0.5;
+    public string? PenaltyDescription { get; set; }
+}
+
+/// <summary>
+/// Penalty-only bounce gate. The initial landing is not a bounce; each valid
+/// airborne/recontact cycle after it increments the bounce count.
+/// </summary>
+public sealed class ContactStabilityGateConfig
+{
+    public double OneBounceMultiplier { get; set; } = 0.9;
+    public double TwoOrMoreBouncesMultiplier { get; set; } = 0.8;
+    public string? PenaltyDescription { get; set; }
 }
 
 public sealed class GearGateConfig

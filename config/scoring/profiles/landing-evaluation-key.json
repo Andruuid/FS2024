@@ -1,8 +1,8 @@
 {
   "id": "landing-evaluation-key",
-  "version": 9,
-  "description": "Single authoritative landing score. Initial touchdown impact combines robust peak G and touchdown vertical speed. Flare/float and post-touchdown contact stability are evaluated separately. Challenge-specific scoring profiles may define different desired impact characteristics. Every metric scores 0-100%; phases and metrics use literal percentage weights; gear and flaps remain safety gates.",
-  "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply gear/flaps multipliers last when required",
+  "version": 13,
+  "description": "Single authoritative landing score. Initial touchdown impact combines robust peak G and touchdown vertical speed. Flare/float is evaluated separately. Valid post-touchdown bounces and any stall warning are penalty-only gates. Challenge-specific scoring profiles may define different desired impact characteristics. Every metric scores 0-100%; phases and metrics use literal percentage weights; contact stability, stall warning, gear, and flaps are safety gates.",
+  "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply contact-stability/stall-warning/gear/flaps multipliers last when required",
   "settle": {
     "groundSpeedKts": 50,
     "holdSeconds": 1.0
@@ -37,6 +37,15 @@
     "vs0Factor": 1.3
   },
   "gates": {
+    "contactStability": {
+      "oneBounceMultiplier": 0.9,
+      "twoOrMoreBouncesMultiplier": 0.8,
+      "penaltyDescription": "The initial landing is the baseline. One valid airborne/recontact cycle (the second touchdown) multiplies the complete ranked score by 0.9; two or more cycles (the third touchdown or later) multiply it by 0.8."
+    },
+    "stallWarning": {
+      "multiplierOnWarning": 0.5,
+      "penaltyDescription": "If a stall warning occurs at any time after the attempt is armed, multiply the complete ranked score by 0.5. No stall warning is the required baseline and awards no points."
+    },
     "gear": {
       "multiplierOnFail": 0.1,
       "penaltyDescription": "If gear is required and up, multiply the complete ranked score by 0.1. Gear down is the required baseline and awards no points."
@@ -53,12 +62,12 @@
       "id": "touchdown",
       "displayName": "Touchdown",
       "weightPercent": 70,
-      "note": "Touchdown technique and aircraft state. Ground track covers three seconds before through three seconds after touchdown.",
+      "note": "Touchdown technique and aircraft state.",
       "metrics": [
         {
           "id": "touchdown_impact",
           "displayName": "Touchdown impact",
-          "importancePercent": 55,
+          "importancePercent": 68,
           "unit": "%",
           "evaluator": "landingImpact",
           "note": "Initial main-gear impact only. Combines challenge-specific touchdown vertical-speed and robust filtered peak-G subscores using weighted RMS penalties.",
@@ -88,7 +97,7 @@
           "importancePercent": 10,
           "unit": "%",
           "evaluator": "flareEfficiency",
-          "note": "Measures actual runway consumed after a sustained near-level or positive vertical-speed state begins below flare height. IAS and excess-speed scoring are not reused.",
+          "note": "Measures actual runway consumed after a sustained near-level or positive vertical-speed state begins below flare height. IAS scoring is not reused.",
           "params": {
             "entryVerticalSpeedFpm": -80,
             "minSustainSeconds": 0.15,
@@ -112,35 +121,13 @@
           }
         },
         {
-          "id": "contact_stability",
-          "displayName": "Contact stability",
-          "importancePercent": 10,
-          "unit": "%",
-          "evaluator": "contactStability",
-          "note": "Evaluates valid airborne intervals after first main-gear contact and the severity of subsequent recontacts. One-main-gear-first contact is not a bounce.",
-          "params": {
-            "countWeight": 0.45,
-            "maxAirborneDurationWeight": 0.20,
-            "worstSecondaryImpactWeight": 0.35
-          },
-          "curves": {
-            "count": [
-              { "v": 0, "s": 100 }, { "v": 1, "s": 65 }, { "v": 2, "s": 25 }, { "v": 3, "s": 0 }
-            ],
-            "maxAirborneDuration": [
-              { "v": 0.00, "s": 100 }, { "v": 0.08, "s": 95 }, { "v": 0.25, "s": 80 },
-              { "v": 0.50, "s": 55 }, { "v": 1.00, "s": 20 }, { "v": 1.50, "s": 0 }
-            ]
-          }
-        },
-        {
           "id": "airspeed",
           "displayName": "IAS versus touchdown target",
-          "importancePercent": 10,
+          "importancePercent": 13,
           "unit": "kts",
           "evaluator": "piecewise",
           "metric": "touchdownIasErrorKts",
-          "note": "Target-accuracy metric worth at most 7.0 overall points. The target is VAPP minus 5 kt by default.",
+          "note": "Target-accuracy metric. The target is VAPP minus 5 kt by default. Being fast is already punished more heavily than being slow.",
           "points": [
             { "v": -30, "s": 70 },
             { "v": -15, "s": 80 },
@@ -167,35 +154,6 @@
             "zeroAt": 22,
             "exponent": 1.2
           }
-        },
-        {
-          "id": "ground_track",
-          "displayName": "Ground track (CG path)",
-          "importancePercent": 3,
-          "unit": "deg",
-          "evaluator": "target",
-          "metric": "groundTrackErrorMeanDeg",
-          "sampleAt": "touchdownWindow",
-          "note": "Mean CG ground-track error across the touchdown window, not fuselage crab angle.",
-          "params": { "ideal": 0, "tolerance": 2, "maxError": 12 }
-        },
-        {
-          "id": "excess_speed",
-          "displayName": "Excess speed over VAPP",
-          "importancePercent": 3,
-          "unit": "kts",
-          "evaluator": "piecewise",
-          "metric": "excessSpeedOverVappKts",
-          "note": "Excess-energy metric worth at most 2.1 overall points. It penalizes float risk separately from target accuracy.",
-          "points": [
-            { "v": 0, "s": 100 },
-            { "v": 3, "s": 95 },
-            { "v": 5, "s": 85 },
-            { "v": 10, "s": 55 },
-            { "v": 15, "s": 30 },
-            { "v": 20, "s": 15 },
-            { "v": 30, "s": 0 }
-          ]
         },
         {
           "id": "bank",

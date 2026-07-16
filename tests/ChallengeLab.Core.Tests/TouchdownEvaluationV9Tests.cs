@@ -42,15 +42,15 @@ public sealed class TouchdownEvaluationV9Tests
         new(true, false, 10, vs, "PLANE TOUCHDOWN NORMAL VELOCITY", g, g, 12, 1, null);
 
     [Fact]
-    public void ShippedKeys_HaveV9CompositeWeightsAndNoActiveLegacyMetric()
+    public void ShippedKeys_HaveExpectedCompositeWeightsAndNoActiveLegacyMetric()
     {
         var root = FindRepositoryRoot();
         var loader = new ConfigLoader(Path.Combine(root, "config"));
         var catalog = loader.LoadCatalog();
         foreach (var (path, version) in new[]
                  {
-                     (catalog.EvaluationKey, 9),
-                     (catalog.FreeFlightEvaluationKey, 2)
+                     (catalog.EvaluationKey, 13),
+                     (catalog.FreeFlightEvaluationKey, 3)
                  })
         {
             var loaded = loader.LoadEvaluationKey(path);
@@ -59,9 +59,17 @@ public sealed class TouchdownEvaluationV9Tests
             Assert.Equal(100, loaded.Key.Phases.Sum(p => p.WeightPercent), 6);
             var touchdown = loaded.Key.Phases.Single(p => p.Id == "touchdown");
             Assert.Equal(100, touchdown.Metrics.Sum(m => m.ImportancePercent), 6);
-            Assert.Equal(55, touchdown.Metrics.Single(m => m.Id == "touchdown_impact").ImportancePercent);
+            var isNormal = path == catalog.EvaluationKey;
+            Assert.Equal(isNormal ? 68 : 55,
+                touchdown.Metrics.Single(m => m.Id == "touchdown_impact").ImportancePercent);
             Assert.Equal(10, touchdown.Metrics.Single(m => m.Id == "flare_efficiency").ImportancePercent);
-            Assert.Equal(10, touchdown.Metrics.Single(m => m.Id == "contact_stability").ImportancePercent);
+            if (isNormal)
+            {
+                Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "contact_stability");
+                Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "ground_track");
+            }
+            else
+                Assert.Equal(10, touchdown.Metrics.Single(m => m.Id == "contact_stability").ImportancePercent);
             Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "touchdown_vs");
             Assert.Equal(70, touchdown.WeightPercent);
             Assert.Equal(25, loaded.Key.Phases.Single(p => p.Id == "approach").WeightPercent);
@@ -70,9 +78,12 @@ public sealed class TouchdownEvaluationV9Tests
 
         var normal = loader.LoadEvaluationKey(catalog.EvaluationKey).Key!;
         Assert.Equal(0.1, normal.Gates!.Gear!.MultiplierOnFail, 6);
+        Assert.Equal(0.9, normal.Gates.ContactStability!.OneBounceMultiplier, 6);
+        Assert.Equal(0.8, normal.Gates.ContactStability.TwoOrMoreBouncesMultiplier, 6);
+        Assert.Equal(0.5, normal.Gates.StallWarning!.MultiplierOnWarning, 6);
         Assert.Equal(2, normal.Gates.Flaps!.MinIndex, 6);
         Assert.Equal(5, normal.Gates.Flaps.MaxIndex, 6);
-        Assert.Equal(0.5, normal.Gates.Flaps.MultiplierOnFail, 6);
+        Assert.Equal(0.8, normal.Gates.Flaps.MultiplierOnFail, 6);
         var free = loader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey).Key!;
         Assert.Equal(0.1, free.Gates!.Gear!.MultiplierOnFail, 6);
         Assert.Null(free.Gates.Flaps);
@@ -169,20 +180,20 @@ public sealed class TouchdownEvaluationV9Tests
     [Fact]
     public void EvaluationIdentity_SeparatesVersionsAndProfileHashes()
     {
-        var (v9, challenge) = Load();
-        var profile9 = EffectiveEvaluationProfileBuilder.Build(v9, challenge);
+        var (v11, challenge) = Load();
+        var profile11 = EffectiveEvaluationProfileBuilder.Build(v11, challenge);
         var (v8, _) = Load();
         v8.Version = 8;
         var profile8 = EffectiveEvaluationProfileBuilder.Build(v8, challenge);
 
-        Assert.NotEqual(profile8.ProfileHash, profile9.ProfileHash);
-        Assert.NotEqual(profile8.BucketId(challenge.Id), profile9.BucketId(challenge.Id));
-        var result = new ScoreEngine(profile9.Key, profile9.ProfileHash)
+        Assert.NotEqual(profile8.ProfileHash, profile11.ProfileHash);
+        Assert.NotEqual(profile8.BucketId(challenge.Id), profile11.BucketId(challenge.Id));
+        var result = new ScoreEngine(profile11.Key, profile11.ProfileHash)
             .EvaluatePreview(challenge, new LandingSnapshot());
-        Assert.Equal(profile9.Key.Id, result.EvaluationKeyId);
-        Assert.Equal(9, result.EvaluationKeyVersion);
-        Assert.Equal(profile9.ProfileHash, result.ScoringProfileHash);
-        Assert.Equal(profile9.BucketId(challenge.Id), result.RankedBucketId);
+        Assert.Equal(profile11.Key.Id, result.EvaluationKeyId);
+        Assert.Equal(13, result.EvaluationKeyVersion);
+        Assert.Equal(profile11.ProfileHash, result.ScoringProfileHash);
+        Assert.Equal(profile11.BucketId(challenge.Id), result.RankedBucketId);
 
         var mappedChallenge = new ChallengeConfig
         {
@@ -194,9 +205,9 @@ public sealed class TouchdownEvaluationV9Tests
                 NoseGearIndex = 0
             }
         };
-        var mapped = EffectiveEvaluationProfileBuilder.Build(v9, mappedChallenge);
-        Assert.NotEqual(profile9.ProfileHash, mapped.ProfileHash);
-        Assert.NotEqual(profile9.BucketId(challenge.Id), mapped.BucketId(challenge.Id));
+        var mapped = EffectiveEvaluationProfileBuilder.Build(v11, mappedChallenge);
+        Assert.NotEqual(profile11.ProfileHash, mapped.ProfileHash);
+        Assert.NotEqual(profile11.BucketId(challenge.Id), mapped.BucketId(challenge.Id));
     }
 
     [Theory]
@@ -452,7 +463,12 @@ public sealed class TouchdownEvaluationV9Tests
     [Fact]
     public void ContactStability_TwoOrHarderBouncesScoreWorseAndDoNotMutateInitialImpact()
     {
-        var (key, _) = Load();
+        var root = FindRepositoryRoot();
+        var loader = new ConfigLoader(Path.Combine(root, "config"));
+        var catalog = loader.LoadCatalog();
+        var loaded = loader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey);
+        Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
+        var key = loaded.Key!;
         var metric = key.Phases.SelectMany(p => p.Metrics).Single(m => m.Id == "contact_stability");
         var initial = Impact(-100, 1.2);
         var soft = new BounceEvent(1, 1.2, 0.2, -100, 1.2, 1.2, false);

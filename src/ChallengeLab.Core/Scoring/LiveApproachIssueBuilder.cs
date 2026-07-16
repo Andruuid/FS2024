@@ -209,6 +209,12 @@ public static class LiveApproachIssueBuilder
             issues.Add(new Issue("gear-up penalty", 1.2));
         if (preview.FlapsPenaltyApplied)
             issues.Add(new Issue("flaps penalty", 1.0));
+        if (preview.Criteria.Any(c =>
+                c.Id == "contact_stability" && c.Status == MetricStatus.GateFailed))
+            issues.Add(new Issue("bounce penalty", 1.0));
+        if (preview.Criteria.Any(c =>
+                c.Id == "stall_warning" && c.Status == MetricStatus.GateFailed))
+            issues.Add(new Issue("stall-warning penalty", 1.2));
     }
 
     private static Issue? MapCriterion(CriterionScore c, LandingSnapshot snapshot)

@@ -1,6 +1,6 @@
 {
   "id": "free-flight-evaluation-key",
-  "version": 2,
+  "version": 3,
   "description": "Aircraft-generic free-flight landing score. Initial impact, flare/float, and post-contact stability are evaluated separately; flap index is not gated.",
   "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply the adaptive gear multiplier last only when required",
   "settle": {
@@ -121,11 +121,11 @@
         {
           "id": "airspeed",
           "displayName": "IAS versus touchdown target",
-          "importancePercent": 10,
+          "importancePercent": 13,
           "unit": "kts",
           "evaluator": "piecewise",
           "metric": "touchdownIasErrorKts",
-          "note": "Target-accuracy metric worth at most 7.0 overall points. The target is VAPP minus 5 kt by default.",
+          "note": "Target-accuracy metric. The target is VAPP minus 5 kt by default. Being fast is already punished more heavily than being slow.",
           "points": [
             { "v": -30, "s": 70 },
             { "v": -15, "s": 80 },
@@ -163,24 +163,6 @@
           "sampleAt": "touchdownWindow",
           "note": "Mean CG ground-track error across the touchdown window, not fuselage crab angle.",
           "params": { "ideal": 0, "tolerance": 2, "maxError": 12 }
-        },
-        {
-          "id": "excess_speed",
-          "displayName": "Excess speed over VAPP",
-          "importancePercent": 3,
-          "unit": "kts",
-          "evaluator": "piecewise",
-          "metric": "excessSpeedOverVappKts",
-          "note": "Excess-energy metric worth at most 2.1 overall points. It penalizes float risk separately from target accuracy.",
-          "points": [
-            { "v": 0, "s": 100 },
-            { "v": 3, "s": 95 },
-            { "v": 5, "s": 85 },
-            { "v": 10, "s": 55 },
-            { "v": 15, "s": 30 },
-            { "v": 20, "s": 15 },
-            { "v": 30, "s": 0 }
-          ]
         },
         {
           "id": "bank",

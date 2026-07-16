@@ -21,6 +21,8 @@ public static class EvaluationKeyValidator
         ValidateSettle(key.Settle, errors);
         ValidateTiming(key.Timing, errors);
         ValidateSpeedTarget(key.SpeedTarget, errors);
+        ValidateContactStabilityGate(key.Gates?.ContactStability, errors);
+        ValidateStallWarningGate(key.Gates?.StallWarning, errors);
         ValidateGear(key.Gates?.Gear, errors);
         ValidateFlapsGate(key.Gates?.Flaps, errors);
         ValidateContactMapping(key.ContactMapping, errors);
@@ -55,6 +57,35 @@ public static class EvaluationKeyValidator
             errors.Add($"Phase weights must total 100, but total {phaseWeight:0.###}.");
 
         return errors;
+    }
+
+    private static void ValidateContactStabilityGate(
+        ContactStabilityGateConfig? gate,
+        List<string> errors)
+    {
+        if (gate is null) return;
+
+        if (!double.IsFinite(gate.OneBounceMultiplier)
+            || gate.OneBounceMultiplier is < 0 or > 1)
+            errors.Add("gates.contactStability.oneBounceMultiplier must be between 0 and 1.");
+        if (!double.IsFinite(gate.TwoOrMoreBouncesMultiplier)
+            || gate.TwoOrMoreBouncesMultiplier is < 0 or > 1)
+            errors.Add("gates.contactStability.twoOrMoreBouncesMultiplier must be between 0 and 1.");
+        if (double.IsFinite(gate.OneBounceMultiplier)
+            && double.IsFinite(gate.TwoOrMoreBouncesMultiplier)
+            && gate.TwoOrMoreBouncesMultiplier > gate.OneBounceMultiplier)
+            errors.Add("gates.contactStability.twoOrMoreBouncesMultiplier must not exceed oneBounceMultiplier.");
+    }
+
+    private static void ValidateStallWarningGate(
+        StallWarningGateConfig? gate,
+        List<string> errors)
+    {
+        if (gate is null) return;
+
+        if (!double.IsFinite(gate.MultiplierOnWarning)
+            || gate.MultiplierOnWarning is < 0 or > 1)
+            errors.Add("gates.stallWarning.multiplierOnWarning must be between 0 and 1.");
     }
 
     private static void ValidateMetric(

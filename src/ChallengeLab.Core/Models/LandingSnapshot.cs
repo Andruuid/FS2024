@@ -118,6 +118,9 @@ public sealed class LandingSnapshot
     public bool TouchdownAnalysisComplete { get; set; }
     public bool ContactMappingDegraded { get; set; }
 
+    /// <summary>Latched true if any telemetry sample warned of a stall while armed.</summary>
+    public bool StallWarningOccurred { get; set; }
+
     public List<TelemetrySample> ApproachSamples { get; } = new();
     public List<TelemetrySample> RolloutSamples { get; } = new();
     public List<LandingTelemetrySample> LandingEventSamples { get; } = new();

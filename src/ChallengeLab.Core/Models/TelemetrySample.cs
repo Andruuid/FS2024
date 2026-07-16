@@ -73,6 +73,9 @@ public sealed class TelemetrySample
     /// <summary>Stall speed landing config (DESIGN SPEED VS0), if available.</summary>
     public double DesignSpeedVs0Kts { get; init; }
 
+    /// <summary>True while the simulator's STALL WARNING SimVar is active.</summary>
+    public bool StallWarningActive { get; init; }
+
     /// <summary>Total weight (lbs), if available.</summary>
     public double? TotalWeightLbs { get; init; }
 

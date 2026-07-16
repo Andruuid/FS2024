@@ -141,6 +141,7 @@ public sealed class LandingSession
         Snapshot.ContactStability = null;
         Snapshot.TouchdownAnalysisComplete = false;
         Snapshot.ContactMappingDegraded = false;
+        Snapshot.StallWarningOccurred = false;
         Snapshot.ApproachSamples.Clear();
         Snapshot.RolloutSamples.Clear();
         Snapshot.LandingEventSamples.Clear();
@@ -152,6 +153,7 @@ public sealed class LandingSession
             return;
 
         var timeSeconds = ResolveTimeSeconds(sample);
+        Snapshot.StallWarningOccurred |= sample.StallWarningActive;
         var logical = ToLandingSample(sample, timeSeconds);
         Snapshot.LandingEventSamples.Add(logical);
         var anyMainOnGround = logical.MainGearContactsAvailable

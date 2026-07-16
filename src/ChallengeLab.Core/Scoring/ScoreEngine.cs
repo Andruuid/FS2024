@@ -209,6 +209,10 @@ public sealed class ScoreEngine
             });
         }
 
+        var contactStabilityMultiplier = preview
+            ? AppendContactStabilityGatePreview(snapshot, criteria, diagnostics)
+            : AppendContactStabilityGate(snapshot, criteria, incompleteReasons, diagnostics);
+        var stallWarningFailed = AppendStallWarningGate(snapshot, criteria);
         var gearFailed = preview
             ? AppendGearGatePreview(challenge, snapshot, criteria)
             : AppendGearGate(challenge, snapshot, criteria, incompleteReasons);
@@ -225,7 +229,9 @@ public sealed class ScoreEngine
         if (ranked)
         {
             scoreBeforeGates = Math.Round(Math.Clamp(totalBeforeGate, 0, 100), 1);
-            var final = scoreBeforeGates.Value;
+            var final = scoreBeforeGates.Value * contactStabilityMultiplier;
+            if (stallWarningFailed)
+                final *= _key.Gates!.StallWarning!.MultiplierOnWarning;
             if (gearFailed)
             {
                 final *= _key.Gates!.Gear!.MultiplierOnFail;
@@ -277,7 +283,151 @@ public sealed class ScoreEngine
         };
     }
 
-    /// <summary>Preview gear: no TD yet → no penalty; after TD use real gear state.</summary>
+    /// <summary>Before bounce analysis completes, preview assumes no bounce penalty.</summary>
+    private double AppendContactStabilityGatePreview(
+        LandingSnapshot snapshot,
+        List<CriterionScore> criteria,
+        LandingResultDiagnostics diagnostics)
+    {
+        if (_key.Gates?.ContactStability is null)
+            return 1;
+
+        if (snapshot.ContactStability is null)
+        {
+            criteria.Add(new CriterionScore
+            {
+                Id = "contact_stability",
+                DisplayName = "Contact stability (bounce gate)",
+                Status = MetricStatus.Informational,
+                Note = "[PREVIEW · assumed OK] Bounce analysis is not complete yet."
+            });
+            return 1;
+        }
+
+        var incomplete = new List<string>();
+        return AppendContactStabilityGate(snapshot, criteria, incomplete, diagnostics);
+    }
+
+    private double AppendContactStabilityGate(
+        LandingSnapshot snapshot,
+        List<CriterionScore> criteria,
+        List<string> incompleteReasons,
+        LandingResultDiagnostics diagnostics)
+    {
+        var cfg = _key.Gates?.ContactStability;
+        if (cfg is null)
+            return 1;
+
+        if (snapshot.ContactStability is not { } analysis)
+        {
+            const string reason = "Contact-stability analysis is not complete.";
+            incompleteReasons.Add("Contact-stability gate: " + reason);
+            criteria.Add(new CriterionScore
+            {
+                Id = "contact_stability",
+                DisplayName = "Contact stability (bounce gate)",
+                Status = MetricStatus.Unavailable,
+                UnavailableReason = reason,
+                Note = reason
+            });
+            return 1;
+        }
+
+        if (!analysis.CoverageSufficient)
+        {
+            var reason = analysis.DegradedReason
+                         ?? "Independent main-gear coverage was insufficient.";
+            incompleteReasons.Add("Contact-stability gate: " + reason);
+            diagnostics.ContactTelemetryDegraded = true;
+            criteria.Add(new CriterionScore
+            {
+                Id = "contact_stability",
+                DisplayName = "Contact stability (bounce gate)",
+                RawValue = analysis.BounceCount,
+                Unit = "bounces",
+                Status = MetricStatus.Degraded,
+                UnavailableReason = reason,
+                Note = $"Bounce gate not applied because telemetry was degraded. {reason}"
+            });
+            return 1;
+        }
+
+        diagnostics.BounceCount = analysis.BounceCount;
+        diagnostics.MaximumBounceAirborneSeconds = analysis.MaximumAirborneDurationSeconds;
+        if (analysis.BounceCount == 0)
+        {
+            diagnostics.ContactStabilityScore = 100;
+            criteria.Add(new CriterionScore
+            {
+                Id = "contact_stability",
+                DisplayName = "Contact stability (bounce gate)",
+                RawValue = 0,
+                Unit = "bounces",
+                Status = MetricStatus.Informational,
+                Note = "No bounce detected. The initial landing is the expected baseline and awards no points."
+            });
+            return 1;
+        }
+
+        var multiplier = analysis.BounceCount == 1
+            ? cfg.OneBounceMultiplier
+            : cfg.TwoOrMoreBouncesMultiplier;
+        diagnostics.ContactStabilityScore = multiplier * 100;
+        var touchdownLabel = analysis.BounceCount == 1
+            ? "second touchdown"
+            : analysis.BounceCount == 2
+                ? "third touchdown"
+                : $"touchdown {analysis.BounceCount + 1}";
+        criteria.Add(new CriterionScore
+        {
+            Id = "contact_stability",
+            DisplayName = "Bounce — penalty gate",
+            RawValue = analysis.BounceCount,
+            Unit = "bounces",
+            Status = MetricStatus.GateFailed,
+            Note =
+                $"{analysis.BounceCount} valid bounce{(analysis.BounceCount == 1 ? "" : "s")} " +
+                $"({touchdownLabel}). Ranked overall score × {multiplier:0.##}. " +
+                cfg.PenaltyDescription
+        });
+        return multiplier;
+    }
+
+    private bool AppendStallWarningGate(
+        LandingSnapshot snapshot,
+        List<CriterionScore> criteria)
+    {
+        var cfg = _key.Gates?.StallWarning;
+        if (cfg is null)
+            return false;
+
+        if (!snapshot.StallWarningOccurred)
+        {
+            criteria.Add(new CriterionScore
+            {
+                Id = "stall_warning",
+                DisplayName = "Stall warning (safety gate)",
+                RawValue = 0,
+                Status = MetricStatus.Informational,
+                Note = "No stall warning occurred. This is the required baseline and awards no points."
+            });
+            return false;
+        }
+
+        criteria.Add(new CriterionScore
+        {
+            Id = "stall_warning",
+            DisplayName = "STALL WARNING — hard penalty",
+            RawValue = 1,
+            Status = MetricStatus.GateFailed,
+            Note =
+                $"A stall warning occurred during the armed attempt. Ranked overall score × " +
+                $"{cfg.MultiplierOnWarning:0.##}. {cfg.PenaltyDescription}"
+        });
+        return true;
+    }
+
+    /// <summary>Before touchdown, preview assumes the required gear state.</summary>
     private bool AppendGearGatePreview(
         ChallengeConfig challenge,
         LandingSnapshot snapshot,

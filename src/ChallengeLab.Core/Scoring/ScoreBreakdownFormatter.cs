@@ -26,15 +26,24 @@ public static class ScoreBreakdownFormatter
         IReadOnlyList<string>? incompleteReasons = null)
     {
         var sb = new StringBuilder();
+        var contactPenaltyApplied = criteria.Any(c =>
+            c.Id.Equals("contact_stability", StringComparison.OrdinalIgnoreCase)
+            && c.Status == MetricStatus.GateFailed);
+        var stallWarningPenaltyApplied = criteria.Any(c =>
+            c.Id.Equals("stall_warning", StringComparison.OrdinalIgnoreCase)
+            && c.Status == MetricStatus.GateFailed);
         if (scorePercent is not null)
             sb.Append("Total Grade ").Append(grade).Append("  ").Append(Pct(scorePercent));
         else
             sb.Append("Total UNRANKED — incomplete telemetry");
         sb.AppendLine();
 
-        if (gearUpPenaltyApplied || flapsPenaltyApplied)
+        if (contactPenaltyApplied || stallWarningPenaltyApplied
+            || gearUpPenaltyApplied || flapsPenaltyApplied)
         {
             sb.Append("(pre-gate ").Append(Pct(scoreBeforeGatesPercent));
+            if (contactPenaltyApplied) sb.Append(" · bounce penalty");
+            if (stallWarningPenaltyApplied) sb.Append(" · stall-warning penalty");
             if (gearUpPenaltyApplied) sb.Append(" · gear-up penalty");
             if (flapsPenaltyApplied) sb.Append(" · flaps penalty");
             sb.Append(')');
@@ -60,10 +69,15 @@ public static class ScoreBreakdownFormatter
                 AppendMetricLine(sb, metric.Id, metric.DisplayName, metric.ScorePercent);
         }
 
-        if (gearUpPenaltyApplied || flapsPenaltyApplied
+        if (contactPenaltyApplied || stallWarningPenaltyApplied
+            || gearUpPenaltyApplied || flapsPenaltyApplied
             || criteria.Any(c => c.Status == MetricStatus.GateFailed))
         {
             sb.AppendLine();
+            if (contactPenaltyApplied)
+                sb.AppendLine("BOUNCE (penalty gate)");
+            if (stallWarningPenaltyApplied)
+                sb.AppendLine("STALL WARNING (hard penalty gate)");
             if (gearUpPenaltyApplied)
                 sb.AppendLine("GEAR UP (hard penalty)");
             if (flapsPenaltyApplied)
