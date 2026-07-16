@@ -104,7 +104,10 @@ public sealed class ApproachMetricMathTests
     public void SignedApproachDistance_ExcludesPostThresholdAirborneSamples()
     {
         var (challenge, settings) = Load();
-        var session = new LandingSession(challenge, settings);
+        var session = new LandingSession(challenge, settings with
+        {
+            OperationalGates = new OperationalGateSessionSettings()
+        });
         var start = DateTimeOffset.UtcNow;
 
         for (var i = 0; i < 11; i++)
@@ -155,7 +158,10 @@ public sealed class ApproachMetricMathTests
     public void LivePreviewAndSettledFinal_UseIdenticalApproachMetrics()
     {
         var (challenge, settings) = Load();
-        var session = new LandingSession(challenge, settings);
+        var session = new LandingSession(challenge, settings with
+        {
+            OperationalGates = new OperationalGateSessionSettings()
+        });
         var start = DateTimeOffset.UtcNow;
         session.Arm();
 
@@ -294,7 +300,8 @@ public sealed class ApproachMetricMathTests
         var longitude = runway.ThresholdLongitude
                         + eastMeters / (EarthRadiusMeters * Math.Cos(referenceLatitudeRadians))
                         * 180.0 / Math.PI;
-        var altitudeFeet = runway.ElevationFeet + approachDistanceNm * 318.0 + altitudeErrorFeet;
+        var altitudeFeet = RunwayPathGeometry.ExpectedAltitudeFeet(approachDistanceNm, runway.ElevationFeet)
+                           + altitudeErrorFeet;
 
         return new TelemetrySample
         {

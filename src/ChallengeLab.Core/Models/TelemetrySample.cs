@@ -65,10 +65,43 @@ public sealed class TelemetrySample
     /// </summary>
     public double? SpoilersSurfacePosition { get; init; }
 
+    /// <summary>Individual spoiler surface deflection (0-1). Null when not sampled.</summary>
+    public double? SpoilersLeftPosition { get; init; }
+    public double? SpoilersRightPosition { get; init; }
+
+    /// <summary>Manual toe-brake pedal input (0-1), excluding autobrake where supported.</summary>
+    public double? ManualBrakeLeftPosition { get; init; }
+    public double? ManualBrakeRightPosition { get; init; }
+
     public double WindDirectionDeg { get; init; }
     public double WindVelocityKts { get; init; }
 
     public double RadioHeightFeet { get; init; }
+
+    /// <summary>True when RADIO HEIGHT was present in the telemetry definition.</summary>
+    public bool RadioHeightAvailable { get; init; }
+
+    public bool? AutopilotHeadingHoldActive { get; init; }
+    public bool? AutopilotAltitudeHoldActive { get; init; }
+    public bool? AutopilotMasterActive { get; init; }
+    public bool? AutopilotChannel1Active { get; init; }
+    public bool? AutopilotChannel2Active { get; init; }
+    public bool? AutothrustActive { get; init; }
+    public bool? AutothrustArmed { get; init; }
+
+    /// <summary>Internal simulation-time rate; 1 is normal real-time speed.</summary>
+    public double? SimulationRate { get; init; }
+
+    /// <summary>Pause_EX1 state copied into every telemetry sample.</summary>
+    public bool PauseStateAvailable { get; init; }
+    public bool NormalPauseActive { get; init; }
+    public bool ActivePauseActive { get; init; }
+
+    /// <summary>
+    /// Increments on every transition into a Pause_EX1 paused state. This detects a pause
+    /// even when visual-frame telemetry stopped until after the simulator was resumed.
+    /// </summary>
+    public long PauseGeneration { get; init; }
 
     /// <summary>Stall speed landing config (DESIGN SPEED VS0), if available.</summary>
     public double DesignSpeedVs0Kts { get; init; }

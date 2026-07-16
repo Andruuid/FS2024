@@ -30,6 +30,11 @@ public sealed class SimConnectClient : ISimBridge
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, FacilityRequestContext> _facilityRequests = new();
     private uint _nextFacilityRequestId = 1000;
+    private readonly object _pauseStateLock = new();
+    private uint _pauseStateFlags;
+    private long _pauseGeneration;
+    private bool _pauseStateKnown;
+    private bool _pauseWasActive;
 
     private enum Definitions
     {
@@ -85,7 +90,8 @@ public sealed class SimConnectClient : ISimBridge
         ZuluYearSet = 20,
         SpoilersArmSet = 21,
         SpoilersOn = 22,
-        GearSet = 23
+        GearSet = 23,
+        PauseStateEx1 = 24
     }
 
     private enum Groups
@@ -143,6 +149,22 @@ public sealed class SimConnectClient : ISimBridge
         public double SpoilersLeft;
         public double SpoilersRight;
         public double ParkingBrake;
+        public double BrakeLeft;
+        public double BrakeRight;
+        public double AutoBrakesActive;
+        public double SimulationRate;
+        public double AutopilotHeadingLock;
+        public double AutopilotAltitudeLock;
+        public double AutopilotMaster;
+        public double AutopilotThrottleArm;
+        public double AutopilotManagedThrottleActive;
+        public double IniAp1On;
+        public double IniAp2On;
+        public double IniAthrLight;
+        public double IniAthrModeActive;
+        public double IniAutothrottleArmed;
+        public double IniBrakePedalLeft;
+        public double IniBrakePedalRight;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
@@ -268,6 +290,7 @@ public sealed class SimConnectClient : ISimBridge
             _sim.OnRecvQuit += OnRecvQuit;
             _sim.OnRecvException += OnRecvException;
             _sim.OnRecvSimobjectData += OnRecvSimobjectData;
+            _sim.OnRecvEvent += OnRecvEvent;
             _sim.OnRecvAirportList += OnRecvAirportList;
             _sim.OnRecvFacilityData += OnRecvFacilityData;
             _sim.OnRecvFacilityDataEnd += OnRecvFacilityDataEnd;
@@ -1405,6 +1428,25 @@ public sealed class SimConnectClient : ISimBridge
         Log($"SimConnect exception: {name} (code {data.dwException}, send {data.dwSendID}, index {data.dwIndex})");
     }
 
+    private void OnRecvEvent(
+        Microsoft.FlightSimulator.SimConnect.SimConnect sender,
+        SIMCONNECT_RECV_EVENT data)
+    {
+        if ((Events)data.uEventID != Events.PauseStateEx1)
+            return;
+
+        lock (_pauseStateLock)
+        {
+            var flags = data.dwData;
+            var active = flags != 0;
+            if (active && !_pauseWasActive)
+                _pauseGeneration++;
+            _pauseStateFlags = flags;
+            _pauseWasActive = active;
+            _pauseStateKnown = true;
+        }
+    }
+
     private void OnRecvAirportList(
         Microsoft.FlightSimulator.SimConnect.SimConnect sender,
         SIMCONNECT_RECV_AIRPORT_LIST data)
@@ -1576,6 +1618,17 @@ public sealed class SimConnectClient : ISimBridge
         try
         {
             var t = (TelemetryStruct)data.dwData[0];
+            bool pauseStateAvailable;
+            bool normalPauseActive;
+            bool activePauseActive;
+            long pauseGeneration;
+            lock (_pauseStateLock)
+            {
+                pauseStateAvailable = _pauseStateKnown;
+                normalPauseActive = (_pauseStateFlags & (1u | 2u | 8u)) != 0;
+                activePauseActive = (_pauseStateFlags & 4u) != 0;
+                pauseGeneration = _pauseGeneration;
+            }
             var sample = new TelemetrySample
             {
                 Timestamp = DateTimeOffset.UtcNow,
@@ -1616,9 +1669,33 @@ public sealed class SimConnectClient : ISimBridge
                 SpoilersHandlePosition = t.SpoilersHandle,
                 // Max panel deflection is ground truth; handle alone mis-reports "armed" as out.
                 SpoilersSurfacePosition = Math.Max(t.SpoilersLeft, t.SpoilersRight),
+                SpoilersLeftPosition = t.SpoilersLeft,
+                SpoilersRightPosition = t.SpoilersRight,
+                ManualBrakeLeftPosition = ResolveManualBrakePosition(
+                    t.BrakeLeft, t.IniBrakePedalLeft, t.AutoBrakesActive > 0.5),
+                ManualBrakeRightPosition = ResolveManualBrakePosition(
+                    t.BrakeRight, t.IniBrakePedalRight, t.AutoBrakesActive > 0.5),
                 WindDirectionDeg = t.WindDir,
                 WindVelocityKts = t.WindVel,
                 RadioHeightFeet = t.RadioHeight,
+                RadioHeightAvailable = true,
+                AutopilotHeadingHoldActive = t.AutopilotHeadingLock > 0.5,
+                AutopilotAltitudeHoldActive = t.AutopilotAltitudeLock > 0.5,
+                AutopilotMasterActive = t.AutopilotMaster > 0.5,
+                AutopilotChannel1Active = t.AutopilotMaster > 0.5 || t.IniAp1On > 0.5,
+                AutopilotChannel2Active = t.IniAp2On > 0.5,
+                AutothrustActive = t.AutopilotManagedThrottleActive > 0.5
+                                   || t.IniAthrLight > 0.5
+                                   || t.IniAthrModeActive > 0.5,
+                AutothrustArmed = t.AutopilotThrottleArm > 0.5
+                                  || t.IniAutothrottleArmed > 0.5,
+                SimulationRate = t.SimulationRate > 0 && double.IsFinite(t.SimulationRate)
+                    ? t.SimulationRate
+                    : null,
+                PauseStateAvailable = pauseStateAvailable,
+                NormalPauseActive = normalPauseActive,
+                ActivePauseActive = activePauseActive,
+                PauseGeneration = pauseGeneration,
                 DesignSpeedVs0Kts = t.DesignSpeedVs0,
                 StallWarningActive = t.StallWarning > 0.5,
                 TotalWeightLbs = t.TotalWeight > 0 ? t.TotalWeight : null
@@ -1629,6 +1706,26 @@ public sealed class SimConnectClient : ISimBridge
         {
             Log($"Telemetry parse: {ex.Message}");
         }
+    }
+
+    private static double ResolveManualBrakePosition(
+        double standardPosition,
+        double a330PedalPosition,
+        bool autobrakeActive)
+    {
+        var pedal = NormalizeUnitPosition(a330PedalPosition);
+        if (autobrakeActive)
+            return pedal;
+        return Math.Max(pedal, Math.Clamp(standardPosition / 32768.0, 0, 1));
+    }
+
+    private static double NormalizeUnitPosition(double raw)
+    {
+        if (!double.IsFinite(raw) || raw <= 0) return 0;
+        if (raw <= 1) return raw;
+        if (raw <= 100) return raw / 100.0;
+        if (raw <= 16384) return raw / 16384.0;
+        return Math.Clamp(raw / 32768.0, 0, 1);
     }
 
     private void EnsureDefinitions()
@@ -1702,6 +1799,38 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.Telemetry, "SPOILERS RIGHT POSITION", "percent over 100",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "BRAKE PARKING POSITION", "percent over 100",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "BRAKE LEFT POSITION", "position",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "BRAKE RIGHT POSITION", "position",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "AUTOBRAKES ACTIVE", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "SIMULATION RATE", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "AUTOPILOT HEADING LOCK", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "AUTOPILOT ALTITUDE LOCK", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "AUTOPILOT MASTER", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "AUTOPILOT THROTTLE ARM", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "AUTOPILOT MANAGED THROTTLE ACTIVE", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_AP1_ON", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_AP2_ON", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_ATHR_LIGHT", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_ATHR_MODE_ACTIVE", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_AUTOTHROTTLE_ARMED", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_BRAKE_PEDAL_LEFT", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_BRAKE_PEDAL_RIGHT", "number",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
 
         _sim.RegisterDataDefineStruct<TelemetryStruct>(Definitions.Telemetry);
@@ -1820,7 +1949,9 @@ public sealed class SimConnectClient : ISimBridge
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.SpoilersArmSet, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.ParkingBrakeSet, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.ActivePauseOff, false);
+            _sim.AddClientEventToNotificationGroup(Groups.Input, Events.ActivePauseOn, false);
             _sim.SetNotificationGroupPriority(Groups.Input, MsfsSc.SIMCONNECT_GROUP_PRIORITY_HIGHEST);
+            _sim.SubscribeToSystemEvent(Events.PauseStateEx1, "Pause_EX1");
             _eventsMapped = true;
         }
         catch (Exception ex)
@@ -1851,6 +1982,7 @@ public sealed class SimConnectClient : ISimBridge
                 _sim.OnRecvQuit -= OnRecvQuit;
                 _sim.OnRecvException -= OnRecvException;
                 _sim.OnRecvSimobjectData -= OnRecvSimobjectData;
+                _sim.OnRecvEvent -= OnRecvEvent;
                 _sim.OnRecvAirportList -= OnRecvAirportList;
                 _sim.OnRecvFacilityData -= OnRecvFacilityData;
                 _sim.OnRecvFacilityDataEnd -= OnRecvFacilityDataEnd;
@@ -1862,6 +1994,13 @@ public sealed class SimConnectClient : ISimBridge
         _sim = null;
         _defsRegistered = false;
         _eventsMapped = false;
+        lock (_pauseStateLock)
+        {
+            _pauseStateFlags = 0;
+            _pauseGeneration = 0;
+            _pauseStateKnown = false;
+            _pauseWasActive = false;
+        }
         _airportCatalogTcs?.TrySetException(new InvalidOperationException("SimConnect disconnected."));
         _airportCatalogTcs = null;
         _airportCatalogPackets.Clear();

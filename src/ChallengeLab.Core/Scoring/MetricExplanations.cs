@@ -63,6 +63,7 @@ public static class MetricExplanations
             "Legacy single-metric approach path (RMS altitude error vs 3°). Replaced by average glideslope + steadiness.",
         "approach_glideslope" =>
             "Time-weighted mean absolute altitude error versus the nominal 3° path on short final (∫|e|dt / T). " +
+            "The path meets runway elevation 1,200 ft past the threshold (aim point), not at the threshold. " +
             "High and low deviations cannot cancel one another.",
         "approach_vertical_steady" =>
             "Vertical path steadiness: reversal-only excess variation of altitude error per second. " +

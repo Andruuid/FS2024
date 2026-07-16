@@ -71,7 +71,28 @@ public sealed class ScoreEngineTests
             true, false, 0, 0, 0, 0, 0, null),
         ContactStability = new ContactStabilityAnalysis(
             true, Array.Empty<BounceEvent>(), 0, 0, null),
-        TouchdownAnalysisComplete = true
+        TouchdownAnalysisComplete = true,
+        GateObservations =
+        {
+            MonitoringStarted = true,
+            MonitoringStartTimeSeconds = 0,
+            MonitoringStartPauseGeneration = 0,
+            PauseCoverageAvailable = true,
+            SimulationRateCoverageAvailable = true,
+            MinimumSimulationRate = 1,
+            RadioHeightCoverageAvailable = true,
+            HeadingAltitudeAutomationCoverageAvailable = true,
+            FullAutomationCoverageAvailable = true,
+            HeadingAltitudeThresholdObserved = true,
+            FullAutomationThresholdObserved = true,
+            SpoilerTelemetryCoverageAvailable = true,
+            MainGearTouchdownTimeSeconds = 10,
+            FirstSpoilerDeploymentTimeSeconds = 11,
+            NoseGearContactCoverageAvailable = true,
+            ManualBrakeTelemetryCoverageAvailable = true,
+            NoseGearTouchdownTimeSeconds = 10.5,
+            FirstSimultaneousBrakingTimeSeconds = 11
+        }
     };
 
     [Fact]
@@ -291,7 +312,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(14, loaded.Key.Version);
+        Assert.Equal(15, loaded.Key.Version);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
 

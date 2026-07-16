@@ -10,7 +10,8 @@ public sealed record LandingTelemetrySample(
     bool LeftMainOnGround,
     bool RightMainOnGround,
     bool NoseOnGround,
-    bool MainGearContactsAvailable);
+    bool MainGearContactsAvailable,
+    bool NoseGearContactAvailable = true);
 
 public sealed record ImpactAnalysis(
     bool Available,
@@ -53,6 +54,8 @@ public sealed record ContactStabilityAnalysis(
 /// <summary>Raw values and component scores needed to explain or persist a landing result.</summary>
 public sealed class LandingResultDiagnostics
 {
+    public LandingGateObservations OperationalGates { get; set; } = new();
+
     public double TouchdownVerticalSpeedFpm { get; set; }
     public double TouchdownVerticalSpeedSubscore { get; set; }
     public string TouchdownVerticalSpeedSource { get; set; } = "";

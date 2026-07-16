@@ -44,7 +44,15 @@ public sealed class LandingEvaluationKey
         SpeedTarget.Vs0Factor,
         ContactMapping,
         flare?.Params.GetValueOrDefault("entryVerticalSpeedFpm", -80) ?? -80,
-        flare?.Params.GetValueOrDefault("minSustainSeconds", 0.15) ?? 0.15);
+        flare?.Params.GetValueOrDefault("minSustainSeconds", 0.15) ?? 0.15)
+        {
+            OperationalGates = new OperationalGateSessionSettings(
+                Gates?.SpoilerDeployment,
+                Gates?.ManualBraking,
+                Gates?.Automation,
+                Gates?.PauseUsage,
+                Gates?.SimulationRate)
+        };
     }
 }
 
@@ -75,6 +83,8 @@ public sealed record LandingSessionSettings(
     double FlareEntryVerticalSpeedFpm,
     double FlareMinSustainSeconds)
 {
+    public OperationalGateSessionSettings OperationalGates { get; init; } = new();
+
     /// <summary>Compatibility constructor for existing callers that use the pre-v9 settings shape.</summary>
     public LandingSessionSettings(
         double SettledGroundSpeedKts,
@@ -103,6 +113,20 @@ public sealed record LandingSessionSettings(
             new LandingContactMapping(), -80, 0.15)
     {
     }
+}
+
+public sealed record OperationalGateSessionSettings(
+    SpoilerDeploymentGateConfig? SpoilerDeployment = null,
+    ManualBrakingGateConfig? ManualBraking = null,
+    AutomationGateConfig? Automation = null,
+    PauseUsageGateConfig? PauseUsage = null,
+    SimulationRateGateConfig? SimulationRate = null)
+{
+    public bool Enabled => SpoilerDeployment is not null
+                           || ManualBraking is not null
+                           || Automation is not null
+                           || PauseUsage is not null
+                           || SimulationRate is not null;
 }
 
 public sealed class EvaluationSettle
@@ -208,6 +232,48 @@ public sealed class EvaluationGates
     public StallWarningGateConfig? StallWarning { get; set; }
     public GearGateConfig? Gear { get; set; }
     public FlapsGateConfig? Flaps { get; set; }
+    public SpoilerDeploymentGateConfig? SpoilerDeployment { get; set; }
+    public ManualBrakingGateConfig? ManualBraking { get; set; }
+    public AutomationGateConfig? Automation { get; set; }
+    public PauseUsageGateConfig? PauseUsage { get; set; }
+    public SimulationRateGateConfig? SimulationRate { get; set; }
+}
+
+public sealed class SpoilerDeploymentGateConfig
+{
+    public double MinimumSurfacePosition { get; set; } = 0.15;
+    public double DeadlineSecondsAfterTouchdown { get; set; } = 2.0;
+    public double MultiplierOnFail { get; set; } = 0.9;
+    public string? PenaltyDescription { get; set; }
+}
+
+public sealed class ManualBrakingGateConfig
+{
+    public double PedalPressThreshold { get; set; } = 0.05;
+    public double DeadlineSecondsAfterNoseTouchdown { get; set; } = 4.0;
+    public double MultiplierOnFail { get; set; } = 0.9;
+    public string? PenaltyDescription { get; set; }
+}
+
+public sealed class AutomationGateConfig
+{
+    public double HeadingAltitudeOffRadioHeightFeet { get; set; } = 2000;
+    public double AllAutomationOffRadioHeightFeet { get; set; } = 1000;
+    public double MultiplierOnFail { get; set; } = 0.9;
+    public string? PenaltyDescription { get; set; }
+}
+
+public sealed class PauseUsageGateConfig
+{
+    public double MultiplierOnFail { get; set; } = 0.95;
+    public string? PenaltyDescription { get; set; }
+}
+
+public sealed class SimulationRateGateConfig
+{
+    public double MinimumAllowedRate { get; set; } = 0.99;
+    public double MultiplierOnFail { get; set; } = 0.8;
+    public string? PenaltyDescription { get; set; }
 }
 
 /// <summary>Penalty-only gate latched by any stall warning during an armed attempt.</summary>

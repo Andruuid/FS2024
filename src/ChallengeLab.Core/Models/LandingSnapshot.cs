@@ -15,6 +15,7 @@ public sealed class LandingSnapshot
 
     /// <summary>
     /// Time-weighted mean absolute altitude error vs the nominal 3° path: ∫|e(t)|dt / T (ft).
+    /// Path meets field elevation 1,200 ft past the threshold (aim point).
     /// High and low deviations cannot cancel one another.
     /// </summary>
     public double ApproachGlideslopeMeanAbsFt { get; set; }
@@ -120,6 +121,9 @@ public sealed class LandingSnapshot
 
     /// <summary>Latched true if any telemetry sample warned of a stall while armed.</summary>
     public bool StallWarningOccurred { get; set; }
+
+    /// <summary>Operational Challenge/Career gate observations. Free Flight leaves this unused.</summary>
+    public LandingGateObservations GateObservations { get; } = new();
 
     public List<TelemetrySample> ApproachSamples { get; } = new();
     public List<TelemetrySample> RolloutSamples { get; } = new();

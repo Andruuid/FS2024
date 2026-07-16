@@ -79,15 +79,17 @@ public static class LandingMonitorCalculator
 
         double? glideslope = null;
         var glideslopeStatus = LandingMonitorStatus.Neutral;
-        var heightAboveThresholdFeet = sample.AltitudeFeet - runway.ElevationFeet;
+        var heightAboveFieldFeet = sample.AltitudeFeet - runway.ElevationFeet;
+        // Geometric path angle to the aim point (threshold + 1,200 ft), matching scored 3° path.
+        var pathDistanceMeters = path.GlideslopePathDistanceMeters;
         if (!sample.SimOnGround
-            && path.ApproachDistanceMeters > 0
-            && double.IsFinite(heightAboveThresholdFeet)
-            && heightAboveThresholdFeet >= 0)
+            && pathDistanceMeters > 0
+            && double.IsFinite(heightAboveFieldFeet)
+            && heightAboveFieldFeet >= 0)
         {
             glideslope = Math.Atan2(
-                    heightAboveThresholdFeet,
-                    path.ApproachDistanceMeters * FeetPerMeter)
+                    heightAboveFieldFeet,
+                    pathDistanceMeters * FeetPerMeter)
                 * 180.0 / Math.PI;
             glideslopeStatus = ClassifyGlideslope(glideslope.Value);
         }

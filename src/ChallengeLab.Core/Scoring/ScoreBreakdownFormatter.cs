@@ -32,6 +32,10 @@ public static class ScoreBreakdownFormatter
         var stallWarningPenaltyApplied = criteria.Any(c =>
             c.Id.Equals("stall_warning", StringComparison.OrdinalIgnoreCase)
             && c.Status == MetricStatus.GateFailed);
+        var operationalPenalties = criteria.Where(c =>
+                c.Status == MetricStatus.GateFailed
+                && c.Id is "spoiler_deployment" or "manual_braking" or "automation" or "pause_usage" or "simulation_rate")
+            .ToList();
         if (scorePercent is not null)
             sb.Append("Total Grade ").Append(grade).Append("  ").Append(Pct(scorePercent));
         else
@@ -39,13 +43,15 @@ public static class ScoreBreakdownFormatter
         sb.AppendLine();
 
         if (contactPenaltyApplied || stallWarningPenaltyApplied
-            || gearUpPenaltyApplied || flapsPenaltyApplied)
+            || gearUpPenaltyApplied || flapsPenaltyApplied || operationalPenalties.Count > 0)
         {
             sb.Append("(pre-gate ").Append(Pct(scoreBeforeGatesPercent));
             if (contactPenaltyApplied) sb.Append(" · bounce penalty");
             if (stallWarningPenaltyApplied) sb.Append(" · stall-warning penalty");
             if (gearUpPenaltyApplied) sb.Append(" · gear-up penalty");
             if (flapsPenaltyApplied) sb.Append(" · flaps penalty");
+            foreach (var penalty in operationalPenalties)
+                sb.Append(" · ").Append(ShortName(penalty.Id, penalty.DisplayName)).Append(" penalty");
             sb.Append(')');
             sb.AppendLine();
         }
@@ -82,6 +88,8 @@ public static class ScoreBreakdownFormatter
                 sb.AppendLine("GEAR UP (hard penalty)");
             if (flapsPenaltyApplied)
                 sb.AppendLine("FLAPS NOT SET (penalty)");
+            foreach (var penalty in operationalPenalties)
+                sb.AppendLine($"{penalty.DisplayName.ToUpperInvariant()} (penalty)");
         }
 
         return sb.ToString().TrimEnd() + Environment.NewLine;
@@ -189,6 +197,11 @@ public static class ScoreBreakdownFormatter
         "bank" => "bank",
         "alignment" => "alignment",
         "flaps" => "flaps",
+        "spoiler_deployment" => "spoilers",
+        "manual_braking" => "manual brakes",
+        "automation" => "automation",
+        "pause_usage" => "pause",
+        "simulation_rate" => "sim rate",
         "approach_path" => "3° path accuracy",
         "approach_glideslope" => "avg glideslope",
         "approach_vertical_steady" => "vert steady",

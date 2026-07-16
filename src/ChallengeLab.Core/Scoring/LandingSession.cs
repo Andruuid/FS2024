@@ -14,6 +14,7 @@ public sealed class LandingSession
     private double? _settledSince;
     private DateTimeOffset _armedAt;
     private bool _wasAnyMainOnGround;
+    private bool _wasNoseOnGround;
     private bool _touchdownCaptured;
     private int _airborneSampleCount;
     private readonly List<double> _rolloutHeadings = new();
@@ -71,6 +72,7 @@ public sealed class LandingSession
         // does not instantly re-fire touchdown on the next frame.
         _armedAt = DateTimeOffset.UtcNow;
         _wasAnyMainOnGround = true;
+        _wasNoseOnGround = true;
         SetPhase(LandingPhase.Armed);
     }
 
@@ -81,6 +83,7 @@ public sealed class LandingSession
         _settledSince = null;
         _armedAt = default;
         _wasAnyMainOnGround = false;
+        _wasNoseOnGround = false;
         _touchdownCaptured = false;
         _airborneSampleCount = 0;
         _rolloutHeadings.Clear();
@@ -142,6 +145,7 @@ public sealed class LandingSession
         Snapshot.TouchdownAnalysisComplete = false;
         Snapshot.ContactMappingDegraded = false;
         Snapshot.StallWarningOccurred = false;
+        Snapshot.GateObservations.Reset();
         Snapshot.ApproachSamples.Clear();
         Snapshot.RolloutSamples.Clear();
         Snapshot.LandingEventSamples.Clear();
@@ -159,6 +163,8 @@ public sealed class LandingSession
         var anyMainOnGround = logical.MainGearContactsAvailable
             ? logical.LeftMainOnGround || logical.RightMainOnGround
             : sample.SimOnGround;
+
+        UpdateOperationalGates(sample, logical, timeSeconds);
 
         var lateral = _geo.LateralOffsetMeters(sample.Latitude, sample.Longitude);
         Snapshot.MaxLateralOffsetM = Math.Max(Snapshot.MaxLateralOffsetM, Math.Abs(lateral));
@@ -221,10 +227,13 @@ public sealed class LandingSession
                     _settledSince ??= timeSeconds;
                     if (timeSeconds - _settledSince.Value >= _settings.SettledHoldSeconds)
                     {
-                        FinalizeSnapshot();
-                        SetPhase(LandingPhase.Settled);
-                        SettledReady?.Invoke(this, EventArgs.Empty);
-                        SetPhase(LandingPhase.Scored);
+                        if (OperationalGateWindowsComplete(timeSeconds))
+                        {
+                            FinalizeSnapshot();
+                            SetPhase(LandingPhase.Settled);
+                            SettledReady?.Invoke(this, EventArgs.Empty);
+                            SetPhase(LandingPhase.Scored);
+                        }
                     }
                 }
                 else
@@ -241,6 +250,7 @@ public sealed class LandingSession
 
         // Always seed ground state so restart-on-runway does not treat the first frame as TD.
         _wasAnyMainOnGround = anyMainOnGround;
+        _wasNoseOnGround = logical.NoseOnGround;
 
         // Keep derived metrics fresh for live preview scoring (cheap enough at sample rate).
         if (Phase is LandingPhase.Approach or LandingPhase.Flare or LandingPhase.Rollout
@@ -279,6 +289,7 @@ public sealed class LandingSession
     {
         _touchdownCaptured = true;
         _touchdownTimeSeconds = logical.TimeSeconds;
+        Snapshot.GateObservations.MainGearTouchdownTimeSeconds = logical.TimeSeconds;
         Snapshot.ContactMappingDegraded = !logical.MainGearContactsAvailable;
         Snapshot.Touchdown = sample;
         Snapshot.VerticalSpeedAtTouchdownFpm = sample.VerticalSpeedFpm;
@@ -299,6 +310,215 @@ public sealed class LandingSession
         Snapshot.TouchdownIasErrorKts = sample.AirspeedKts - targetTd;
         Snapshot.ExcessSpeedOverVappKts = Math.Max(0, sample.AirspeedKts - vapp);
         Snapshot.SpeedTargetSource = source;
+
+        // The touchdown frame itself is inside the inclusive spoiler window.
+        UpdateSpoilerDeploymentGate(sample, logical.TimeSeconds);
+    }
+
+    private void UpdateOperationalGates(
+        TelemetrySample sample,
+        LandingTelemetrySample logical,
+        double timeSeconds)
+    {
+        var gates = _settings.OperationalGates;
+        if (!gates.Enabled)
+            return;
+
+        var observations = Snapshot.GateObservations;
+        if (!observations.MonitoringStarted)
+        {
+            var unpaused = gates.PauseUsage is null
+                           || sample.PauseStateAvailable
+                           && !sample.NormalPauseActive
+                           && !sample.ActivePauseActive;
+            if (!unpaused)
+                return;
+
+            observations.MonitoringStarted = true;
+            observations.MonitoringStartTimeSeconds = timeSeconds;
+            observations.MonitoringStartPauseGeneration = sample.PauseStateAvailable
+                ? sample.PauseGeneration
+                : null;
+        }
+
+        UpdateManualBrakingGate(sample, logical, timeSeconds);
+
+        // Pause, rate, and automation are approach gates and stop at the accepted main touchdown.
+        if (!_touchdownCaptured)
+        {
+            UpdatePauseGate(sample);
+            UpdateSimulationRateGate(sample);
+            UpdateAutomationGate(sample);
+        }
+
+        if (_touchdownCaptured)
+            UpdateSpoilerDeploymentGate(sample, timeSeconds);
+    }
+
+    private void UpdatePauseGate(TelemetrySample sample)
+    {
+        if (_settings.OperationalGates.PauseUsage is null)
+            return;
+
+        var observations = Snapshot.GateObservations;
+        if (!sample.PauseStateAvailable)
+            return;
+
+        observations.PauseCoverageAvailable = true;
+        if (sample.NormalPauseActive || sample.ActivePauseActive
+            || observations.MonitoringStartPauseGeneration is { } baseline
+            && sample.PauseGeneration > baseline)
+            observations.PauseViolation = true;
+    }
+
+    private void UpdateSimulationRateGate(TelemetrySample sample)
+    {
+        var gate = _settings.OperationalGates.SimulationRate;
+        if (gate is null || sample.SimulationRate is not { } rate || !double.IsFinite(rate))
+            return;
+
+        var observations = Snapshot.GateObservations;
+        observations.SimulationRateCoverageAvailable = true;
+        observations.MinimumSimulationRate = observations.MinimumSimulationRate is { } current
+            ? Math.Min(current, rate)
+            : rate;
+        if (rate < gate.MinimumAllowedRate)
+            observations.ReducedSimulationRateViolation = true;
+    }
+
+    private void UpdateAutomationGate(TelemetrySample sample)
+    {
+        var gate = _settings.OperationalGates.Automation;
+        if (gate is null || !sample.RadioHeightAvailable || !double.IsFinite(sample.RadioHeightFeet))
+            return;
+
+        var observations = Snapshot.GateObservations;
+        observations.RadioHeightCoverageAvailable = true;
+        var radioHeight = Math.Max(0, sample.RadioHeightFeet);
+
+        if (radioHeight <= gate.HeadingAltitudeOffRadioHeightFeet
+            && sample.AutopilotHeadingHoldActive is { } heading
+            && sample.AutopilotAltitudeHoldActive is { } altitude)
+        {
+            observations.HeadingAltitudeAutomationCoverageAvailable = true;
+            observations.HeadingAltitudeThresholdObserved = true;
+            if (heading || altitude)
+            {
+                var state = heading && altitude
+                    ? "heading hold and altitude hold"
+                    : heading ? "heading hold" : "altitude hold";
+                LatchAutomationViolation(state, radioHeight);
+            }
+        }
+
+        if (radioHeight <= gate.AllAutomationOffRadioHeightFeet
+            && sample.AutopilotMasterActive is { } master
+            && sample.AutopilotChannel1Active is { } ap1
+            && sample.AutopilotChannel2Active is { } ap2
+            && sample.AutothrustActive is { } autothrustActive
+            && sample.AutothrustArmed is { } autothrustArmed)
+        {
+            observations.FullAutomationCoverageAvailable = true;
+            observations.FullAutomationThresholdObserved = true;
+            var active = new List<string>(5);
+            if (master) active.Add("AP master");
+            if (ap1) active.Add("AP1");
+            if (ap2) active.Add("AP2");
+            if (autothrustActive) active.Add("autothrust active");
+            if (autothrustArmed) active.Add("autothrust armed");
+            if (active.Count > 0)
+                LatchAutomationViolation(string.Join(", ", active), radioHeight);
+        }
+    }
+
+    private void LatchAutomationViolation(string state, double radioHeight)
+    {
+        var observations = Snapshot.GateObservations;
+        observations.AutomationViolation = true;
+        if (observations.FirstAutomationViolation is not null)
+            return;
+        observations.FirstAutomationViolation = state;
+        observations.FirstAutomationViolationRadioHeightFeet = radioHeight;
+    }
+
+    private void UpdateManualBrakingGate(
+        TelemetrySample sample,
+        LandingTelemetrySample logical,
+        double timeSeconds)
+    {
+        var gate = _settings.OperationalGates.ManualBraking;
+        if (gate is null)
+            return;
+
+        var observations = Snapshot.GateObservations;
+        observations.NoseGearContactCoverageAvailable |= logical.NoseGearContactAvailable;
+        if (sample.ManualBrakeLeftPosition is not { } left
+            || !double.IsFinite(left)
+            || sample.ManualBrakeRightPosition is not { } right
+            || !double.IsFinite(right))
+            return;
+
+        observations.ManualBrakeTelemetryCoverageAvailable = true;
+        var leftPressed = left > gate.PedalPressThreshold;
+        var rightPressed = right > gate.PedalPressThreshold;
+
+        if (logical.NoseGearContactAvailable
+            && logical.NoseOnGround
+            && !_wasNoseOnGround
+            && observations.NoseGearTouchdownTimeSeconds is null)
+            observations.NoseGearTouchdownTimeSeconds = timeSeconds;
+
+        if ((leftPressed || rightPressed)
+            && logical.NoseGearContactAvailable
+            && !logical.NoseOnGround)
+            observations.EarlyOrAirborneBrakeViolation = true;
+
+        if (leftPressed && rightPressed
+            && logical.NoseOnGround
+            && observations.NoseGearTouchdownTimeSeconds is not null
+            && observations.FirstSimultaneousBrakingTimeSeconds is null)
+            observations.FirstSimultaneousBrakingTimeSeconds = timeSeconds;
+    }
+
+    private void UpdateSpoilerDeploymentGate(TelemetrySample sample, double timeSeconds)
+    {
+        var gate = _settings.OperationalGates.SpoilerDeployment;
+        if (gate is null || !_touchdownCaptured)
+            return;
+
+        var observations = Snapshot.GateObservations;
+        if (sample.SpoilersLeftPosition is not { } left
+            || !double.IsFinite(left)
+            || sample.SpoilersRightPosition is not { } right
+            || !double.IsFinite(right))
+            return;
+
+        observations.SpoilerTelemetryCoverageAvailable = true;
+        if (left >= gate.MinimumSurfacePosition
+            && right >= gate.MinimumSurfacePosition
+            && observations.FirstSpoilerDeploymentTimeSeconds is null)
+            observations.FirstSpoilerDeploymentTimeSeconds = timeSeconds;
+    }
+
+    private bool OperationalGateWindowsComplete(double timeSeconds)
+    {
+        var gates = _settings.OperationalGates;
+        if (!gates.Enabled || !_touchdownCaptured)
+            return true;
+
+        var observations = Snapshot.GateObservations;
+        if (gates.SpoilerDeployment is { } spoiler
+            && timeSeconds < _touchdownTimeSeconds + spoiler.DeadlineSecondsAfterTouchdown)
+            return false;
+
+        if (gates.ManualBraking is { } brakes)
+        {
+            var brakeWindowStart = observations.NoseGearTouchdownTimeSeconds ?? _touchdownTimeSeconds;
+            if (timeSeconds < brakeWindowStart + brakes.DeadlineSecondsAfterNoseTouchdown)
+                return false;
+        }
+
+        return true;
     }
 
     private void FinalizeSnapshot() => RefreshDerivedMetrics(finalizing: true);
@@ -394,11 +614,12 @@ public sealed class LandingSession
                         && (conventional || aircraftTypeUnknown || mapping.IsAircraftSpecific);
         var left = available && contacts![mapping.LeftMainGearIndex];
         var right = available && contacts![mapping.RightMainGearIndex];
-        var nose = available && contacts!.TryGetValue(mapping.NoseGearIndex, out var noseValue) && noseValue;
+        var noseAvailable = available && contacts!.ContainsKey(mapping.NoseGearIndex);
+        var nose = noseAvailable && contacts![mapping.NoseGearIndex];
         var agl = sample.RadioHeightFeet > 0 ? sample.RadioHeightFeet : sample.AglFeet;
         return new LandingTelemetrySample(
             timeSeconds, agl, sample.GroundSpeedKts, sample.VerticalSpeedFpm, sample.GForce,
-            left, right, nose, available);
+            left, right, nose, available, noseAvailable);
     }
 
     /// <summary>

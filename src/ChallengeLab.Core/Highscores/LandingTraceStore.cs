@@ -95,7 +95,8 @@ public sealed class LandingTraceStore
                 GroundTrackErrorMeanDeg = snapshot.GroundTrackErrorMeanDeg,
                 PostTouchdownAlignmentMeanDeg = snapshot.PostTouchdownAlignmentMeanDeg,
                 VappKts = snapshot.VappKts,
-                TargetTouchdownIasKts = snapshot.TargetTouchdownIasKts
+                TargetTouchdownIasKts = snapshot.TargetTouchdownIasKts,
+                OperationalGates = snapshot.GateObservations
             },
             ApproachSamples = Downsample(snapshot.ApproachSamples, interval, tdTime),
             RolloutSamples = Downsample(snapshot.RolloutSamples, interval, tdTime),
@@ -165,6 +166,7 @@ public sealed class LandingTraceDocument
 
 public sealed class LandingTraceSnapshot
 {
+    public LandingGateObservations OperationalGates { get; set; } = new();
     public double TouchdownLateralOffsetM { get; set; }
     public double VerticalSpeedAtTouchdownFpm { get; set; }
     public double AirspeedAtTouchdownKts { get; set; }
@@ -218,6 +220,22 @@ public sealed class LandingTraceSample
     public Dictionary<int, bool>? GearContacts { get; set; }
     public int Flaps { get; set; }
     public double Gear { get; set; }
+    public double? RadioAltFt { get; set; }
+    public double? SpoilersLeft { get; set; }
+    public double? SpoilersRight { get; set; }
+    public double? BrakeLeft { get; set; }
+    public double? BrakeRight { get; set; }
+    public bool? HeadingHold { get; set; }
+    public bool? AltitudeHold { get; set; }
+    public bool? AutopilotMaster { get; set; }
+    public bool? Autopilot1 { get; set; }
+    public bool? Autopilot2 { get; set; }
+    public bool? AutothrustActive { get; set; }
+    public bool? AutothrustArmed { get; set; }
+    public double? SimRate { get; set; }
+    public bool? Paused { get; set; }
+    public bool? ActivePaused { get; set; }
+    public long? PauseGeneration { get; set; }
 
     public static LandingTraceSample From(TelemetrySample s) => new()
     {
@@ -240,6 +258,22 @@ public sealed class LandingTraceSample
         RightMainOnGnd = s.GearOnGroundByIndex?.TryGetValue(2, out var right) == true ? right : null,
         GearContacts = s.GearOnGroundByIndex?.ToDictionary(pair => pair.Key, pair => pair.Value),
         Flaps = s.FlapsHandleIndex,
-        Gear = s.GearHandlePosition
+        Gear = s.GearHandlePosition,
+        RadioAltFt = s.RadioHeightAvailable ? s.RadioHeightFeet : null,
+        SpoilersLeft = s.SpoilersLeftPosition,
+        SpoilersRight = s.SpoilersRightPosition,
+        BrakeLeft = s.ManualBrakeLeftPosition,
+        BrakeRight = s.ManualBrakeRightPosition,
+        HeadingHold = s.AutopilotHeadingHoldActive,
+        AltitudeHold = s.AutopilotAltitudeHoldActive,
+        AutopilotMaster = s.AutopilotMasterActive,
+        Autopilot1 = s.AutopilotChannel1Active,
+        Autopilot2 = s.AutopilotChannel2Active,
+        AutothrustActive = s.AutothrustActive,
+        AutothrustArmed = s.AutothrustArmed,
+        SimRate = s.SimulationRate,
+        Paused = s.PauseStateAvailable ? s.NormalPauseActive : null,
+        ActivePaused = s.PauseStateAvailable ? s.ActivePauseActive : null,
+        PauseGeneration = s.PauseStateAvailable ? s.PauseGeneration : null
     };
 }

@@ -215,6 +215,12 @@ public static class LiveApproachIssueBuilder
         if (preview.Criteria.Any(c =>
                 c.Id == "stall_warning" && c.Status == MetricStatus.GateFailed))
             issues.Add(new Issue("stall-warning penalty", 1.2));
+        foreach (var criterion in preview.Criteria.Where(c =>
+                     c.Status == MetricStatus.GateFailed
+                     && c.Id is "spoiler_deployment" or "manual_braking" or "automation" or "pause_usage" or "simulation_rate"))
+            issues.Add(new Issue(
+                ScoreBreakdownFormatter.ShortName(criterion.Id, criterion.DisplayName) + " penalty",
+                1.1));
     }
 
     private static Issue? MapCriterion(CriterionScore c, LandingSnapshot snapshot)

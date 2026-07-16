@@ -49,7 +49,7 @@ public sealed class TouchdownEvaluationV9Tests
         var catalog = loader.LoadCatalog();
         foreach (var (path, version) in new[]
                  {
-                     (catalog.EvaluationKey, 14),
+                     (catalog.EvaluationKey, 15),
                      (catalog.FreeFlightEvaluationKey, 4)
                  })
         {
@@ -191,7 +191,7 @@ public sealed class TouchdownEvaluationV9Tests
         var result = new ScoreEngine(profile11.Key, profile11.ProfileHash)
             .EvaluatePreview(challenge, new LandingSnapshot());
         Assert.Equal(profile11.Key.Id, result.EvaluationKeyId);
-        Assert.Equal(14, result.EvaluationKeyVersion);
+        Assert.Equal(15, result.EvaluationKeyVersion);
         Assert.Equal(profile11.ProfileHash, result.ScoringProfileHash);
         Assert.Equal(profile11.BucketId(challenge.Id), result.RankedBucketId);
 
@@ -561,7 +561,8 @@ public sealed class TouchdownEvaluationV9Tests
         {
             PostArmIgnoreSeconds = 0,
             RequireAirborneBeforeTouchdown = false,
-            SettledHoldSeconds = 1
+            SettledHoldSeconds = 1,
+            OperationalGates = new OperationalGateSessionSettings()
         };
         var session = new LandingSession(challenge, settings);
         var wall = DateTimeOffset.UtcNow;

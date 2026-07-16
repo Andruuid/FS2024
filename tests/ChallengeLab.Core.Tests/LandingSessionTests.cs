@@ -152,9 +152,9 @@ public sealed class LandingSessionTests
             GForce = 1
         });
 
-        // Short final ~1.0 NM on a perfect 3° path: elev + 1*318.
+        // Short final ~1.0 NM on a perfect 3° path to aim point (threshold + 1,200 ft).
         var elev = challenge.Runway.ElevationFeet;
-        var perfectAlt = elev + 318.0;
+        var perfectAlt = RunwayPathGeometry.ExpectedAltitudeFeet(1.0, elev);
         // Point ~1 NM along runway heading from threshold
         var h = challenge.Runway.HeadingTrueDeg * Math.PI / 180.0;
         var nm = 1.0;
@@ -302,7 +302,7 @@ public sealed class LandingSessionTests
         var dLon = (m * Math.Sin(h)) / (111320.0 * Math.Cos(challenge.Runway.ThresholdLatitude * Math.PI / 180.0));
         var lat = challenge.Runway.ThresholdLatitude - dLat;
         var lon = challenge.Runway.ThresholdLongitude - dLon;
-        var perfectAlt = elev + nm * 318.0;
+        var perfectAlt = RunwayPathGeometry.ExpectedAltitudeFeet(nm, elev);
 
         for (var i = 0; i < 12; i++)
         {
@@ -350,7 +350,7 @@ public sealed class LandingSessionTests
         var dLon = (m * Math.Sin(h)) / (111320.0 * Math.Cos(challenge.Runway.ThresholdLatitude * Math.PI / 180.0));
         var lat = challenge.Runway.ThresholdLatitude - dLat;
         var lon = challenge.Runway.ThresholdLongitude - dLon;
-        var perfectAlt = elev + nm * 318.0;
+        var perfectAlt = RunwayPathGeometry.ExpectedAltitudeFeet(nm, elev);
 
         for (var i = 0; i < 20; i++)
         {

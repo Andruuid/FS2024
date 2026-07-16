@@ -25,6 +25,12 @@ public static class EvaluationKeyValidator
         ValidateStallWarningGate(key.Gates?.StallWarning, errors);
         ValidateGear(key.Gates?.Gear, errors);
         ValidateFlapsGate(key.Gates?.Flaps, errors);
+        ValidateSpoilerDeploymentGate(key.Gates?.SpoilerDeployment, errors);
+        ValidateManualBrakingGate(key.Gates?.ManualBraking, errors);
+        ValidateAutomationGate(key.Gates?.Automation, errors);
+        ValidateOptionalMultiplier(key.Gates?.PauseUsage?.MultiplierOnFail,
+            "gates.pauseUsage.multiplierOnFail", errors);
+        ValidateSimulationRateGate(key.Gates?.SimulationRate, errors);
         ValidateContactMapping(key.ContactMapping, errors);
 
         if (key.Phases.Count == 0)
@@ -348,6 +354,73 @@ public static class EvaluationKeyValidator
             errors.Add("gates.flaps.maxIndex must be >= minIndex.");
         if (!double.IsFinite(flaps.MultiplierOnFail) || flaps.MultiplierOnFail is <= 0 or > 1)
             errors.Add("gates.flaps.multiplierOnFail must be greater than 0 and at most 1.");
+    }
+
+    private static void ValidateSpoilerDeploymentGate(
+        SpoilerDeploymentGateConfig? gate,
+        List<string> errors)
+    {
+        if (gate is null) return;
+        if (!double.IsFinite(gate.MinimumSurfacePosition)
+            || gate.MinimumSurfacePosition is < 0 or > 1)
+            errors.Add("gates.spoilerDeployment.minimumSurfacePosition must be between 0 and 1.");
+        if (!double.IsFinite(gate.DeadlineSecondsAfterTouchdown)
+            || gate.DeadlineSecondsAfterTouchdown < 0)
+            errors.Add("gates.spoilerDeployment.deadlineSecondsAfterTouchdown must be at least zero.");
+        ValidateOptionalMultiplier(gate.MultiplierOnFail,
+            "gates.spoilerDeployment.multiplierOnFail", errors);
+    }
+
+    private static void ValidateManualBrakingGate(
+        ManualBrakingGateConfig? gate,
+        List<string> errors)
+    {
+        if (gate is null) return;
+        if (!double.IsFinite(gate.PedalPressThreshold)
+            || gate.PedalPressThreshold is < 0 or > 1)
+            errors.Add("gates.manualBraking.pedalPressThreshold must be between 0 and 1.");
+        if (!double.IsFinite(gate.DeadlineSecondsAfterNoseTouchdown)
+            || gate.DeadlineSecondsAfterNoseTouchdown < 0)
+            errors.Add("gates.manualBraking.deadlineSecondsAfterNoseTouchdown must be at least zero.");
+        ValidateOptionalMultiplier(gate.MultiplierOnFail,
+            "gates.manualBraking.multiplierOnFail", errors);
+    }
+
+    private static void ValidateAutomationGate(AutomationGateConfig? gate, List<string> errors)
+    {
+        if (gate is null) return;
+        if (!IsPositiveFinite(gate.HeadingAltitudeOffRadioHeightFeet))
+            errors.Add("gates.automation.headingAltitudeOffRadioHeightFeet must be greater than zero.");
+        if (!IsPositiveFinite(gate.AllAutomationOffRadioHeightFeet))
+            errors.Add("gates.automation.allAutomationOffRadioHeightFeet must be greater than zero.");
+        if (double.IsFinite(gate.HeadingAltitudeOffRadioHeightFeet)
+            && double.IsFinite(gate.AllAutomationOffRadioHeightFeet)
+            && gate.HeadingAltitudeOffRadioHeightFeet < gate.AllAutomationOffRadioHeightFeet)
+            errors.Add("gates.automation.headingAltitudeOffRadioHeightFeet must be >= allAutomationOffRadioHeightFeet.");
+        ValidateOptionalMultiplier(gate.MultiplierOnFail,
+            "gates.automation.multiplierOnFail", errors);
+    }
+
+    private static void ValidateSimulationRateGate(
+        SimulationRateGateConfig? gate,
+        List<string> errors)
+    {
+        if (gate is null) return;
+        if (!double.IsFinite(gate.MinimumAllowedRate)
+            || gate.MinimumAllowedRate is <= 0 or > 1)
+            errors.Add("gates.simulationRate.minimumAllowedRate must be greater than 0 and at most 1.");
+        ValidateOptionalMultiplier(gate.MultiplierOnFail,
+            "gates.simulationRate.multiplierOnFail", errors);
+    }
+
+    private static void ValidateOptionalMultiplier(
+        double? multiplier,
+        string path,
+        List<string> errors)
+    {
+        if (multiplier is null) return;
+        if (!double.IsFinite(multiplier.Value) || multiplier.Value is <= 0 or > 1)
+            errors.Add($"{path} must be greater than 0 and at most 1.");
     }
 
     private static void ValidateContactMapping(LandingContactMapping? mapping, List<string> errors)

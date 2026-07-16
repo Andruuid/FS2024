@@ -219,6 +219,9 @@ public sealed class ScoreEngine
         var flapsFailed = preview
             ? AppendFlapsGatePreview(snapshot, criteria)
             : AppendFlapsGate(snapshot, criteria, incompleteReasons);
+        var operationalGateMultiplier = OperationalGateEvaluator.Append(
+            _key, snapshot, criteria, incompleteReasons, preview);
+        diagnostics.OperationalGates = snapshot.GateObservations;
         var ranked = preview || incompleteReasons.Count == 0;
         double? scoreBeforeGates = null;
         double? scorePercent = null;
@@ -228,8 +231,9 @@ public sealed class ScoreEngine
 
         if (ranked)
         {
-            scoreBeforeGates = Math.Round(Math.Clamp(totalBeforeGate, 0, 100), 1);
-            var final = scoreBeforeGates.Value * contactStabilityMultiplier;
+            var rawScoreBeforeGates = Math.Clamp(totalBeforeGate, 0, 100);
+            scoreBeforeGates = Math.Round(rawScoreBeforeGates, 1);
+            var final = rawScoreBeforeGates * contactStabilityMultiplier;
             if (stallWarningFailed)
                 final *= _key.Gates!.StallWarning!.MultiplierOnWarning;
             if (gearFailed)
@@ -243,6 +247,8 @@ public sealed class ScoreEngine
                 final *= _key.Gates!.Flaps!.MultiplierOnFail;
                 flapsPenaltyApplied = true;
             }
+
+            final *= operationalGateMultiplier;
 
             scorePercent = Math.Round(Math.Clamp(final, 0, 100), 1);
             grade = ScoreResult.GradeFromPercent(scorePercent.Value);

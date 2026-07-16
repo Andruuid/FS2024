@@ -129,6 +129,37 @@ public sealed class LandingReportV9Tests
     }
 
     [Fact]
+    public void Report_ShowsAllOperationalGateCardsWithFailureDetails()
+    {
+        var ids = new[]
+        {
+            "spoiler_deployment", "manual_braking", "automation", "pause_usage", "simulation_rate"
+        };
+        var entry = new HighscoreEntry
+        {
+            ChallengeTitle = "Operational gates",
+            EvaluationKeyVersion = 15,
+            ScoringProfileHash = "gates",
+            RankedBucketId = "test|landing-evaluation-key|v15|gates",
+            Criteria = ids.Select(id => new HighscoreCriterionDetail
+            {
+                Id = id,
+                DisplayName = id.Replace('_', ' '),
+                Status = MetricStatus.GateFailed,
+                RawValue = 1,
+                Note = $"{id} failed; ranked overall score multiplied."
+            }).ToList()
+        };
+
+        var report = new LandingReportViewModel(entry);
+
+        Assert.Equal(5, report.Metrics.Count);
+        Assert.All(ids, id => Assert.Single(report.Metrics, metric => metric.Id == id));
+        Assert.All(report.Metrics, metric => Assert.Equal("FAILED GATE", metric.Verdict));
+        Assert.All(report.Metrics, metric => Assert.Contains("multiplied", metric.Note));
+    }
+
+    [Fact]
     public void ReportXaml_KeepsReadOnlyProgressBindingsOneWayAndCodePaintedCards()
     {
         var root = FindRepositoryRoot();

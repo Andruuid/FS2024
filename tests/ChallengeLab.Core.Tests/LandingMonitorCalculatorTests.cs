@@ -82,19 +82,31 @@ public sealed class LandingMonitorCalculatorTests
     }
 
     [Fact]
-    public void BehindThresholdAndOnGround_GlideslopeIsNeutral()
+    public void PastAimPointAndOnGround_GlideslopeIsNeutral()
     {
-        var behind = SampleAtDistance(-.1, 3);
+        // 0.25 NM past threshold is past the 1,200 ft aim point → no geometric path angle.
+        var pastAim = SampleAtDistance(-.25, 3);
         var ground = SampleAtDistance(1, 3, onGround: true);
 
-        var behindReading = LandingMonitorCalculator.Calculate(behind, Runway, 135, .2, 4.5);
+        var pastAimReading = LandingMonitorCalculator.Calculate(pastAim, Runway, 135, .2, 4.5);
         var groundReading = LandingMonitorCalculator.Calculate(ground, Runway, 135, .2, 4.5);
 
-        Assert.Null(behindReading.GlideslopeDeg);
-        Assert.Equal(LandingMonitorStatus.Neutral, behindReading.GlideslopeStatus);
+        Assert.Null(pastAimReading.GlideslopeDeg);
+        Assert.Equal(LandingMonitorStatus.Neutral, pastAimReading.GlideslopeStatus);
         Assert.Null(groundReading.GlideslopeDeg);
         Assert.Equal(LandingMonitorStatus.Neutral, groundReading.GlideslopeStatus);
         Assert.False(groundReading.IsInsideCollectionWindow);
+    }
+
+    [Fact]
+    public void ExpectedAltitude_MeetsElevationAtAimPointNotThreshold()
+    {
+        var atThreshold = RunwayPathGeometry.ExpectedAltitudeFeet(0, Runway.ElevationFeet);
+        var atAim = RunwayPathGeometry.ExpectedAltitudeFeet(
+            -RunwayPathGeometry.GlideslopeAimPointOffsetNm, Runway.ElevationFeet);
+
+        Assert.InRange(atThreshold - Runway.ElevationFeet, 60, 70); // ~1,200 ft × tan(3°)
+        Assert.InRange(atAim, Runway.ElevationFeet - 0.01, Runway.ElevationFeet + 0.01);
     }
 
     private static TelemetrySample SampleAtDistance(
@@ -109,8 +121,10 @@ public sealed class LandingMonitorCalculatorTests
     {
         var distanceMeters = distanceNm * RunwayPathGeometry.MetersPerNauticalMile;
         var longitude = -distanceMeters / RunwayPathGeometry.EarthRadiusMeters * 180 / Math.PI;
+        // Height for the requested geometric angle is measured to the aim point, not threshold.
+        var pathDistanceMeters = distanceMeters + RunwayPathGeometry.GlideslopeAimPointOffsetMeters;
         var heightFeet = Math.Tan(angleDeg * Math.PI / 180)
-                         * Math.Abs(distanceMeters) * LandingMonitorCalculator.FeetPerMeter;
+                         * Math.Abs(pathDistanceMeters) * LandingMonitorCalculator.FeetPerMeter;
         return new TelemetrySample
         {
             Timestamp = DateTimeOffset.Parse("2026-07-15T10:00:00Z"),

@@ -43,7 +43,7 @@ public sealed class LiveApproachIssueBuilderTests
         var lat = -16.513847 + (northM / 6_371_000.0) * (180.0 / Math.PI);
         var lon = -68.176663
                   + (eastM / (6_371_000.0 * Math.Cos(-16.513847 * Math.PI / 180.0))) * (180.0 / Math.PI);
-        var expectedAlt = 13300 + distNm * 318.0;
+        var expectedAlt = RunwayPathGeometry.ExpectedAltitudeFeet(distNm, 13300);
 
         return new TelemetrySample
         {

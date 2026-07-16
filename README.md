@@ -133,10 +133,10 @@ Spawn verified: horiz=… m · altErr=… ft · ias=… kt
 
 `config/scoring/profiles/free-flight-evaluation-key.json` (Free, generic VS0-based VAPP and no flap-index gate)
 
-Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, contact-stability/stall-warning/gear/flap gates, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v14 and the Free key is v4. Session log confirms load:
+Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, safety/operational gates, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v15 and the Free key is v4. Session log confirms load:
 
 ```
-Evaluation key loaded: landing-evaluation-key v14 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%
+Evaluation key loaded: landing-evaluation-key v15 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%
   path: ...\config\scoring\profiles\landing-evaluation-key.json
 ```
 
@@ -144,12 +144,12 @@ Evaluation key loaded: landing-evaluation-key v14 · N metrics · Approach 25% +
 
 ```
 final % = (touchdown × 0.70) + (approach × 0.25) + (rollout × 0.05)
-then contact-stability/stall-warning/gear/flap gates (when required): final × multiplier
+then each applicable safety/operational gate once: final × multiplier; round only the final result
 ```
 
 Within each phase, metrics use the same literal formula: `metric score × importancePercent / 100`. Validation requires metric and phase weights to total exactly 100. There is no Easy/Strict split — every metric in the key is always scored.
 
-### Touchdown evaluation (v14)
+### Touchdown evaluation (v15)
 
 The touchdown phase keeps its 70% overall weight and separates the initial impact from flare/float; later recontacts are handled by a penalty-only gate:
 
@@ -159,6 +159,11 @@ The touchdown phase keeps its 70% overall weight and separates the initial impac
 - `contact_stability` is a penalty-only gate. The initial landing is the baseline; one valid airborne/recontact cycle (second touchdown) applies ×0.9, while two or more cycles (third touchdown or later) apply ×0.8. One-main-first touchdown and contact chatter are not bounces.
 - `stall_warning` is a penalty-only gate. Any `STALL WARNING` activation during the armed attempt applies ×0.5; a warning-free attempt earns no points.
 - `ground_track` is not scored in the Normal profile.
+- Ground spoilers must deploy on both sides by main TD+2 s (×0.9 on failure).
+- Manual brake pedals must remain released while the nose gear is airborne and both be applied by nose TD+4 s; autobrake is ignored (×0.9 on failure).
+- Heading/altitude hold must be off at or below 2,000 ft RA. AP master/AP1/AP2 and active/armed autothrust must be off at or below 1,000 ft RA; flight directors may remain on (one combined ×0.9 gate).
+- Normal pause or Active Pause after the controlled start hold and before touchdown applies ×0.95.
+- Reducing simulation rate below 0.99× before touchdown applies ×0.8.
 
 Composite components use weighted penalty RMS:
 

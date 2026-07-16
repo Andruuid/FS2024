@@ -188,7 +188,7 @@
           "unit": "ft",
           "evaluator": "target",
           "metric": "approachGlideslopeMeanAbsFt",
-          "note": "Time-weighted mean absolute altitude error vs the nominal 3° path: ∫|e(t)| dt / T. High and low deviations cannot cancel.",
+          "note": "Time-weighted mean absolute altitude error vs the nominal 3° path to the aim point 1,200 ft past the threshold (∫|e(t)| dt / T). High and low deviations cannot cancel.",
           "params": { "ideal": 0, "tolerance": 40, "maxError": 350 }
         },
         {
