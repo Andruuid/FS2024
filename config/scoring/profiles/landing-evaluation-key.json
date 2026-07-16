@@ -1,6 +1,6 @@
 {
   "id": "landing-evaluation-key",
-  "version": 13,
+  "version": 14,
   "description": "Single authoritative landing score. Initial touchdown impact combines robust peak G and touchdown vertical speed. Flare/float is evaluated separately. Valid post-touchdown bounces and any stall warning are penalty-only gates. Challenge-specific scoring profiles may define different desired impact characteristics. Every metric scores 0-100%; phases and metrics use literal percentage weights; contact stability, stall warning, gear, and flaps are safety gates.",
   "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply contact-stability/stall-warning/gear/flaps multipliers last when required",
   "settle": {
@@ -144,7 +144,7 @@
         {
           "id": "centerline",
           "displayName": "Centerline offset",
-          "importancePercent": 5,
+          "importancePercent": 7,
           "unit": "m",
           "evaluator": "centerline",
           "metric": "centerlineDeviationM",
@@ -163,15 +163,6 @@
           "evaluator": "target",
           "metric": "bankAtTouchdownDeg",
           "params": { "ideal": 0, "tolerance": 1.5, "maxError": 8 }
-        },
-        {
-          "id": "alignment",
-          "displayName": "Heading versus runway",
-          "importancePercent": 2,
-          "unit": "deg",
-          "evaluator": "target",
-          "metric": "alignmentDeg",
-          "params": { "ideal": 0, "tolerance": 2, "maxError": 12 }
         }
       ]
     },

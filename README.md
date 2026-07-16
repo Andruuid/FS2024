@@ -133,10 +133,10 @@ Spawn verified: horiz=… m · altErr=… ft · ias=… kt
 
 `config/scoring/profiles/free-flight-evaluation-key.json` (Free, generic VS0-based VAPP and no flap-index gate)
 
-Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, contact-stability/stall-warning/gear/flap gates, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v13 and the Free key is v3. Session log confirms load:
+Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, contact-stability/stall-warning/gear/flap gates, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v14 and the Free key is v4. Session log confirms load:
 
 ```
-Evaluation key loaded: landing-evaluation-key v13 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%
+Evaluation key loaded: landing-evaluation-key v14 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%
   path: ...\config\scoring\profiles\landing-evaluation-key.json
 ```
 
@@ -149,7 +149,7 @@ then contact-stability/stall-warning/gear/flap gates (when required): final × m
 
 Within each phase, metrics use the same literal formula: `metric score × importancePercent / 100`. Validation requires metric and phase weights to total exactly 100. There is no Easy/Strict split — every metric in the key is always scored.
 
-### Touchdown evaluation (v13)
+### Touchdown evaluation (v14)
 
 The touchdown phase keeps its 70% overall weight and separates the initial impact from flare/float; later recontacts are handled by a penalty-only gate:
 
@@ -196,7 +196,7 @@ A challenge can deterministically override existing composite parameters and rep
 }
 ```
 
-Every attempt freezes and hashes its complete effective scoring key (including contact mapping). Ranked buckets include challenge ID, key ID, key version, and profile hash, so legacy, v8–v13, and differently tuned profiles cannot mix silently.
+Every attempt freezes and hashes its complete effective scoring key (including contact mapping). Ranked buckets include challenge ID, key ID, key version, and profile hash, so legacy, v8–v14, and differently tuned profiles cannot mix silently.
 
 ### Also editable
 

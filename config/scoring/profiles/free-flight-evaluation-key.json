@@ -1,6 +1,6 @@
 {
   "id": "free-flight-evaluation-key",
-  "version": 3,
+  "version": 4,
   "description": "Aircraft-generic free-flight landing score. Initial impact, flare/float, and post-contact stability are evaluated separately; flap index is not gated.",
   "formula": "phase = sum(metricScore * importancePercent / 100); final = sum(phaseScore * phaseWeightPercent / 100); apply the adaptive gear multiplier last only when required",
   "settle": {
@@ -142,7 +142,7 @@
         {
           "id": "centerline",
           "displayName": "Centerline offset",
-          "importancePercent": 5,
+          "importancePercent": 7,
           "unit": "m",
           "evaluator": "centerline",
           "metric": "centerlineDeviationM",
@@ -172,15 +172,6 @@
           "evaluator": "target",
           "metric": "bankAtTouchdownDeg",
           "params": { "ideal": 0, "tolerance": 1.5, "maxError": 8 }
-        },
-        {
-          "id": "alignment",
-          "displayName": "Heading versus runway",
-          "importancePercent": 2,
-          "unit": "deg",
-          "evaluator": "target",
-          "metric": "alignmentDeg",
-          "params": { "ideal": 0, "tolerance": 2, "maxError": 12 }
         }
       ]
     },

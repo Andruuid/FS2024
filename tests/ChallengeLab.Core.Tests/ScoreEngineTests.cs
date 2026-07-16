@@ -279,7 +279,9 @@ public sealed class ScoreEngineTests
         Assert.DoesNotContain(td.Metrics, m => m.Id == "contact_stability");
         Assert.DoesNotContain(td.Metrics, m => m.Id == "ground_track");
         Assert.DoesNotContain(td.Metrics, m => m.Id == "excess_speed");
+        Assert.DoesNotContain(td.Metrics, m => m.Id == "alignment");
         Assert.Equal(13, td.Metrics.Single(m => m.Id == "airspeed").ImportancePercent);
+        Assert.Equal(7, td.Metrics.Single(m => m.Id == "centerline").ImportancePercent);
         Assert.Equal(100, td.Metrics.Sum(m => m.ImportancePercent), 2);
     }
 
@@ -289,7 +291,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(13, loaded.Key.Version);
+        Assert.Equal(14, loaded.Key.Version);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
 
@@ -302,7 +304,7 @@ public sealed class ScoreEngineTests
 
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("free-flight-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(3, loaded.Key.Version);
+        Assert.Equal(4, loaded.Key.Version);
         Assert.Equal(70, loaded.Key.SpeedTarget!.DefaultVappKts);
         Assert.Null(loaded.Key.Gates!.Flaps);
     }
