@@ -1,0 +1,76 @@
+{
+  "id": "london-city-night-steep-final",
+  "mode": "hardcore_landings",
+  "title": "London City Night Steep Final",
+  "subtitle": "EGLC 09 · 4.25 NM on 5.5° path · A330 · 01:00 · no reverse",
+  "description": "An intentionally fictional after-hours A330 arrival into London City. Start fully configured at 2,600 ft MSL, exactly aligned with RWY 09 and the Challenge Lab 5.5° path, in calm clear weather at 01:00 local. The 1,508 m runway must be handled without reverse thrust because of the night-noise restriction. Start/Restart leaves the sim paused after settle — press GO when ready.",
+  "available": true,
+  "requireGearDown": true,
+  "aircraftTitles": [
+    "A330-200 (RR)",
+    "Airbus A330-200",
+    "A330"
+  ],
+  "aircraftLivery": "200 AIRBUS RR",
+  "flightFile": "",
+  "spawn": {
+    "latitude": 51.509084626,
+    "longitude": -0.067829715,
+    "altitudeFeet": 2600,
+    "headingDeg": 92.88,
+    "airspeedKts": 143,
+    "pitchDeg": -5.5,
+    "bankDeg": 0.0
+  },
+  "weather": {
+    "useLiveWeather": false,
+    "windDirectionDeg": 0,
+    "windVelocityKts": 0,
+    "gustKts": 0,
+    "visibilitySm": 10,
+    "weatherPresetFile": ".\\WeatherPresets\\clearsky.WPR",
+    "metar": "EGLC 160000Z 00000KT CAVOK 15/10 Q1015"
+  },
+  "timeOfDay": {
+    "hour": 1,
+    "minute": 0,
+    "useZuluTime": false,
+    "year": 2026,
+    "dayOfYear": 197
+  },
+  "aircraftSetup": {
+    "gearDown": true,
+    "flapsHandleIndex": 4,
+    "spoilersRetracted": true,
+    "parkingBrakeOn": false,
+    "unpause": false,
+    "vappKts": 143
+  },
+  "runway": {
+    "airportIcao": "EGLC",
+    "runwayId": "09",
+    "thresholdLatitude": 51.505527778,
+    "thresholdLongitude": 0.045758333,
+    "headingTrueDeg": 92.88,
+    "elevationFeet": 17,
+    "lengthM": 1508,
+    "widthM": 30,
+    "glideslopeDeg": 5.5,
+    "glideslopeSource": "challenge"
+  },
+  "scoringOverrides": {
+    "reverseThrust": {
+      "policy": "prohibited",
+      "reason": "London City night-noise restriction: reverse thrust is prohibited for this after-hours challenge."
+    }
+  },
+  "hudTips": [
+    "Start free flight in A330-200 (RR) first — Challenge Lab will not hot-swap aircraft.",
+    "After Start/Restart you stay PAUSED at spawn — press GO on the HUD when ready to fly.",
+    "Start config: 143 KIAS, gear down, flaps full (index 4), spoilers retracted, parking brake off.",
+    "Hold the steep 5.5° RWY 09 path; the spawn is 4.25 NM from threshold at 2,600 ft MSL.",
+    "NO REVERSE: any reverser selection fails the rollout gate. Use spoilers and manual wheel braking.",
+    "Only 1,508 m is available — touch down accurately and preserve enough runway to stop.",
+    "This A330 operation is a fictional simulator challenge, not a real London City procedure."
+  ]
+}
