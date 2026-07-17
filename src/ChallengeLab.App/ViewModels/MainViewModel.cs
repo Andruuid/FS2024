@@ -1065,7 +1065,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             if (inference.LockedTarget is { } locked)
             {
                 FreeAirportStatus =
-                    $"{nearestText} · Locked {locked.Runway.Airport.Icao} RWY {locked.Runway.RunwayId}";
+                    $"{nearestText} · Locked {locked.Runway.Airport.Icao} RWY {locked.Runway.RunwayId}" +
+                    $" · {FormatFreePathAngle(locked.Runway)}";
                 if (_session is null)
                     ArmFreeFlightSession(locked, sample);
             }
@@ -1073,7 +1074,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             {
                 FreeAirportStatus =
                     $"{nearestText} · Checking {candidate.Runway.Airport.Icao} RWY {candidate.Runway.RunwayId} " +
-                    $"({inference.StableSamples}/{_freeInference.Settings.StableSamplesToLock})";
+                    $"({inference.StableSamples}/{_freeInference.Settings.StableSamplesToLock})" +
+                    $" · {FormatFreePathAngle(candidate.Runway)}";
                 PhaseLabel = "Detecting";
             }
             else
@@ -1158,17 +1160,28 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         SetAttemptOrigin(LandingAttemptOrigin.FreeFlight);
         StartFlightTapeRecording(challenge, LandingAttemptOrigin.FreeFlight.ToString());
         PhaseLabel = "Free · Armed";
-        HudTip = $"Locked {airport} RWY {runway} · scoring this landing.";
+        HudTip = $"Locked {airport} RWY {runway} · {FormatFreePathAngle(target.Runway)} · scoring this landing.";
         LastScore = null;
         ResultVisible = false;
         SetPreviewPerfect("free flight · runway locked · unmeasured metrics assumed 100%");
         UpdateSpeedTargetInfo(challenge, sample, sample.AirspeedKts);
         (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         AppendLog(
-            $"Free armed: {airport} RWY {runway} · {target.ThresholdDistanceNm:0.0} NM · " +
+            $"Free armed: {airport} RWY {runway} · {FormatFreePathAngle(target.Runway)} · " +
+            $"{target.ThresholdDistanceNm:0.0} NM · " +
             $"heading error {target.HeadingErrorDeg:0.0}° · cross-track {target.CrossTrackNm:0.00} NM · " +
-            $"gear gate={(challenge.RequireGearDown ? "on" : "not applicable")} Â· " +
+            $"gear gate={(challenge.RequireGearDown ? "on" : "not applicable")} · " +
             $"capabilities frozen ({challenge.FreeFlightCapabilities?.GateDecisions.Count ?? 0} gate decisions).");
+    }
+
+    /// <summary>Compact free-mode path angle for HUD strip (e.g. "6.65° catalog").</summary>
+    private static string FormatFreePathAngle(RunwayEndFacility runway)
+    {
+        var deg = RunwayPathGeometry.SanitizeGlideslopeDeg(runway.GlideslopeDeg);
+        var source = string.IsNullOrWhiteSpace(runway.GlideslopeSource)
+            ? GlideslopeAngleResolver.SourceDefault
+            : runway.GlideslopeSource.Trim();
+        return $"{deg:0.##}° {source}";
     }
 
     private async Task StartChallengeAsync()

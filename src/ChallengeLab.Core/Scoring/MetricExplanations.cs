@@ -66,7 +66,7 @@ public static class MetricExplanations
             "Legacy single-metric approach path (RMS altitude error vs 3°). Replaced by average glideslope + steadiness.",
         "approach_glideslope" =>
             "Time-weighted mean absolute altitude error versus the runway's nominal glideslope path on short final (∫|e|dt / T). " +
-            "Default angle is 3°; challenges set the angle, free flight may resolve VASI/PAPI. " +
+            "Default angle is 3°; challenges set the angle; free flight prefers a curated steep-approach catalog, then VASI/PAPI. " +
             "The path meets runway elevation at a normalized unflared aim point 1,000 ft past the landing threshold. " +
             "High and low deviations cannot cancel one another.",
         "approach_vertical_steady" =>

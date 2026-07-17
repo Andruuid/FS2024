@@ -189,11 +189,17 @@ public static class RunwayFacilityGeometry
         var right = primaryEnd
             ? AngleAt(vasi, 1)
             : AngleAt(vasi, 3);
-        var gs = GlideslopeAngleResolver.ResolveEnd(left, right);
+        var runwayId = FormatRunwayId(number, designator, heading);
+        // Catalog (ICAO+runway steep approaches) → VASI/PAPI → 3° default.
+        var gs = GlideslopeAngleResolver.ResolveFreeFlight(
+            airport.Airport.Icao,
+            runwayId,
+            left,
+            right);
 
         return new RunwayEndFacility(
             airport.Airport,
-            FormatRunwayId(number, designator, heading),
+            runwayId,
             latitude,
             longitude,
             altitudeMeters * FeetPerMeter,

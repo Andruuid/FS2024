@@ -151,7 +151,7 @@ public sealed class LandingReportV9Tests
         Assert.Equal(new[] { "touchdown", "approach", "rollout" },
             report.SummaryPhases.Select(phase => phase.PhaseId));
         Assert.Equal(new[] { "touchdown_impact", "touchdown_point" },
-            report.SummaryPhases[0].Metrics.Select(metric => metric.DisplayName.Replace(' ', '_')));
+            report.SummaryPhases[0].Metrics.Select(metric => metric.Id));
         Assert.Equal(MetricStatus.Degraded, Assert.Single(report.SummaryPhases[1].Metrics).Status);
         Assert.Equal(
             new[] { MetricStatus.Assumed, MetricStatus.Unavailable },
@@ -181,6 +181,129 @@ public sealed class LandingReportV9Tests
 
         Assert.Equal(expected, metric.ScoreBand);
         Assert.Equal(score is null ? "N/A" : ScoreBreakdownFormatter.Pct(score), metric.ScoreDisplay);
+    }
+
+    [Theory]
+    [InlineData("airspeed", "IAS versus touchdown target", "On speed")]
+    [InlineData("flare_efficiency", "Flare and float efficiency", "Flare & float")]
+    [InlineData("approach_glideslope", "Average glideslope match", "Glideslope")]
+    [InlineData("max_centerline", "Max lateral deviation (rollout)", "Max deviation")]
+    public void Summary_UsesCompactMetricTitles(string id, string storedTitle, string expectedTitle)
+    {
+        var metric = new SummaryMetricViewModel(new HighscoreCriterionDetail
+        {
+            Id = id,
+            DisplayName = storedTitle,
+            PhaseImportancePercent = 25,
+            Status = MetricStatus.Scored,
+            ScorePercent = 90
+        });
+
+        Assert.Equal(expectedTitle, metric.DisplayName);
+    }
+
+    [Fact]
+    public void Summary_ExplainsPhasePenaltyMathAndTouchdownPointContext()
+    {
+        HighscoreCriterionDetail RolloutMetric(string id, double score) => new()
+        {
+            Id = id,
+            DisplayName = id,
+            PhaseId = "rollout",
+            PhaseDisplayName = "Rollout",
+            PhaseImportancePercent = 25,
+            Status = MetricStatus.Scored,
+            ScorePercent = score
+        };
+
+        var entry = new HighscoreEntry
+        {
+            ChallengeTitle = "Penalty math",
+            ScorePercent = 79.5,
+            Phases =
+            {
+                new HighscorePhaseDetail
+                    { PhaseId = "rollout", DisplayName = "Rollout", WeightPercent = 100, ScorePercent = 79.5 }
+            },
+            Criteria =
+            {
+                RolloutMetric("post_td_alignment", 100),
+                RolloutMetric("rollout_path", 100),
+                RolloutMetric("rollout_weave", 92.8),
+                RolloutMetric("max_centerline", 100),
+                new HighscoreCriterionDetail
+                {
+                    Id = "manual_braking", DisplayName = "Manual braking penalty",
+                    PhaseId = "rollout", PhaseDisplayName = "Rollout",
+                    Status = MetricStatus.GateFailed, AppliedMultiplier = .9,
+                    Note = "Both pedals were not applied in time."
+                },
+                new HighscoreCriterionDetail
+                {
+                    Id = "reverse_thrust", DisplayName = "Reverse thrust penalty",
+                    PhaseId = "rollout", PhaseDisplayName = "Rollout",
+                    Status = MetricStatus.GateFailed, AppliedMultiplier = .9,
+                    Note = "Reverse thrust was not selected in time."
+                }
+            }
+        };
+
+        var phase = Assert.Single(new LandingReportViewModel(entry).SummaryPhases);
+        var chain = Assert.IsType<SummaryPenaltyChainViewModel>(phase.PenaltyChain);
+
+        Assert.Equal(98.2, chain.RawScorePercent);
+        Assert.Equal("98.2%", chain.RawScoreDisplay);
+        Assert.Equal("79.5%", chain.FinalScoreDisplay);
+        Assert.Equal("−18.7 pts", chain.PointLossDisplay);
+        Assert.Equal(new[] { "MANUAL BRAKES", "REVERSE THRUST" },
+            chain.Penalties.Select(penalty => penalty.DisplayName));
+        Assert.All(chain.Penalties, penalty => Assert.Equal("×0.9", penalty.MultiplierDisplay));
+
+        var touchdownPoint = new SummaryMetricViewModel(new HighscoreCriterionDetail
+        {
+            Id = "touchdown_point",
+            DisplayName = "Touchdown point",
+            PhaseId = "touchdown",
+            PhaseDisplayName = "Touchdown",
+            PhaseImportancePercent = 20,
+            Status = MetricStatus.Scored,
+            ScorePercent = 0,
+            RawValue = 619.8,
+            Unit = "ft",
+            Note = "Measured: touchdown 619.8 ft from threshold; perfect point 1200.0 ft; error -580.2 ft (early)."
+        });
+        Assert.Equal("580 ft early", touchdownPoint.DetailDisplay);
+    }
+
+    [Fact]
+    public void Summary_ExplainsOverallPenaltyMath()
+    {
+        var entry = new HighscoreEntry
+        {
+            ChallengeTitle = "Overall penalty",
+            ScorePercent = 81,
+            Phases =
+            {
+                new HighscorePhaseDetail
+                    { PhaseId = "touchdown", DisplayName = "Touchdown", WeightPercent = 100, ScorePercent = 90 }
+            },
+            Criteria =
+            {
+                new HighscoreCriterionDetail
+                {
+                    Id = "pause_usage", DisplayName = "Pause penalty",
+                    Status = MetricStatus.GateFailed, AppliedMultiplier = .9,
+                    Note = "Pause was used during the attempt."
+                }
+            }
+        };
+
+        var chain = Assert.IsType<SummaryPenaltyChainViewModel>(
+            new LandingReportViewModel(entry).OverallPenaltyChain);
+
+        Assert.Equal("90%", chain.RawScoreDisplay);
+        Assert.Equal("81%", chain.FinalScoreDisplay);
+        Assert.Equal("PAUSE", Assert.Single(chain.Penalties).DisplayName);
     }
 
     [Fact]
@@ -219,8 +342,8 @@ public sealed class LandingReportV9Tests
         Assert.Contains("70%", phase.ToolTip, StringComparison.Ordinal);
         Assert.Contains("Distance from the ideal touchdown point", metric.ToolTip, StringComparison.Ordinal);
         Assert.Contains("Measured value: 120.0 ft from threshold", metric.ToolTip, StringComparison.Ordinal);
-        Assert.Contains("Importance: 20% of Touchdown", metric.ToolTip, StringComparison.Ordinal);
         Assert.Contains("Status: Scored", metric.ToolTip, StringComparison.Ordinal);
+        Assert.DoesNotContain("% of Touchdown", metric.ToolTip, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -548,6 +671,10 @@ public sealed class LandingReportV9Tests
         Assert.Contains("MetricsHost.Children.Add(CreateMetricCard", codeBehind, StringComparison.Ordinal);
         Assert.Contains("PenaltiesHost.Children.Add(CreatePenaltyCard", codeBehind, StringComparison.Ordinal);
         Assert.Contains("SummaryHost.Children.Add(CreateSummaryPhaseSection", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("CreateSummaryBarRow", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("CreateSummaryPenaltyChain", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("PENALTY MATH", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("metric.ImportanceDisplay", codeBehind, StringComparison.Ordinal);
         Assert.Contains("0x62, 0xE6, 0xA7", codeBehind, StringComparison.Ordinal);
         Assert.Contains("0xFF, 0xB0, 0x20", codeBehind, StringComparison.Ordinal);
         Assert.Contains("0xFF, 0x4D, 0x6A", codeBehind, StringComparison.Ordinal);

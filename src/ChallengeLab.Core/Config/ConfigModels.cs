@@ -251,7 +251,7 @@ public sealed class RunwayConfig
     public double GlideslopeDeg { get; set; } = 3.0;
 
     /// <summary>
-    /// How <see cref="GlideslopeDeg"/> was chosen: challenge, vasi, ils, or default.
+    /// How <see cref="GlideslopeDeg"/> was chosen: challenge, catalog, vasi, ils, or default.
     /// Diagnostic only; not required for scoring.
     /// </summary>
     public string GlideslopeSource { get; set; } = "default";

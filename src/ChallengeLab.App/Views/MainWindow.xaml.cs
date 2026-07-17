@@ -99,6 +99,8 @@ public partial class MainWindow : Window
                 SummaryHost.Children.Clear();
                 if (report.HasSummary)
                 {
+                    if (report.OverallPenaltyChain is { } overallPenaltyChain)
+                        SummaryHost.Children.Add(CreateSummaryPenaltyChain(overallPenaltyChain, isOverall: true));
                     foreach (var phase in report.SummaryPhases)
                         SummaryHost.Children.Add(CreateSummaryPhaseSection(phase));
                 }
@@ -168,45 +170,17 @@ public partial class MainWindow : Window
     private static Border CreateSummaryPhaseSection(SummaryPhaseViewModel phase)
     {
         var stack = new StackPanel();
-        var header = new Grid();
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var titleStack = new StackPanel();
-        titleStack.Children.Add(new TextBlock
-        {
-            Text = $"TOTAL {phase.DisplayName.ToUpperInvariant()}",
-            FontSize = 13,
-            FontWeight = FontWeights.Bold,
-            Foreground = MediaBrushes.White
-        });
-        titleStack.Children.Add(new TextBlock
-        {
-            Text = phase.WeightDisplay,
-            FontSize = 10,
-            Foreground = new SolidColorBrush(MediaColor.FromRgb(0x8B, 0x9B, 0xB8)),
-            Margin = new Thickness(0, 3, 0, 0)
-        });
-        header.Children.Add(titleStack);
-
-        var score = new TextBlock
-        {
-            Text = phase.ScoreDisplay,
-            FontSize = 22,
-            FontWeight = FontWeights.Bold,
-            Foreground = SummaryScoreBrush(phase.ScoreBand),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(12, 0, 0, 0)
-        };
-        Grid.SetColumn(score, 1);
-        header.Children.Add(score);
-        stack.Children.Add(header);
-
-        stack.Children.Add(CreateSummaryProgressBar(
+        stack.Children.Add(CreateSummaryBarRow(
+            $"TOTAL {phase.DisplayName.ToUpperInvariant()}",
+            phase.ScoreDisplay,
             phase.BarValue,
             phase.ScoreBand,
-            20,
-            new Thickness(0, 10, 0, 0)));
+            barHeight: 20,
+            isPhase: true,
+            detail: ""));
+
+        if (phase.PenaltyChain is { } penaltyChain)
+            stack.Children.Add(CreateSummaryPenaltyChain(penaltyChain, isOverall: false));
 
         if (phase.Metrics.Count == 0)
         {
@@ -216,7 +190,7 @@ public partial class MainWindow : Window
                 FontSize = 11,
                 Foreground = new SolidColorBrush(MediaColor.FromRgb(0x8B, 0x9B, 0xB8)),
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 13, 0, 0)
+                Margin = new Thickness(0, 9, 0, 0)
             });
         }
         else
@@ -232,8 +206,8 @@ public partial class MainWindow : Window
             BorderBrush = new SolidColorBrush(MediaColor.FromArgb(0x55, 0x4A, 0x90, 0xA4)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(15),
-            Margin = new Thickness(0, 0, 0, 13),
+            Padding = new Thickness(12),
+            Margin = new Thickness(0, 0, 0, 10),
             ToolTip = CreateSummaryToolTip(phase.ToolTip)
         };
         ConfigureSummaryToolTip(section);
@@ -242,60 +216,184 @@ public partial class MainWindow : Window
 
     private static Border CreateSummaryMetricRow(SummaryMetricViewModel metric)
     {
-        var stack = new StackPanel();
-        var header = new Grid();
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var titleStack = new StackPanel();
-        titleStack.Children.Add(new TextBlock
-        {
-            Text = metric.DisplayName,
-            FontSize = 12,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = MediaBrushes.White,
-            TextWrapping = TextWrapping.Wrap
-        });
-        titleStack.Children.Add(new TextBlock
-        {
-            Text = metric.ImportanceDisplay,
-            FontSize = 9,
-            Foreground = new SolidColorBrush(MediaColor.FromRgb(0x8B, 0x9B, 0xB8)),
-            Margin = new Thickness(0, 2, 0, 0)
-        });
-        header.Children.Add(titleStack);
-
-        var score = new TextBlock
-        {
-            Text = metric.ScoreDisplay,
-            FontSize = 14,
-            FontWeight = FontWeights.Bold,
-            Foreground = SummaryScoreBrush(metric.ScoreBand),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(12, 0, 0, 0)
-        };
-        Grid.SetColumn(score, 1);
-        header.Children.Add(score);
-        stack.Children.Add(header);
-
-        stack.Children.Add(CreateSummaryProgressBar(
-            metric.BarValue,
-            metric.ScoreBand,
-            12,
-            new Thickness(0, 7, 0, 0)));
-
         var row = new Border
         {
-            Child = stack,
+            Child = CreateSummaryBarRow(
+                metric.DisplayName,
+                metric.ScoreDisplay,
+                metric.BarValue,
+                metric.ScoreBand,
+                barHeight: 12,
+                isPhase: false,
+                detail: metric.DetailDisplay),
             Background = new SolidColorBrush(MediaColor.FromArgb(0x99, 0x0D, 0x15, 0x27)),
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(11, 9, 11, 10),
-            Margin = new Thickness(0, 10, 0, 0),
+            CornerRadius = new CornerRadius(7),
+            Padding = new Thickness(9, 6, 9, 6),
+            Margin = new Thickness(0, 7, 0, 0),
             ToolTip = CreateSummaryToolTip(metric.ToolTip)
         };
         ConfigureSummaryToolTip(row);
         return row;
     }
+
+    private static Grid CreateSummaryBarRow(
+        string title,
+        string scoreDisplay,
+        double value,
+        SummaryScoreBand band,
+        double barHeight,
+        bool isPhase,
+        string detail)
+    {
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(210) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
+
+        var titleBlock = new TextBlock
+        {
+            FontSize = isPhase ? 13 : 11.5,
+            FontWeight = isPhase ? FontWeights.Bold : FontWeights.SemiBold,
+            Foreground = MediaBrushes.White,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        titleBlock.Inlines.Add(new System.Windows.Documents.Run(title));
+        if (!string.IsNullOrWhiteSpace(detail))
+        {
+            titleBlock.Inlines.Add(new System.Windows.Documents.Run($" · {detail}")
+            {
+                FontWeight = FontWeights.Normal,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(0x8B, 0x9B, 0xB8))
+            });
+        }
+        row.Children.Add(titleBlock);
+
+        var bar = CreateSummaryProgressBar(
+            value,
+            band,
+            barHeight,
+            new Thickness(10, 0, 10, 0));
+        Grid.SetColumn(bar, 1);
+        row.Children.Add(bar);
+
+        var score = new TextBlock
+        {
+            Text = scoreDisplay,
+            FontSize = isPhase ? 18 : 13,
+            FontWeight = FontWeights.Bold,
+            Foreground = SummaryScoreBrush(band),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(score, 2);
+        row.Children.Add(score);
+        return row;
+    }
+
+    private static Border CreateSummaryPenaltyChain(
+        SummaryPenaltyChainViewModel chain,
+        bool isOverall)
+    {
+        var equation = new WrapPanel
+        {
+            Orientation = System.Windows.Controls.Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        equation.Children.Add(new TextBlock
+        {
+            Text = isOverall ? "OVERALL PENALTY MATH" : "PENALTY MATH",
+            FontSize = 9,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(MediaColor.FromRgb(0xFF, 0x7A, 0x8E)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 9, 0)
+        });
+        equation.Children.Add(CreatePenaltyPill(
+            $"RAW {chain.RawScoreDisplay}",
+            new SolidColorBrush(MediaColor.FromArgb(0x33, 0x2D, 0xE2, 0xE6)),
+            new SolidColorBrush(MediaColor.FromArgb(0x66, 0x2D, 0xE2, 0xE6)),
+            new SolidColorBrush(MediaColor.FromRgb(0xB8, 0xF0, 0xF2)),
+            toolTip: null));
+
+        foreach (var penalty in chain.Penalties)
+        {
+            equation.Children.Add(CreateEquationSeparator("×"));
+            var pill = CreatePenaltyPill(
+                $"{penalty.DisplayName} {penalty.MultiplierDisplay}",
+                new SolidColorBrush(MediaColor.FromArgb(0x55, 0xFF, 0x4D, 0x6A)),
+                new SolidColorBrush(MediaColor.FromArgb(0x99, 0xFF, 0x4D, 0x6A)),
+                new SolidColorBrush(MediaColor.FromRgb(0xFF, 0xC2, 0xCC)),
+                CreateSummaryToolTip(penalty.ToolTip));
+            ConfigureSummaryToolTip(pill);
+            equation.Children.Add(pill);
+        }
+
+        equation.Children.Add(CreateEquationSeparator("="));
+        equation.Children.Add(CreatePenaltyPill(
+            $"TOTAL {chain.FinalScoreDisplay}",
+            new SolidColorBrush(MediaColor.FromArgb(0x33, 0xFF, 0xB0, 0x20)),
+            SummaryScoreBrush(chain.FinalScoreBand),
+            SummaryScoreBrush(chain.FinalScoreBand),
+            toolTip: null));
+        if (!string.IsNullOrWhiteSpace(chain.PointLossDisplay))
+        {
+            equation.Children.Add(new TextBlock
+            {
+                Text = chain.PointLossDisplay,
+                FontSize = 10,
+                FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(0xFF, 0x7A, 0x8E)),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 0, 0)
+            });
+        }
+
+        return new Border
+        {
+            Child = equation,
+            Background = new SolidColorBrush(MediaColor.FromArgb(0x44, 0x3A, 0x16, 0x20)),
+            BorderBrush = new SolidColorBrush(MediaColor.FromArgb(0x77, 0xFF, 0x4D, 0x6A)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(7),
+            Padding = new Thickness(8, 6, 8, 6),
+            Margin = isOverall ? new Thickness(0, 0, 0, 10) : new Thickness(0, 8, 0, 1)
+        };
+    }
+
+    private static Border CreatePenaltyPill(
+        string text,
+        MediaBrush background,
+        MediaBrush border,
+        MediaBrush foreground,
+        object? toolTip) => new()
+    {
+        Child = new TextBlock
+        {
+            Text = text,
+            FontSize = 10,
+            FontWeight = FontWeights.Bold,
+            Foreground = foreground,
+            VerticalAlignment = VerticalAlignment.Center
+        },
+        Background = background,
+        BorderBrush = border,
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(5),
+        Padding = new Thickness(7, 3, 7, 3),
+        ToolTip = toolTip
+    };
+
+    private static TextBlock CreateEquationSeparator(string text) => new()
+    {
+        Text = text,
+        FontSize = 12,
+        FontWeight = FontWeights.Bold,
+        Foreground = new SolidColorBrush(MediaColor.FromRgb(0xC5, 0xD0, 0xE6)),
+        VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(6, 0, 6, 0)
+    };
 
     private static WpfProgressBar CreateSummaryProgressBar(
         double value,

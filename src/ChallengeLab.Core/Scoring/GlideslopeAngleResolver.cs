@@ -1,7 +1,8 @@
 namespace ChallengeLab.Core.Scoring;
 
 /// <summary>
-/// Picks a nominal approach path angle from facility data (VASI/PAPI) with a 3° fallback.
+/// Picks a nominal approach path angle for free flight:
+/// curated steep-approach catalog → facility VASI/PAPI → 3° default.
 /// Challenge mode does not use this — challenges always set <c>RunwayConfig.GlideslopeDeg</c>.
 /// </summary>
 public static class GlideslopeAngleResolver
@@ -10,8 +11,24 @@ public static class GlideslopeAngleResolver
     public const string SourceDefault = "default";
     public const string SourceVasi = "vasi";
     public const string SourceChallenge = "challenge";
+    public const string SourceCatalog = SteepApproachGlideslopeCatalog.SourceCatalog;
 
     public readonly record struct Resolution(double Degrees, string Source);
+
+    /// <summary>
+    /// Free-flight path angle: catalog (ICAO + runway end) → VASI/PAPI → 3° default.
+    /// </summary>
+    public static Resolution ResolveFreeFlight(
+        string? airportIcao,
+        string? runwayId,
+        double? leftVasiDeg,
+        double? rightVasiDeg)
+    {
+        if (SteepApproachGlideslopeCatalog.TryResolve(airportIcao, runwayId, out var catalog))
+            return catalog;
+
+        return ResolveEnd(leftVasiDeg, rightVasiDeg);
+    }
 
     /// <summary>
     /// Prefer the first valid VASI/PAPI angle; otherwise default 3°.

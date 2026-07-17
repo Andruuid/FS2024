@@ -45,6 +45,23 @@ public sealed class LandingReportViewModel : ViewModelBase
                 .ThenBy(phase => phase.DisplayName)
                 .Select(phase => new SummaryPhaseViewModel(phase, storedCriteria)));
 
+        var overallPenalties = storedCriteria
+            .Where(criterion => string.IsNullOrWhiteSpace(criterion.PhaseId))
+            .Where(SummaryPenaltyViewModel.IsAppliedPenalty)
+            .Select(criterion => new SummaryPenaltyViewModel(criterion))
+            .ToList();
+        var combinedPhaseScore = SummaryPhases.Count > 0
+                                 && SummaryPhases.All(phase => phase.ScorePercent is not null)
+            ? SummaryPhases.Sum(phase => phase.ScorePercent!.Value * phase.WeightPercent / 100.0)
+            : (double?)null;
+        OverallPenaltyChain = overallPenalties.Count > 0
+            ? new SummaryPenaltyChainViewModel(
+                "OVERALL",
+                combinedPhaseScore,
+                ScorePercent,
+                overallPenalties)
+            : null;
+
         VerticalSpeedRaw = entry.ResolveVerticalSpeedFpm();
         VerticalSpeedDisplay = FormatVerticalSpeedDisplay(VerticalSpeedRaw);
         var firmness = entry.Criteria?.FirstOrDefault(c => c.Id == "touchdown_impact")
@@ -158,6 +175,7 @@ public sealed class LandingReportViewModel : ViewModelBase
     public ObservableCollection<ReportPhaseViewModel> Phases { get; }
     public ObservableCollection<SummaryPhaseViewModel> SummaryPhases { get; }
     public bool HasSummary => SummaryPhases.Count > 0;
+    public SummaryPenaltyChainViewModel? OverallPenaltyChain { get; }
     public string SummaryUnavailableText =>
         "Summary unavailable for this historical result because its phase breakdown was not stored.";
     public ObservableCollection<PenaltyViewModel> Penalties { get; }
@@ -311,6 +329,12 @@ public sealed class SummaryPhaseViewModel
         HighscorePhaseDetail phase,
         IEnumerable<HighscoreCriterionDetail> criteria)
     {
+        var phaseCriteria = criteria
+            .Where(criterion => string.Equals(
+                criterion.PhaseId,
+                phase.PhaseId,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
         PhaseId = phase.PhaseId;
         DisplayName = phase.DisplayName;
         ScorePercent = NormalizedScore(phase.ScorePercent);
@@ -322,11 +346,7 @@ public sealed class SummaryPhaseViewModel
                   $"This phase contributes {phase.WeightPercent:0.#}% of the overall score. " +
                   $"Phase total: {ScoreDisplay}. Subcategory bars show their individual metric scores before phase penalties.";
 
-        Metrics = criteria
-            .Where(criterion => string.Equals(
-                criterion.PhaseId,
-                phase.PhaseId,
-                StringComparison.OrdinalIgnoreCase))
+        Metrics = phaseCriteria
             .Where(criterion => criterion.PhaseImportancePercent > 0)
             .Where(criterion => criterion.EffectiveStatus is
                 MetricStatus.Scored or
@@ -337,6 +357,32 @@ public sealed class SummaryPhaseViewModel
             .ThenBy(criterion => criterion.DisplayName, StringComparer.OrdinalIgnoreCase)
             .Select(criterion => new SummaryMetricViewModel(criterion))
             .ToList();
+
+        var penalties = phaseCriteria
+            .Where(SummaryPenaltyViewModel.IsAppliedPenalty)
+            .Select(criterion => new SummaryPenaltyViewModel(criterion))
+            .ToList();
+        var scoredImportance = phaseCriteria
+            .Where(criterion => criterion.PhaseImportancePercent > 0)
+            .Where(criterion => SummaryPenaltyViewModel.IsScoreBearingStatus(criterion.EffectiveStatus))
+            .Where(criterion => criterion.ScorePercent is { } score && double.IsFinite(score))
+            .Sum(criterion => criterion.PhaseImportancePercent);
+        var rawMetricScore = scoredImportance > 0
+            ? phaseCriteria
+                .Where(criterion => criterion.PhaseImportancePercent > 0)
+                .Where(criterion => SummaryPenaltyViewModel.IsScoreBearingStatus(criterion.EffectiveStatus))
+                .Where(criterion => criterion.ScorePercent is { } score && double.IsFinite(score))
+                .Sum(criterion => Math.Clamp(criterion.ScorePercent!.Value, 0, 100)
+                                  * criterion.PhaseImportancePercent)
+              / scoredImportance
+            : ScorePercent;
+        PenaltyChain = penalties.Count > 0
+            ? new SummaryPenaltyChainViewModel(
+                DisplayName.ToUpperInvariant(),
+                rawMetricScore,
+                ScorePercent,
+                penalties)
+            : null;
     }
 
     public string PhaseId { get; }
@@ -349,6 +395,7 @@ public sealed class SummaryPhaseViewModel
     public double BarValue => ScorePercent ?? 0;
     public string ToolTip { get; }
     public IReadOnlyList<SummaryMetricViewModel> Metrics { get; }
+    public SummaryPenaltyChainViewModel? PenaltyChain { get; }
 
     internal static double? NormalizedScore(double? score) =>
         score is { } value && double.IsFinite(value)
@@ -372,31 +419,72 @@ public sealed class SummaryMetricViewModel
     public SummaryMetricViewModel(HighscoreCriterionDetail criterion)
     {
         var reportMetric = new ReportMetricViewModel(criterion, false);
-        DisplayName = criterion.DisplayName;
+        Id = criterion.Id;
+        DisplayName = ShortTitle(criterion);
+        DetailDisplay = BuildDetailDisplay(criterion);
         ScorePercent = SummaryPhaseViewModel.NormalizedScore(criterion.ScorePercent);
         ScoreDisplay = SummaryPhaseViewModel.FormatScore(ScorePercent);
         ImportancePercent = criterion.PhaseImportancePercent;
-        ImportanceDisplay = $"{ImportancePercent:0.##}% of {criterion.PhaseDisplayName}";
         RawDisplay = reportMetric.RawDisplay;
         Status = criterion.EffectiveStatus;
         ScoreBand = SummaryPhaseViewModel.BandFor(ScorePercent);
         ToolTip = $"{reportMetric.Note}\n\n" +
                   $"Measured value: {RawDisplay}\n" +
                   $"Score: {ScoreDisplay}\n" +
-                  $"Importance: {ImportanceDisplay}\n" +
                   $"Status: {FormatStatus(Status)}";
     }
 
+    public string Id { get; }
     public string DisplayName { get; }
+    public string DetailDisplay { get; }
     public double? ScorePercent { get; }
     public string ScoreDisplay { get; }
     public double ImportancePercent { get; }
-    public string ImportanceDisplay { get; }
     public string RawDisplay { get; }
     public MetricStatus Status { get; }
     public SummaryScoreBand ScoreBand { get; }
     public double BarValue => ScorePercent ?? 0;
     public string ToolTip { get; }
+
+    private static string ShortTitle(HighscoreCriterionDetail criterion) => criterion.Id.ToLowerInvariant() switch
+    {
+        "touchdown_impact" => "Touchdown impact",
+        "touchdown_point" => "Touchdown point",
+        "airspeed" => "On speed",
+        "flare_efficiency" => "Flare & float",
+        "centerline" => "Centerline",
+        "bank" => "Bank",
+        "approach_glideslope" => "Glideslope",
+        "approach_vertical_steady" => "Vertical stability",
+        "approach_lateral_steady" => "Lateral stability",
+        "approach_bank_stability" => "Bank stability",
+        "post_td_alignment" => "Heading alignment",
+        "rollout_path" => "Centerline",
+        "rollout_weave" => "Weave",
+        "max_centerline" => "Max deviation",
+        _ => criterion.DisplayName
+    };
+
+    private static string BuildDetailDisplay(HighscoreCriterionDetail criterion)
+    {
+        if (!criterion.Id.Equals("touchdown_point", StringComparison.OrdinalIgnoreCase))
+            return "";
+
+        var match = Regex.Match(
+            criterion.Note ?? "",
+            @"error\s+([+\-]?\d+(?:\.\d+)?)\s*ft\s+\((early|late|on\s+target)\)",
+            RegexOptions.IgnoreCase);
+        if (!match.Success
+            || !double.TryParse(
+                match.Groups[1].Value,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out var error))
+            return criterion.RawValue is { } raw ? $"{raw:0} ft from threshold" : "";
+
+        var direction = match.Groups[2].Value.ToLowerInvariant();
+        return direction == "on target" ? "on target" : $"{Math.Abs(error):0} ft {direction}";
+    }
 
     private static string FormatStatus(MetricStatus status) => status switch
     {
@@ -406,6 +494,82 @@ public sealed class SummaryMetricViewModel
         MetricStatus.Unavailable => "Unavailable",
         _ => status.ToString()
     };
+}
+
+public sealed class SummaryPenaltyViewModel
+{
+    public SummaryPenaltyViewModel(HighscoreCriterionDetail criterion)
+    {
+        Id = criterion.Id;
+        DisplayName = ShortTitle(criterion);
+        Multiplier = criterion.AppliedMultiplier!.Value;
+        MultiplierDisplay = $"×{Multiplier:0.###}";
+        var scope = string.IsNullOrWhiteSpace(criterion.PhaseDisplayName)
+            ? "overall score"
+            : $"{criterion.PhaseDisplayName} phase";
+        ToolTip = (criterion.Note?.Trim() ?? MetricExplanations.DefaultCatalog(criterion.Id, criterion.DisplayName)) +
+                  $"\n\nEffect: {scope} {MultiplierDisplay}.";
+    }
+
+    public string Id { get; }
+    public string DisplayName { get; }
+    public double Multiplier { get; }
+    public string MultiplierDisplay { get; }
+    public string ToolTip { get; }
+
+    internal static bool IsAppliedPenalty(HighscoreCriterionDetail criterion) =>
+        criterion.AppliedMultiplier is > 0 and < 1
+        && criterion.EffectiveStatus is MetricStatus.GateFailed or MetricStatus.Assumed;
+
+    internal static bool IsScoreBearingStatus(MetricStatus status) => status is
+        MetricStatus.Scored or MetricStatus.Assumed or MetricStatus.Degraded or MetricStatus.Unavailable;
+
+    private static string ShortTitle(HighscoreCriterionDetail criterion) => criterion.Id.ToLowerInvariant() switch
+    {
+        "contact_stability" => "BOUNCE",
+        "stall_warning" => "STALL WARNING",
+        "gear" => "GEAR",
+        "flaps" => "FLAPS",
+        "spoiler_deployment" => "SPOILERS",
+        "nose_gear_impact" => "NOSE IMPACT",
+        "automation" => "AUTOMATION",
+        "manual_braking" => "MANUAL BRAKES",
+        "rollout_distance" => "RUNWAY REMAINING",
+        "reverse_thrust" => "REVERSE THRUST",
+        "pause_usage" => "PAUSE",
+        "simulation_rate" => "SIM RATE",
+        "cockpit_view" => "COCKPIT VIEW",
+        _ => criterion.DisplayName.ToUpperInvariant()
+    };
+}
+
+public sealed class SummaryPenaltyChainViewModel
+{
+    public SummaryPenaltyChainViewModel(
+        string scopeDisplay,
+        double? rawScorePercent,
+        double? finalScorePercent,
+        IReadOnlyList<SummaryPenaltyViewModel> penalties)
+    {
+        ScopeDisplay = scopeDisplay;
+        RawScorePercent = SummaryPhaseViewModel.NormalizedScore(rawScorePercent);
+        FinalScorePercent = SummaryPhaseViewModel.NormalizedScore(finalScorePercent);
+        RawScoreDisplay = SummaryPhaseViewModel.FormatScore(RawScorePercent);
+        FinalScoreDisplay = SummaryPhaseViewModel.FormatScore(FinalScorePercent);
+        PointLossDisplay = RawScorePercent is { } raw && FinalScorePercent is { } final
+            ? $"−{Math.Max(0, raw - final):0.0} pts"
+            : "";
+        Penalties = penalties;
+    }
+
+    public string ScopeDisplay { get; }
+    public double? RawScorePercent { get; }
+    public double? FinalScorePercent { get; }
+    public string RawScoreDisplay { get; }
+    public string FinalScoreDisplay { get; }
+    public string PointLossDisplay { get; }
+    public IReadOnlyList<SummaryPenaltyViewModel> Penalties { get; }
+    public SummaryScoreBand FinalScoreBand => SummaryPhaseViewModel.BandFor(FinalScorePercent);
 }
 
 public sealed class ReportPhaseViewModel
