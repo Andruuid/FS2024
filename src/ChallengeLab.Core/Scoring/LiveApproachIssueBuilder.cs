@@ -231,8 +231,8 @@ public static class LiveApproachIssueBuilder
             "approach_glideslope" => new Issue(
                 "path off target",
                 0,
-                snapshot.ApproachGlideslopeMeanAbsFt > 0
-                    ? $"avg ±{snapshot.ApproachGlideslopeMeanAbsFt:0} ft"
+                snapshot.ApproachGlideslopeMeanBelowDeg > 0 || snapshot.ApproachGlideslopeMeanAboveDeg > 0
+                    ? $"low {snapshot.ApproachGlideslopeMeanBelowDeg:0.0}° / high {snapshot.ApproachGlideslopeMeanAboveDeg:0.0}°"
                     : null),
             "approach_vertical_steady" => new Issue("unsteady vertical", 0),
             "approach_lateral_steady" => new Issue("weaving", 0),
@@ -246,6 +246,7 @@ public static class LiveApproachIssueBuilder
                 : null,
             "centerline" => new Issue("off centerline @ TD", 0),
             "bank" => new Issue("bank @ TD", 0),
+            "crab_angle" => new Issue("crab angle", 0),
             "alignment" => new Issue("heading misaligned", 0),
             "post_td_alignment" => new Issue("late de-crab", 0),
             "rollout_centerline" or "rollout_lateral_mean" => new Issue("rollout offset", 0),

@@ -84,11 +84,15 @@ public sealed class LandingTraceStore
             Snapshot = new LandingTraceSnapshot
             {
                 TouchdownLateralOffsetM = snapshot.TouchdownLateralOffsetM,
+                CrabAngle = snapshot.CrabAngle,
                 VerticalSpeedAtTouchdownFpm = snapshot.VerticalSpeedAtTouchdownFpm,
                 AirspeedAtTouchdownKts = snapshot.AirspeedAtTouchdownKts,
                 ApproachPathRms = snapshot.ApproachPathRms,
                 ApproachPathSampleCount = snapshot.ApproachPathSampleCount,
                 ApproachGlideslopeMeanAbsFt = snapshot.ApproachGlideslopeMeanAbsFt,
+                ApproachGlideslopeMeanBelowDeg = snapshot.ApproachGlideslopeMeanBelowDeg,
+                ApproachGlideslopeMeanAboveDeg = snapshot.ApproachGlideslopeMeanAboveDeg,
+                ApproachGlideslopeWeightedDeviationDeg = snapshot.ApproachGlideslopeWeightedDeviationDeg,
                 ApproachVerticalVariationFtPerSec = snapshot.ApproachVerticalVariationFtPerSec,
                 ApproachLateralWeaveIndex = snapshot.ApproachLateralWeaveIndex,
                 ApproachBankMeanAbsDeg = snapshot.ApproachBankMeanAbsDeg,
@@ -174,11 +178,15 @@ public sealed class LandingTraceSnapshot
 {
     public LandingGateObservations OperationalGates { get; set; } = new();
     public double TouchdownLateralOffsetM { get; set; }
+    public CrabAngleAnalysis? CrabAngle { get; set; }
     public double VerticalSpeedAtTouchdownFpm { get; set; }
     public double AirspeedAtTouchdownKts { get; set; }
     public double ApproachPathRms { get; set; }
     public int ApproachPathSampleCount { get; set; }
     public double ApproachGlideslopeMeanAbsFt { get; set; }
+    public double ApproachGlideslopeMeanBelowDeg { get; set; }
+    public double ApproachGlideslopeMeanAboveDeg { get; set; }
+    public double ApproachGlideslopeWeightedDeviationDeg { get; set; }
     public double ApproachVerticalVariationFtPerSec { get; set; }
     public double ApproachLateralWeaveIndex { get; set; }
     public double ApproachBankMeanAbsDeg { get; set; }

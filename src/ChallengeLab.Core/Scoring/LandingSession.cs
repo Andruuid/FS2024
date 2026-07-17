@@ -111,9 +111,13 @@ public sealed class LandingSession
         Snapshot.MaxLateralOffsetM = 0;
         Snapshot.TouchdownLateralOffsetM = 0;
         Snapshot.TouchdownHeadingErrorDeg = 0;
+        Snapshot.CrabAngle = null;
         Snapshot.ApproachPathRms = 0;
         Snapshot.ApproachPathSampleCount = 0;
         Snapshot.ApproachGlideslopeMeanAbsFt = 0;
+        Snapshot.ApproachGlideslopeMeanBelowDeg = 0;
+        Snapshot.ApproachGlideslopeMeanAboveDeg = 0;
+        Snapshot.ApproachGlideslopeWeightedDeviationDeg = 0;
         Snapshot.ApproachVerticalVariationFtPerSec = 0;
         Snapshot.ApproachLateralWeaveIndex = 0;
         Snapshot.ApproachBankMeanAbsDeg = 0;
@@ -296,6 +300,7 @@ public sealed class LandingSession
         if (_touchdownCaptured)
         {
             ComputeTouchdownEventMetrics(finalizing);
+            ComputeCrabAngleMetrics();
             ComputePostTouchdownAlignmentMetrics();
             ComputeRolloutPathIntegralMetrics();
         }
@@ -793,7 +798,11 @@ public sealed class LandingSession
     private bool OperationalGateWindowsComplete(double timeSeconds)
     {
         var gates = _settings.OperationalGates;
-        if (!gates.Enabled || !_touchdownCaptured)
+        if (!_touchdownCaptured)
+            return true;
+        if (timeSeconds < _touchdownTimeSeconds + CrabAngleCalculator.WindowSeconds)
+            return false;
+        if (!gates.Enabled)
             return true;
 
         var observations = Snapshot.GateObservations;
@@ -952,7 +961,7 @@ public sealed class LandingSession
 
     /// <summary>
     /// Short-final approach metrics (same distance window as config):
-    /// 1) time-weighted mean absolute altitude error vs the nominal glideslope path,
+    /// 1) asymmetric angular deviation vs the nominal glideslope path,
     /// 2) total vertical path variation per second,
     /// 3) total lateral path variation per metre flown,
     /// 4) time-weighted mean absolute bank.
@@ -971,6 +980,9 @@ public sealed class LandingSession
         Snapshot.ApproachPathSampleCount = result.RawSampleCount;
         Snapshot.ApproachPathRms = result.RootMeanSquareErrorFeet;
         Snapshot.ApproachGlideslopeMeanAbsFt = result.MeanAbsoluteErrorFeet;
+        Snapshot.ApproachGlideslopeMeanBelowDeg = result.MeanBelowGlideslopeDeg;
+        Snapshot.ApproachGlideslopeMeanAboveDeg = result.MeanAboveGlideslopeDeg;
+        Snapshot.ApproachGlideslopeWeightedDeviationDeg = result.WeightedGlideslopeDeviationDeg;
         Snapshot.ApproachVerticalVariationFtPerSec =
             result.VerticalExcessVariationFeetPerSecond;
         Snapshot.ApproachLateralWeaveIndex = result.LateralExcessVariationIndex;
@@ -980,8 +992,8 @@ public sealed class LandingSession
     }
 
     /// <summary>
-    /// From TD+delay until end of rollout history: fuselage should be aligned with runway
-    /// (de-crabbed, rudder tracking). Measures heading error, not wind crab on final.
+    /// From main-gear touchdown until end of rollout history: fuselage should be aligned
+    /// with the runway. Measures heading error, not wind crab on final.
     /// </summary>
     private void ComputePostTouchdownAlignmentMetrics()
     {
@@ -993,7 +1005,8 @@ public sealed class LandingSession
         var settleKts = _settings.SettledGroundSpeedKts;
         var runway = _challenge.Runway.HeadingTrueDeg;
 
-        // Samples from TD+2s while still above settle speed (or all after TD+2s on ground)
+        // The shipped profile has zero delay, so this includes the touchdown frame itself.
+        // A configurable delay remains supported for replaying older profiles.
         var samples = Snapshot.RolloutSamples
             .Where(s => s.SimOnGround && SampleTimeSeconds(s) >= td + delay)
             .OrderBy(SampleTimeSeconds)
@@ -1019,6 +1032,14 @@ public sealed class LandingSession
         Snapshot.PostTouchdownAlignmentMeanDeg = errors.Average();
         Snapshot.PostTouchdownAlignmentRmsDeg = Math.Sqrt(errors.Average(e => e * e));
         Snapshot.PostTouchdownAlignmentPeakDeg = errors.Max();
+    }
+
+    private void ComputeCrabAngleMetrics()
+    {
+        Snapshot.CrabAngle = CrabAngleCalculator.Calculate(
+            Snapshot.RolloutSamples,
+            _touchdownTimeSeconds,
+            _challenge.Runway.HeadingTrueDeg);
     }
 
     /// <summary>

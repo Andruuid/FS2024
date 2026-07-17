@@ -1,6 +1,6 @@
 {
   "id": "landing-evaluation-key",
-  "version": 23,
+  "version": 26,
   "description": "Single authoritative Challenge/Career landing score. Phase penalties affect only their owning phase; pause usage, reduced simulation rate, and cockpit-view exits are general penalties on the combined score.",
   "formula": "phaseAfterPenalties = phaseScore * product(phase penalty multipliers); subtotal = sum(phaseAfterPenalties * phaseWeightPercent / 100); final = round(subtotal * product(general penalty multipliers), 1)",
   "settle": {
@@ -8,7 +8,7 @@
     "holdSeconds": 1.0
   },
   "timing": {
-    "postTouchdownAlignmentDelaySeconds": 2,
+    "postTouchdownAlignmentDelaySeconds": 0,
     "flareAglFeet": 50,
     "postArmIgnoreSeconds": 4,
     "requireAirborneBeforeTouchdown": true,
@@ -98,7 +98,7 @@
         {
           "id": "touchdown_impact",
           "displayName": "Touchdown impact",
-          "importancePercent": 54.4,
+          "importancePercent": 52,
           "unit": "%",
           "evaluator": "landingImpact",
           "note": "Initial main-gear impact only. Combines challenge-specific touchdown vertical-speed and robust filtered peak-G subscores using weighted RMS penalties.",
@@ -125,7 +125,7 @@
         {
           "id": "touchdown_point",
           "displayName": "Touchdown point",
-          "importancePercent": 20,
+          "importancePercent": 19,
           "unit": "ft",
           "evaluator": "upperBoundBands",
           "metric": "touchdownPointErrorFt",
@@ -170,7 +170,7 @@
         {
           "id": "airspeed",
           "displayName": "IAS versus touchdown target",
-          "importancePercent": 10.4,
+          "importancePercent": 10,
           "unit": "kts",
           "evaluator": "piecewise",
           "metric": "touchdownIasErrorKts",
@@ -191,7 +191,7 @@
         {
           "id": "centerline",
           "displayName": "Centerline offset",
-          "importancePercent": 5.6,
+          "importancePercent": 5,
           "unit": "m",
           "evaluator": "centerline",
           "metric": "centerlineDeviationM",
@@ -205,11 +205,35 @@
         {
           "id": "bank",
           "displayName": "Bank at touchdown",
-          "importancePercent": 1.6,
+          "importancePercent": 1,
           "unit": "deg",
           "evaluator": "target",
           "metric": "bankAtTouchdownDeg",
           "params": { "ideal": 0, "tolerance": 1.5, "maxError": 8 }
+        },
+        {
+          "id": "crab_angle",
+          "displayName": "Crab angle",
+          "importancePercent": 5,
+          "unit": "deg",
+          "evaluator": "crabangle",
+          "note": "Fuselage alignment with the runway at main-gear touchdown and through the next three seconds. Touchdown alignment carries 70% so later recovery cannot erase a crooked touchdown; the time-integrated deviation carries 30%.",
+          "params": {
+            "touchdownWeight": 0.7,
+            "threeSecondWeight": 0.3
+          },
+          "curves": {
+            "touchdown": [
+              { "v": 0, "s": 100 },
+              { "v": 1, "s": 100 },
+              { "v": 8, "s": 0 }
+            ],
+            "threeSecondIntegral": [
+              { "v": 0, "s": 100 },
+              { "v": 4.5, "s": 100 },
+              { "v": 24, "s": 0 }
+            ]
+          }
         }
       ]
     },
@@ -217,7 +241,7 @@
       "id": "approach",
       "displayName": "Approach",
       "weightPercent": 25,
-      "note": "Short final (≈0.2–4.5 NM, includes typical 4 NM spawn): average 3° path match, vertical steadiness, lateral steadiness, and bank stability. Bank is 20%; the three path metrics share the remaining 80%.",
+      "note": "Short final (≈0.2–4.5 NM, includes typical 4 NM spawn): runway-specific path match, vertical steadiness, lateral steadiness, and bank stability. Bank is 20%; the three path metrics share the remaining 80%.",
       "penalties": {
         "stallWarning": {
           "multiplierOnWarning": 0.5,
@@ -235,11 +259,11 @@
           "id": "approach_glideslope",
           "displayName": "Average glideslope match",
           "importancePercent": 26.67,
-          "unit": "ft",
+          "unit": "weighted deg",
           "evaluator": "target",
-          "metric": "approachGlideslopeMeanAbsFt",
-          "note": "Time-weighted mean absolute altitude error vs the runway glideslope path (default 3°; challenge-set; free flight prefers curated steep-approach catalog, then VASI/PAPI). The normalized unflared aim point is 1,000 ft past the landing threshold. High and low deviations cannot cancel.",
-          "params": { "ideal": 0, "tolerance": 40, "maxError": 350 }
+          "metric": "approachGlideslopeWeightedDeviationDeg",
+          "note": "Time-weighted angular deviation vs the runway glideslope path (default 3°; challenge-set; free flight prefers curated steep-approach catalog, then VASI/PAPI). The normalized unflared aim point is 1,000 ft past the landing threshold. Below-path deviation counts ×0.35; above-path deviation counts ×2.0, so low approaches receive generous tolerance while high/deep approaches are penalized strongly. Opposite deviations cannot cancel.",
+          "params": { "ideal": 0, "tolerance": 0.25, "maxError": 1.75 }
         },
         {
           "id": "approach_vertical_steady",
@@ -258,8 +282,8 @@
           "unit": "m/m",
           "evaluator": "target",
           "metric": "approachLateralWeaveIndex",
-          "note": "Total lateral path change: Σ|Δd| / ground distance. Straight track scores high; big corrections and S-turns score low.",
-          "params": { "ideal": 0, "tolerance": 0.02, "maxError": 0.20 }
+          "note": "Total lateral path change: Σ|Δd| / ground distance. Straight track scores high; big corrections and S-turns score low. Full credit now requires exceptionally steady tracking (≤0.004 m/m), with zero by 0.08 m/m.",
+          "params": { "ideal": 0, "tolerance": 0.004, "maxError": 0.08 }
         },
         {
           "id": "approach_bank_stability",
@@ -268,8 +292,8 @@
           "unit": "deg",
           "evaluator": "target",
           "metric": "approachBankMeanAbsDeg",
-          "note": "Time-weighted mean absolute bank on short final: ∫|φ|dt / T. Wings level scores high (full credit within 2°); sustained bank and left/right rocking score low (zero by 18° mean |bank|).",
-          "params": { "ideal": 0, "tolerance": 2.0, "maxError": 18.0 }
+          "note": "Time-weighted mean absolute bank on short final: ∫|φ|dt / T. Wings level scores high (full credit within 0.5°); sustained bank and left/right rocking score low (zero by 8° mean |bank|).",
+          "params": { "ideal": 0, "tolerance": 0.5, "maxError": 8.0 }
         }
       ]
     },
@@ -277,7 +301,7 @@
       "id": "rollout",
       "displayName": "Rollout",
       "weightPercent": 5,
-      "note": "Heading, centerline path, weave, and peak lateral deviation share the phase equally.",
+      "note": "Centerline path, weave, and peak lateral deviation share the phase. Crab angle is scored in Touchdown.",
       "penalties": {
         "manualBraking": {
           "pedalPressThreshold": 0.05,
@@ -301,19 +325,9 @@
       },
       "metrics": [
         {
-          "id": "post_td_alignment",
-          "displayName": "Rollout heading alignment",
-          "importancePercent": 25,
-          "unit": "deg",
-          "evaluator": "target",
-          "metric": "postTouchdownAlignmentMeanDeg",
-          "note": "Mean fuselage heading error after the configured de-crab delay until settling.",
-          "params": { "ideal": 0, "tolerance": 2, "maxError": 12 }
-        },
-        {
           "id": "rollout_path",
           "displayName": "Rollout centerline path",
-          "importancePercent": 25,
+          "importancePercent": 33.34,
           "unit": "m",
           "evaluator": "target",
           "metric": "rolloutLateralMeanM",
@@ -323,7 +337,7 @@
         {
           "id": "rollout_weave",
           "displayName": "Rollout weave (S-turns)",
-          "importancePercent": 25,
+          "importancePercent": 33.33,
           "unit": "m/m",
           "evaluator": "target",
           "metric": "rolloutWeaveIndex",
@@ -332,7 +346,7 @@
         {
           "id": "max_centerline",
           "displayName": "Max lateral deviation (rollout)",
-          "importancePercent": 25,
+          "importancePercent": 33.33,
           "unit": "m",
           "evaluator": "target",
           "metric": "rolloutLateralPeakM",

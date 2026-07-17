@@ -204,6 +204,7 @@ public static class ScoreBreakdownFormatter
         "centerline" => "centerline",
         "excess_speed" => "excessSpeed",
         "bank" => "bank",
+        "crab_angle" => "crab angle",
         "alignment" => "alignment",
         "flaps" => "flaps",
         "spoiler_deployment" => "spoilers",

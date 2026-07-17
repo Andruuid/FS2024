@@ -23,6 +23,9 @@ public sealed class ApproachMetricMathTests
         Assert.True(snapshot.ApproachPathSampleCount > 100);
         Assert.InRange(snapshot.ApproachMetricDurationSec, 19.9, 20.1);
         Assert.InRange(snapshot.ApproachGlideslopeMeanAbsFt, 0, 0.01);
+        Assert.InRange(snapshot.ApproachGlideslopeMeanBelowDeg, 0, 0.0001);
+        Assert.InRange(snapshot.ApproachGlideslopeMeanAboveDeg, 0, 0.0001);
+        Assert.InRange(snapshot.ApproachGlideslopeWeightedDeviationDeg, 0, 0.0001);
         Assert.InRange(snapshot.ApproachPathRms, 0, 0.01);
         Assert.InRange(snapshot.ApproachVerticalVariationFtPerSec, 0, 0.001);
         Assert.InRange(snapshot.ApproachLateralWeaveIndex, 0, 0.000001);
@@ -42,6 +45,25 @@ public sealed class ApproachMetricMathTests
         Assert.InRange(snapshot.ApproachGlideslopeMeanAbsFt, 199.99, 200.01);
         Assert.InRange(snapshot.ApproachPathRms, 199.99, 200.01);
         Assert.InRange(snapshot.ApproachVerticalVariationFtPerSec, 0, 0.001);
+
+        if (altitudeErrorFeet > 0)
+        {
+            Assert.InRange(snapshot.ApproachGlideslopeMeanBelowDeg, 0, 0.0001);
+            Assert.True(snapshot.ApproachGlideslopeMeanAboveDeg > 0);
+            Assert.Equal(
+                snapshot.ApproachGlideslopeMeanAboveDeg * 2.0,
+                snapshot.ApproachGlideslopeWeightedDeviationDeg,
+                8);
+        }
+        else
+        {
+            Assert.InRange(snapshot.ApproachGlideslopeMeanAboveDeg, 0, 0.0001);
+            Assert.True(snapshot.ApproachGlideslopeMeanBelowDeg > 0);
+            Assert.Equal(
+                snapshot.ApproachGlideslopeMeanBelowDeg * 0.35,
+                snapshot.ApproachGlideslopeWeightedDeviationDeg,
+                8);
+        }
     }
 
     [Fact]
@@ -53,6 +75,13 @@ public sealed class ApproachMetricMathTests
             lateralOffset: _ => 0);
 
         Assert.InRange(snapshot.ApproachGlideslopeMeanAbsFt, 190, 205);
+        Assert.True(snapshot.ApproachGlideslopeMeanBelowDeg > 0);
+        Assert.True(snapshot.ApproachGlideslopeMeanAboveDeg > 0);
+        Assert.Equal(
+            snapshot.ApproachGlideslopeMeanBelowDeg * 0.35
+            + snapshot.ApproachGlideslopeMeanAboveDeg * 2.0,
+            snapshot.ApproachGlideslopeWeightedDeviationDeg,
+            8);
         // One step change: total vertical variation is non-zero.
         Assert.True(snapshot.ApproachVerticalVariationFtPerSec > 5);
     }
@@ -243,7 +272,10 @@ public sealed class ApproachMetricMathTests
         var touchdownTime = start.AddSeconds(12);
         session.Ingest(CreateGroundSample(challenge, touchdownTime, groundSpeedKts: 120));
         session.Ingest(CreateGroundSample(challenge, touchdownTime.AddSeconds(0.5), groundSpeedKts: 20));
+        session.Ingest(CreateGroundSample(challenge, touchdownTime.AddSeconds(1.0), groundSpeedKts: 20));
         session.Ingest(CreateGroundSample(challenge, touchdownTime.AddSeconds(1.6), groundSpeedKts: 20));
+        session.Ingest(CreateGroundSample(challenge, touchdownTime.AddSeconds(2.5), groundSpeedKts: 20));
+        session.Ingest(CreateGroundSample(challenge, touchdownTime.AddSeconds(3.0), groundSpeedKts: 20));
 
         Assert.True(session.IsComplete);
         Assert.Equal(live, CaptureMetrics(session.Snapshot));
@@ -263,6 +295,8 @@ public sealed class ApproachMetricMathTests
         Assert.False(MetricResolver.Resolve(
             "approachGlideslopeMeanAbsFt", snapshot, challenge).IsAvailable);
         Assert.False(MetricResolver.Resolve(
+            "approachGlideslopeWeightedDeviationDeg", snapshot, challenge).IsAvailable);
+        Assert.False(MetricResolver.Resolve(
             "approachVerticalVariationFtPerSec", snapshot, challenge).IsAvailable);
         Assert.False(MetricResolver.Resolve(
             "approachLateralWeaveIndex", snapshot, challenge).IsAvailable);
@@ -274,6 +308,8 @@ public sealed class ApproachMetricMathTests
 
         Assert.True(MetricResolver.Resolve(
             "approachGlideslopeMeanAbsFt", snapshot, challenge).IsAvailable);
+        Assert.True(MetricResolver.Resolve(
+            "approachGlideslopeWeightedDeviationDeg", snapshot, challenge).IsAvailable);
         Assert.True(MetricResolver.Resolve(
             "approachVerticalVariationFtPerSec", snapshot, challenge).IsAvailable);
         Assert.True(MetricResolver.Resolve(
@@ -427,6 +463,9 @@ public sealed class ApproachMetricMathTests
         snapshot.ApproachMetricDurationSec,
         snapshot.ApproachLateralDistanceM,
         snapshot.ApproachGlideslopeMeanAbsFt,
+        snapshot.ApproachGlideslopeMeanBelowDeg,
+        snapshot.ApproachGlideslopeMeanAboveDeg,
+        snapshot.ApproachGlideslopeWeightedDeviationDeg,
         snapshot.ApproachVerticalVariationFtPerSec,
         snapshot.ApproachLateralWeaveIndex,
         snapshot.ApproachBankMeanAbsDeg,
@@ -459,6 +498,9 @@ public sealed class ApproachMetricMathTests
         double DurationSeconds,
         double DistanceMeters,
         double MeanAbsoluteErrorFeet,
+        double MeanBelowGlideslopeDeg,
+        double MeanAboveGlideslopeDeg,
+        double WeightedGlideslopeDeviationDeg,
         double VerticalVariationFeetPerSecond,
         double LateralWeaveIndex,
         double MeanAbsoluteBankDeg,

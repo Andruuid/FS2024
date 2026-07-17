@@ -1,6 +1,6 @@
 {
   "id": "free-flight-evaluation-key",
-  "version": 9,
+  "version": 12,
   "description": "Free Flight overlay. Inherits every metric, curve, gate, timing rule, and phase weight from the authoritative landing evaluation key.",
   "inherits": "landing-evaluation-key.json",
   "speedTarget": {

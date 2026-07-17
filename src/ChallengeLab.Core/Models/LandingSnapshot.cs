@@ -9,16 +9,29 @@ public sealed class LandingSnapshot
     public double MaxLateralOffsetM { get; set; }
     public double TouchdownLateralOffsetM { get; set; }
     public double TouchdownHeadingErrorDeg { get; set; }
+    public CrabAngleAnalysis? CrabAngle { get; set; }
     /// <summary>Diagnostic: time-weighted RMS altitude error vs the stabilized path (ft).</summary>
     public double ApproachPathRms { get; set; }
     public int ApproachPathSampleCount { get; set; }
 
     /// <summary>
-    /// Time-weighted mean absolute altitude error vs the nominal glideslope path: ∫|e(t)|dt / T (ft).
+    /// Diagnostic time-weighted mean absolute altitude error vs the nominal glideslope path: ∫|e(t)|dt / T (ft).
     /// Path meets field elevation at the normalized unflared aim point 1,000 ft past the landing threshold.
     /// High and low deviations cannot cancel one another.
     /// </summary>
     public double ApproachGlideslopeMeanAbsFt { get; set; }
+
+    /// <summary>Time-weighted mean angular deviation below the nominal path (degrees).</summary>
+    public double ApproachGlideslopeMeanBelowDeg { get; set; }
+
+    /// <summary>Time-weighted mean angular deviation above the nominal path (degrees).</summary>
+    public double ApproachGlideslopeMeanAboveDeg { get; set; }
+
+    /// <summary>
+    /// Asymmetric non-cancelling glideslope penalty in weighted degrees.
+    /// Low deviation is deliberately discounted; high deviation is amplified because it promotes deep landings.
+    /// </summary>
+    public double ApproachGlideslopeWeightedDeviationDeg { get; set; }
 
     /// <summary>
     /// Vertical steadiness: excess total variation of altitude error per second (ft/s).
@@ -48,14 +61,14 @@ public sealed class LandingSnapshot
     public double CrabAngleAtFlareDeg { get; set; }
 
     /// <summary>
-    /// Mean |heading − runway| from TD+2s until GS &lt; settle speed (de-crab / rudder alignment).
+    /// Mean |heading − runway| from main-gear touchdown until GS &lt; settle speed.
     /// </summary>
     public double PostTouchdownAlignmentMeanDeg { get; set; }
 
-    /// <summary>RMS heading error over the same post-TD+2s window.</summary>
+    /// <summary>RMS heading error over the same touchdown-to-settle window.</summary>
     public double PostTouchdownAlignmentRmsDeg { get; set; }
 
-    /// <summary>Peak |heading − runway| in the post-TD+2s window.</summary>
+    /// <summary>Peak |heading − runway| in the touchdown-to-settle window.</summary>
     public double PostTouchdownAlignmentPeakDeg { get; set; }
 
     public int PostTouchdownAlignmentSampleCount { get; set; }

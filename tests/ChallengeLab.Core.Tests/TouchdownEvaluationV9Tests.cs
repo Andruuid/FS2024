@@ -49,8 +49,8 @@ public sealed class TouchdownEvaluationV9Tests
         var catalog = loader.LoadCatalog();
         foreach (var (path, version) in new[]
                  {
-                     (catalog.EvaluationKey, 23),
-                     (catalog.FreeFlightEvaluationKey, 9)
+                     (catalog.EvaluationKey, 26),
+                     (catalog.FreeFlightEvaluationKey, 12)
                  })
         {
             var loaded = loader.LoadEvaluationKey(path);
@@ -59,10 +59,14 @@ public sealed class TouchdownEvaluationV9Tests
             Assert.Equal(100, loaded.Key.Phases.Sum(p => p.WeightPercent), 6);
             var touchdown = loaded.Key.Phases.Single(p => p.Id == "touchdown");
             Assert.Equal(100, touchdown.Metrics.Sum(m => m.ImportancePercent), 6);
-            Assert.Equal(54.4,
+            Assert.Equal(52,
                 touchdown.Metrics.Single(m => m.Id == "touchdown_impact").ImportancePercent);
-            Assert.Equal(20, touchdown.Metrics.Single(m => m.Id == "touchdown_point").ImportancePercent);
+            Assert.Equal(19, touchdown.Metrics.Single(m => m.Id == "touchdown_point").ImportancePercent);
             Assert.Equal(8, touchdown.Metrics.Single(m => m.Id == "flare_efficiency").ImportancePercent);
+            Assert.Equal(5, touchdown.Metrics.Single(m => m.Id == "crab_angle").ImportancePercent);
+            Assert.DoesNotContain(
+                loaded.Key.Phases.Single(p => p.Id == "rollout").Metrics,
+                m => m.Id == "post_td_alignment");
             Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "contact_stability");
             Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "touchdown_vs");
             Assert.Equal(70, touchdown.WeightPercent);
@@ -151,6 +155,58 @@ public sealed class TouchdownEvaluationV9Tests
             error => error.Contains("at least one positive", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Theory]
+    [InlineData(0, 0, 100)]
+    [InlineData(5, 0, 60)]
+    [InlineData(8, 0, 30)]
+    public void CrabAngle_TouchdownDominatesAndRecoveryCannotEraseIt(
+        double touchdownDeg,
+        double integralDegSeconds,
+        double expectedScore)
+    {
+        var (key, _) = Load();
+        var metric = key.Phases.SelectMany(p => p.Metrics)
+            .Single(m => m.Id == "crab_angle");
+        var snapshot = new LandingSnapshot
+        {
+            CrabAngle = new CrabAngleAnalysis(
+                true,
+                touchdownDeg,
+                integralDegSeconds,
+                3,
+                integralDegSeconds / 3,
+                touchdownDeg,
+                30,
+                null)
+        };
+
+        var diagnostics = new LandingResultDiagnostics();
+        var result = CompositeMetricEvaluator.Evaluate(metric, key, snapshot, diagnostics);
+
+        Assert.True(result.IsAvailable);
+        Assert.Equal(expectedScore, result.ScorePercent, 6);
+        Assert.Equal(touchdownDeg, result.RawValue, 6);
+        Assert.Equal(expectedScore, diagnostics.CrabAngleScore, 6);
+    }
+
+    [Fact]
+    public void CrabAngle_LatestLszaShapeScoresAboutEightyNinePercent()
+    {
+        var (key, _) = Load();
+        var metric = key.Phases.SelectMany(p => p.Metrics)
+            .Single(m => m.Id == "crab_angle");
+        var snapshot = new LandingSnapshot
+        {
+            CrabAngle = new CrabAngleAnalysis(
+                true, 2.0993, 3.758, 3, 1.253, 2.0993, 178, null)
+        };
+
+        var result = CompositeMetricEvaluator.Evaluate(
+            metric, key, snapshot, new LandingResultDiagnostics());
+
+        Assert.InRange(result.ScorePercent, 88.5, 89.5);
+    }
+
     [Fact]
     public void KeyLoader_DisallowsUnknownSerializedMembers()
     {
@@ -188,7 +244,7 @@ public sealed class TouchdownEvaluationV9Tests
         var result = new ScoreEngine(profile11.Key, profile11.ProfileHash)
             .EvaluatePreview(challenge, new LandingSnapshot());
         Assert.Equal(profile11.Key.Id, result.EvaluationKeyId);
-        Assert.Equal(23, result.EvaluationKeyVersion);
+        Assert.Equal(26, result.EvaluationKeyVersion);
         Assert.Equal(profile11.ProfileHash, result.ScoringProfileHash);
         Assert.Equal(profile11.BucketId(challenge.Id), result.RankedBucketId);
 
@@ -564,6 +620,8 @@ public sealed class TouchdownEvaluationV9Tests
         session.Ingest(At(1, wall.AddMinutes(5), true, 40)); // paused: UTC moves, sim clock does not
         Assert.False(session.IsComplete);
         session.Ingest(At(2.1, wall.AddMinutes(5).AddSeconds(1.1), true, 40));
+        Assert.False(session.IsComplete);
+        session.Ingest(At(3.1, wall.AddMinutes(5).AddSeconds(2.1), true, 40));
         Assert.True(session.IsComplete);
     }
 

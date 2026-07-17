@@ -90,8 +90,8 @@ public sealed class TouchdownPointScoringTests
         Assert.Equal(90, earlyMetric.ScorePercent);
         Assert.Equal(earlyMetric.ScorePercent, lateMetric.ScorePercent);
         Assert.Equal(1_125, earlyMetric.RawValue!.Value, 3);
-        Assert.Equal(20, earlyMetric.PhaseImportancePercent);
-        Assert.Equal(14, earlyMetric.MaxOverallPoints);
+        Assert.Equal(19, earlyMetric.PhaseImportancePercent);
+        Assert.Equal(13.3, earlyMetric.MaxOverallPoints, 6);
         Assert.Contains("perfect point 1200.0 ft", earlyMetric.Note, StringComparison.Ordinal);
         Assert.Contains("error -75.0 ft (early)", earlyMetric.Note, StringComparison.Ordinal);
         Assert.Contains("error +75.0 ft (late)", lateMetric.Note, StringComparison.Ordinal);

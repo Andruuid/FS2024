@@ -57,6 +57,20 @@ public sealed record ContactStabilityAnalysis(
     double MaximumAirborneDurationSeconds,
     string? DegradedReason);
 
+/// <summary>
+/// Fuselage heading alignment at main-gear touchdown and throughout the fixed
+/// three-second directional-control window that follows it.
+/// </summary>
+public sealed record CrabAngleAnalysis(
+    bool CoverageSufficient,
+    double TouchdownErrorDeg,
+    double IntegratedDeviationDegSeconds,
+    double CoverageSeconds,
+    double MeanAbsoluteDeviationDeg,
+    double PeakDeviationDeg,
+    int SampleCount,
+    string? DegradedReason);
+
 /// <summary>Raw values and component scores needed to explain or persist a landing result.</summary>
 public sealed class LandingResultDiagnostics
 {
@@ -95,6 +109,13 @@ public sealed class LandingResultDiagnostics
     public double ContactStabilityScore { get; set; } = 100;
     public bool ContactTelemetryDegraded { get; set; }
     public List<ScoredBounceDiagnostic> Bounces { get; set; } = new();
+
+    public double CrabAngleTouchdownDeg { get; set; }
+    public double CrabAngleTouchdownSubscore { get; set; }
+    public double CrabAngleThreeSecondIntegralDegSeconds { get; set; }
+    public double CrabAngleThreeSecondSubscore { get; set; }
+    public double CrabAngleScore { get; set; }
+    public bool CrabAngleTelemetryDegraded { get; set; }
 }
 
 public sealed class ScoredBounceDiagnostic

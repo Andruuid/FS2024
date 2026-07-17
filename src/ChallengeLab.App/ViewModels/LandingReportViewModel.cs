@@ -458,6 +458,7 @@ public sealed class SummaryMetricViewModel
         "approach_vertical_steady" => "Vertical stability",
         "approach_lateral_steady" => "Lateral stability",
         "approach_bank_stability" => "Bank stability",
+        "crab_angle" => "Crab angle",
         "post_td_alignment" => "Heading alignment",
         "rollout_path" => "Centerline",
         "rollout_weave" => "Weave",

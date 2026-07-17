@@ -8,6 +8,9 @@ internal readonly record struct ApproachMetricResult(
     double DurationSeconds,
     double GroundDistanceMeters,
     double MeanAbsoluteErrorFeet,
+    double MeanBelowGlideslopeDeg,
+    double MeanAboveGlideslopeDeg,
+    double WeightedGlideslopeDeviationDeg,
     double VerticalExcessVariationFeetPerSecond,
     double LateralExcessVariationIndex,
     double RootMeanSquareErrorFeet,
@@ -16,11 +19,16 @@ internal readonly record struct ApproachMetricResult(
 /// <summary>
 /// Deterministic short-final metric calculation. Raw visual-frame telemetry is converted to
 /// runway-local coordinates, split at discontinuities, resampled to 5 Hz, and lightly smoothed
-/// before path-accuracy (mean |alt error|), bank stability (mean |bank|), and total-variation
-/// steadiness metrics are integrated.
+/// before asymmetric angular glideslope deviation, diagnostic mean |alt error|,
+/// bank stability (mean |bank|), and total-variation steadiness metrics are integrated.
 /// </summary>
 internal static class ApproachMetricCalculator
 {
+    // Being low on a nominal path is scored much more generously than being high,
+    // where excess energy tends to produce a deep landing. Keeping this as a
+    // weighted absolute deviation also prevents high/low excursions from cancelling.
+    internal const double BelowGlideslopePenaltyFactor = 0.35;
+    internal const double AboveGlideslopePenaltyFactor = 2.0;
     private const double MaximumRawGapSeconds = 2.0;
     private static readonly TimeSpan ResampleInterval = TimeSpan.FromSeconds(0.2); // 5 Hz
 
@@ -49,6 +57,8 @@ internal static class ApproachMetricCalculator
         double absoluteErrorIntegral = 0;
         double squaredErrorIntegral = 0;
         double absoluteBankIntegral = 0;
+        double belowGlideslopeIntegralDegSeconds = 0;
+        double aboveGlideslopeIntegralDegSeconds = 0;
         // Total path variation (not reversal-only): live preview and finals must react to
         // corrections / pumping / S-turns. One-way intercepts also cost, which matches
         // pilot expectation that "wild flying" pulls the score down during approach.
@@ -70,6 +80,8 @@ internal static class ApproachMetricCalculator
                     continue;
 
                 durationSeconds += dt;
+                var previousAngleErrorDeg = GlideslopeAngleErrorDeg(previous, runway.GlideslopeDeg);
+                var currentAngleErrorDeg = GlideslopeAngleErrorDeg(current, runway.GlideslopeDeg);
                 absoluteErrorIntegral +=
                     0.5 * (Math.Abs(previous.AltitudeErrorFeet) + Math.Abs(current.AltitudeErrorFeet)) * dt;
                 squaredErrorIntegral +=
@@ -77,6 +89,12 @@ internal static class ApproachMetricCalculator
                            + current.AltitudeErrorFeet * current.AltitudeErrorFeet) * dt;
                 absoluteBankIntegral +=
                     0.5 * (Math.Abs(previous.BankDeg) + Math.Abs(current.BankDeg)) * dt;
+                belowGlideslopeIntegralDegSeconds += 0.5
+                    * (Math.Max(0, -previousAngleErrorDeg) + Math.Max(0, -currentAngleErrorDeg))
+                    * dt;
+                aboveGlideslopeIntegralDegSeconds += 0.5
+                    * (Math.Max(0, previousAngleErrorDeg) + Math.Max(0, currentAngleErrorDeg))
+                    * dt;
 
                 verticalTotalVariationFeet +=
                     Math.Abs(current.AltitudeErrorFeet - previous.AltitudeErrorFeet);
@@ -106,16 +124,42 @@ internal static class ApproachMetricCalculator
         var meanAbsoluteBankDeg = durationSeconds > 0
             ? absoluteBankIntegral / durationSeconds
             : 0;
+        var meanBelowGlideslopeDeg = durationSeconds > 0
+            ? belowGlideslopeIntegralDegSeconds / durationSeconds
+            : 0;
+        var meanAboveGlideslopeDeg = durationSeconds > 0
+            ? aboveGlideslopeIntegralDegSeconds / durationSeconds
+            : 0;
+        var weightedGlideslopeDeviationDeg =
+            meanBelowGlideslopeDeg * BelowGlideslopePenaltyFactor
+            + meanAboveGlideslopeDeg * AboveGlideslopePenaltyFactor;
 
         return new ApproachMetricResult(
             rawSampleCount,
             durationSeconds,
             groundDistanceMeters,
             meanAbsoluteErrorFeet,
+            meanBelowGlideslopeDeg,
+            meanAboveGlideslopeDeg,
+            weightedGlideslopeDeviationDeg,
             verticalVariationFeetPerSecond,
             lateralWeaveIndex,
             rootMeanSquareErrorFeet,
             meanAbsoluteBankDeg);
+    }
+
+    private static double GlideslopeAngleErrorDeg(
+        ApproachPoint point,
+        double targetGlideslopeDeg)
+    {
+        var target = RunwayPathGeometry.SanitizeGlideslopeDeg(targetGlideslopeDeg);
+        var pathDistanceMeters = point.ApproachDistanceMeters
+                                 + RunwayPathGeometry.GlideslopeAimPointOffsetMeters;
+        var targetHeightMeters = Math.Tan(target * Math.PI / 180.0) * pathDistanceMeters;
+        var measuredHeightMeters = targetHeightMeters
+                                   + point.AltitudeErrorFeet * RunwayPathGeometry.MetersPerFoot;
+        var measuredDeg = Math.Atan2(measuredHeightMeters, pathDistanceMeters) * 180.0 / Math.PI;
+        return measuredDeg - target;
     }
 
     private static List<List<ApproachPoint>> BuildSegments(

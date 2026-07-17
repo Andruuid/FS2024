@@ -9,15 +9,15 @@ namespace ChallengeLab.Core.Tests;
 public sealed class FreeModeScoringParityTests
 {
     [Fact]
-    public void FreeV9_IsAStructuralOverlayOfLandingV22()
+    public void FreeV12_IsAStructuralOverlayOfLandingV26()
     {
         var loader = new ConfigLoader(FindConfig());
         var catalog = loader.LoadCatalog();
         var normal = loader.LoadEvaluationKey(catalog.EvaluationKey).Key!;
         var free = loader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey).Key!;
 
-        Assert.Equal(23, normal.Version);
-        Assert.Equal(9, free.Version);
+        Assert.Equal(26, normal.Version);
+        Assert.Equal(12, free.Version);
         Assert.NotNull(free.FreeMode);
         Assert.Equal(50, free.FreeMode!.UnavailableMetricScorePercent);
         Assert.Equal(0.5, free.FreeMode.MissingGatePenaltyFraction);
@@ -445,6 +445,7 @@ public sealed class FreeModeScoringParityTests
             TouchdownIasErrorKts = 0,
             PeakGForce = 1.15,
             TouchdownLateralOffsetM = 1,
+            CrabAngle = new CrabAngleAnalysis(true, 0.5, 1.5, 3, 0.5, 0.5, 20, null),
             BankAtTouchdownDeg = 0.5,
             ApproachPathSampleCount = 5,
             ApproachGlideslopeMeanAbsFt = 20,

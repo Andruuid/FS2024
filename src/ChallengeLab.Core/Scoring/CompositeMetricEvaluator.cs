@@ -29,6 +29,7 @@ public static class CompositeMetricEvaluator
             "landingimpact" => EvaluateImpact(metric, snapshot, diagnostics),
             "flareefficiency" => EvaluateFlare(metric, snapshot, diagnostics),
             "contactstability" => EvaluateContact(metric, key, snapshot, diagnostics),
+            "crabangle" => EvaluateCrabAngle(metric, snapshot, diagnostics),
             _ => throw new ArgumentException($"'{metric.Evaluator}' is not a composite evaluator.")
         };
     }
@@ -195,6 +196,50 @@ public static class CompositeMetricEvaluator
         return new CompositeMetricEvaluation(
             true, score, score, "%", explanation, degraded,
             degraded ? analysis.DegradedReason : null);
+    }
+
+    private static CompositeMetricEvaluation EvaluateCrabAngle(
+        EvaluationMetric metric,
+        LandingSnapshot snapshot,
+        LandingResultDiagnostics diagnostics)
+    {
+        if (snapshot.CrabAngle is not { CoverageSufficient: true } analysis)
+            return CompositeMetricEvaluation.Unavailable(
+                snapshot.CrabAngle?.DegradedReason
+                ?? "Crab-angle analysis is not complete.");
+
+        var touchdownScore = Curve(metric, "touchdown", analysis.TouchdownErrorDeg);
+        var threeSecondScore = Curve(
+            metric, "threeSecondIntegral", analysis.IntegratedDeviationDegSeconds);
+        var touchdownWeight = Param(metric, "touchdownWeight");
+        var threeSecondWeight = Param(metric, "threeSecondWeight");
+        var totalWeight = touchdownWeight + threeSecondWeight;
+        var score = (touchdownScore * touchdownWeight
+                     + threeSecondScore * threeSecondWeight) / totalWeight;
+
+        diagnostics.CrabAngleTouchdownDeg = analysis.TouchdownErrorDeg;
+        diagnostics.CrabAngleTouchdownSubscore = touchdownScore;
+        diagnostics.CrabAngleThreeSecondIntegralDegSeconds =
+            analysis.IntegratedDeviationDegSeconds;
+        diagnostics.CrabAngleThreeSecondSubscore = threeSecondScore;
+        diagnostics.CrabAngleScore = score;
+        diagnostics.CrabAngleTelemetryDegraded = false;
+
+        var explanation =
+            $"Crab at main-gear touchdown {analysis.TouchdownErrorDeg:0.0}° — {touchdownScore:0.#}%; " +
+            $"absolute deviation integrated through TD+3 s {analysis.IntegratedDeviationDegSeconds:0.00} °·s " +
+            $"(mean {analysis.MeanAbsoluteDeviationDeg:0.00}°, peak {analysis.PeakDeviationDeg:0.0}°) — " +
+            $"{threeSecondScore:0.#}%. Combined {touchdownWeight / totalWeight:P0} touchdown / " +
+            $"{threeSecondWeight / totalWeight:P0} three-second control.";
+
+        return new CompositeMetricEvaluation(
+            true,
+            score,
+            analysis.TouchdownErrorDeg,
+            "deg",
+            explanation,
+            false,
+            null);
     }
 
     private static double Param(EvaluationMetric metric, string name) => metric.Params[name];

@@ -185,6 +185,14 @@ public sealed class NoseGearImpactGateTests
         }
         session.Ingest(SessionSample(2.01,
             leftMain: true, rightMain: true, nose: true, g: 1, groundSpeed: 40));
+        session.Ingest(SessionSample(2.5,
+            leftMain: true, rightMain: true, nose: true, g: 1, groundSpeed: 40));
+        session.Ingest(SessionSample(3.0,
+            leftMain: true, rightMain: true, nose: true, g: 1, groundSpeed: 40));
+        session.Ingest(SessionSample(3.5,
+            leftMain: true, rightMain: true, nose: true, g: 1, groundSpeed: 40));
+        session.Ingest(SessionSample(4.01,
+            leftMain: true, rightMain: true, nose: true, g: 1, groundSpeed: 40));
 
         Assert.True(session.IsComplete);
         var analysis = Assert.IsType<NoseGearImpactAnalysis>(

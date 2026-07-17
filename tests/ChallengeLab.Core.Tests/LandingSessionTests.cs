@@ -36,7 +36,8 @@ public sealed class LandingSessionTests
         double lon = 5.25,
         double gs = 140,
         double ias = 145,
-        bool stallWarning = false)
+        bool stallWarning = false,
+        double heading = 313)
         => new()
         {
             Timestamp = t,
@@ -49,7 +50,7 @@ public sealed class LandingSessionTests
             AltitudeFeet = 43 + agl,
             GroundSpeedKts = gs,
             AirspeedKts = ias,
-            HeadingTrueDeg = 313,
+            HeadingTrueDeg = heading,
             PitchDeg = 2,
             BankDeg = 0,
             GearHandlePosition = 1,
@@ -134,6 +135,89 @@ public sealed class LandingSessionTests
         Assert.NotNull(session.Snapshot.Touchdown);
         Assert.Equal(-150, session.Snapshot.VerticalSpeedAtTouchdownFpm, 3);
         Assert.Equal(LandingPhase.Rollout, session.Phase);
+    }
+
+    [Fact]
+    public void RolloutAlignment_ZeroDelayIncludesTouchdownFrame()
+    {
+        var (challenge, settings) = Load();
+        settings = settings with
+        {
+            PostTouchdownAlignmentDelaySeconds = 0,
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false,
+            OperationalGates = new OperationalGateSessionSettings()
+        };
+        var session = new LandingSession(challenge, settings);
+        var t0 = DateTimeOffset.UtcNow;
+        var runwayHeading = challenge.Runway.HeadingTrueDeg;
+        session.Arm();
+
+        session.Ingest(Sample(t0, onGround: false, heading: runwayHeading));
+        session.Ingest(Sample(
+            t0.AddSeconds(1), onGround: true, agl: 0, gs: 120,
+            heading: runwayHeading + 10));
+        session.Ingest(Sample(
+            t0.AddSeconds(1.5), onGround: true, agl: 0, gs: 100,
+            heading: runwayHeading));
+
+        Assert.Equal(10, session.Snapshot.TouchdownHeadingErrorDeg, 6);
+        Assert.Equal(2, session.Snapshot.PostTouchdownAlignmentSampleCount);
+        Assert.Equal(5, session.Snapshot.PostTouchdownAlignmentMeanDeg, 6);
+        Assert.Equal(10, session.Snapshot.PostTouchdownAlignmentPeakDeg, 6);
+
+        for (var i = 4; i <= 12; i++)
+        {
+            session.Ingest(Sample(
+                t0.AddSeconds(1 + i * 0.25), onGround: true, agl: 0, gs: 100,
+                heading: runwayHeading));
+        }
+
+        var crab = Assert.IsType<CrabAngleAnalysis>(session.Snapshot.CrabAngle);
+        Assert.True(crab.CoverageSufficient, crab.DegradedReason);
+        Assert.Equal(10, crab.TouchdownErrorDeg, 6);
+        Assert.Equal(2.5, crab.IntegratedDeviationDegSeconds, 3);
+        Assert.Equal(3, crab.CoverageSeconds, 3);
+        Assert.Equal(10, crab.PeakDeviationDeg, 6);
+    }
+
+    [Fact]
+    public void SettlingEarly_WaitsForCompleteThreeSecondCrabWindow()
+    {
+        var (challenge, settings) = Load();
+        settings = settings with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false,
+            OperationalGates = new OperationalGateSessionSettings()
+        };
+        var session = new LandingSession(challenge, settings);
+        var t0 = DateTimeOffset.UtcNow;
+        var runwayHeading = challenge.Runway.HeadingTrueDeg;
+        session.Arm();
+
+        session.Ingest(Sample(t0, onGround: false, heading: runwayHeading));
+        var touchdown = t0.AddSeconds(1);
+        session.Ingest(Sample(
+            touchdown, onGround: true, agl: 0, gs: 20, heading: runwayHeading));
+        session.Ingest(Sample(
+            touchdown.AddSeconds(0.75), onGround: true, agl: 0, gs: 20,
+            heading: runwayHeading));
+        session.Ingest(Sample(
+            touchdown.AddSeconds(1.5), onGround: true, agl: 0, gs: 20,
+            heading: runwayHeading));
+
+        Assert.False(session.IsComplete);
+
+        session.Ingest(Sample(
+            touchdown.AddSeconds(2.25), onGround: true, agl: 0, gs: 20,
+            heading: runwayHeading));
+        session.Ingest(Sample(
+            touchdown.AddSeconds(3), onGround: true, agl: 0, gs: 20,
+            heading: runwayHeading));
+
+        Assert.True(session.IsComplete);
+        Assert.True(session.Snapshot.CrabAngle?.CoverageSufficient);
     }
 
     [Fact]

@@ -25,6 +25,7 @@ public static class MetricResolver
         "bankAtTouchdownDeg",
         "approachPathRms",
         "approachGlideslopeMeanAbsFt",
+        "approachGlideslopeWeightedDeviationDeg",
         "approachVerticalVariationFtPerSec",
         "approachLateralWeaveIndex",
         "approachBankMeanAbsDeg",
@@ -64,6 +65,11 @@ public static class MetricResolver
                                               && snap.ApproachMetricDurationSec >= 0.5 =>
                 MetricObservation.Available(snap.ApproachGlideslopeMeanAbsFt),
             "approachglideslopemeanabsft" =>
+                MetricObservation.Unavailable("Approach glideslope requires a short-final sample window."),
+            "approachglideslopeweighteddeviationdeg" when snap.ApproachPathSampleCount >= 2
+                                                           && snap.ApproachMetricDurationSec >= 0.5 =>
+                MetricObservation.Available(snap.ApproachGlideslopeWeightedDeviationDeg),
+            "approachglideslopeweighteddeviationdeg" =>
                 MetricObservation.Unavailable("Approach glideslope requires a short-final sample window."),
             "approachverticalvariationftpersec" when snap.ApproachPathSampleCount >= 2
                                                      && snap.ApproachMetricDurationSec >= 0.5 =>
@@ -109,6 +115,11 @@ public static class MetricResolver
 
         if (m == "excessspeedovervappkts")
             return $"+{snap.ExcessSpeedOverVappKts:0.0} kt over VAPP {snap.VappKts:0.0}  (IAS {snap.AirspeedAtTouchdownKts:0.0})";
+
+        if (m == "approachglideslopeweighteddeviationdeg")
+            return $"{snap.ApproachGlideslopeWeightedDeviationDeg:0.00} weighted deg "
+                   + $"(below {snap.ApproachGlideslopeMeanBelowDeg:0.00} deg, "
+                   + $"above {snap.ApproachGlideslopeMeanAboveDeg:0.00} deg)";
 
         if (raw is null) return null;
         return unit is null ? $"{raw:0.##}" : $"{raw:0.##} {unit}";

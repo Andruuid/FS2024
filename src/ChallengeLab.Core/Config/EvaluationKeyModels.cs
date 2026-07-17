@@ -161,7 +161,7 @@ public sealed class EvaluationSettle
 
 public sealed class EvaluationTiming
 {
-    public double PostTouchdownAlignmentDelaySeconds { get; set; } = 2;
+    public double PostTouchdownAlignmentDelaySeconds { get; set; }
     public double FlareAglFeet { get; set; } = 50;
 
     /// <summary>Seconds after Arm() during which touchdown cannot be captured (seeds ground state).</summary>

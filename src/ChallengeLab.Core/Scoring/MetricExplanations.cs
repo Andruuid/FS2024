@@ -56,6 +56,8 @@ public static class MetricExplanations
             "Extra energy causes long floats and late touchdown even if the landing feels smooth.",
         "bank" =>
             "Wing bank angle at touchdown. Keep wings level to protect engine pods in crosswind.",
+        "crab_angle" =>
+            "Crab angle measures fuselage alignment with the runway at main-gear touchdown and integrates absolute heading deviation through TD+3 seconds.",
         "gear" =>
             "Safety gate: gear-down is required baseline and awards no points. " +
             "Gear-up applies a heavy overall score cut (~90%) unless the challenge allows gear-up landings.",
@@ -65,9 +67,10 @@ public static class MetricExplanations
         "approach_path" =>
             "Legacy single-metric approach path (RMS altitude error vs 3°). Replaced by average glideslope + steadiness.",
         "approach_glideslope" =>
-            "Time-weighted mean absolute altitude error versus the runway's nominal glideslope path on short final (∫|e|dt / T). " +
+            "Time-weighted angular deviation versus the runway's nominal glideslope on short final. " +
             "Default angle is 3°; challenges set the angle; free flight prefers a curated steep-approach catalog, then VASI/PAPI. " +
             "The path meets runway elevation at a normalized unflared aim point 1,000 ft past the landing threshold. " +
+            "Below-path deviation is intentionally lenient (×0.35); above-path deviation is strict (×2.0) because it promotes deep landings. " +
             "High and low deviations cannot cancel one another.",
         "approach_vertical_steady" =>
             "Vertical path steadiness: reversal-only excess variation of altitude error per second. " +
@@ -79,8 +82,8 @@ public static class MetricExplanations
             "Bank angle stability on short final: time-weighted mean absolute bank (∫|φ|dt / T). " +
             "Wings level scores high; sustained bank and left/right rocking score low.",
         "post_td_alignment" =>
-            "From 2 seconds after touchdown until about 50 kt: fuselage should be de-crabbed and " +
-            "held parallel to the runway with rudder.",
+            "From the main-gear touchdown sample until about 50 kt: fuselage should already be de-crabbed and " +
+            "held parallel to the runway with rudder. There is no grace period after touchdown.",
         "rollout_path" =>
             "Distance-weighted mean centerline offset after touchdown: (∫|d| ds) / distance. " +
             "How close the rundown stays to the paint.",
@@ -130,6 +133,9 @@ public static class MetricExplanations
                 $"Measured: +{snap.ExcessSpeedOverVappKts:0.0} kt over VAPP ({snap.AirspeedAtTouchdownKts:0.0} vs {snap.VappKts:0.0}).",
             "bank" =>
                 $"Measured: {Math.Abs(snap.BankAtTouchdownDeg):0.0}° bank.",
+            "crab_angle" when snap.CrabAngle is { } crab =>
+                $"Measured: {crab.TouchdownErrorDeg:0.0}° at touchdown and " +
+                $"{crab.IntegratedDeviationDegSeconds:0.00} °·s through TD+3 s.",
             "gear" =>
                 snap.GearDownAtTouchdown ? "Measured: gear down." : "Measured: gear up.",
             "flaps" =>
@@ -137,8 +143,11 @@ public static class MetricExplanations
             "approach_path" =>
                 $"Measured: path RMS {snap.ApproachPathRms:0} ft.",
             "approach_glideslope" =>
-                $"Measured: mean |path error| {snap.ApproachGlideslopeMeanAbsFt:0} ft " +
-                $"(window {snap.ApproachMetricDurationSec:0.0}s, n={snap.ApproachPathSampleCount}).",
+                $"Measured: mean {snap.ApproachGlideslopeMeanBelowDeg:0.00}° below and " +
+                $"{snap.ApproachGlideslopeMeanAboveDeg:0.00}° above " +
+                $"({snap.ApproachGlideslopeWeightedDeviationDeg:0.00} weighted degrees; " +
+                $"legacy mean altitude error {snap.ApproachGlideslopeMeanAbsFt:0} ft; " +
+                $"window {snap.ApproachMetricDurationSec:0.0}s, n={snap.ApproachPathSampleCount}).",
             "approach_vertical_steady" =>
                 $"Measured: vertical excess variation {snap.ApproachVerticalVariationFtPerSec:0.00} ft/s " +
                 $"(window {snap.ApproachMetricDurationSec:0.0}s).",
@@ -149,7 +158,7 @@ public static class MetricExplanations
                 $"Measured: mean |bank| {snap.ApproachBankMeanAbsDeg:0.0}° " +
                 $"(window {snap.ApproachMetricDurationSec:0.0}s, n={snap.ApproachPathSampleCount}).",
             "post_td_alignment" =>
-                $"Measured: mean heading error {snap.PostTouchdownAlignmentMeanDeg:0.0}° after TD+2 s " +
+                $"Measured: mean heading error {snap.PostTouchdownAlignmentMeanDeg:0.0}° from touchdown " +
                 $"(peak {snap.PostTouchdownAlignmentPeakDeg:0.0}°, n={snap.PostTouchdownAlignmentSampleCount}).",
             "rollout_path" =>
                 $"Measured: mean |offset| {snap.RolloutLateralMeanM:0.0} m over {snap.RolloutDistanceM:0} m of rollout.",

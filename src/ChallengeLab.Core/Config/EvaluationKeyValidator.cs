@@ -243,6 +243,12 @@ public static class EvaluationKeyValidator
                     new[] { "count", "maxAirborneDuration" },
                     new[] { "countWeight", "maxAirborneDurationWeight", "worstSecondaryImpactWeight" });
                 break;
+            case "crabangle":
+                ValidateComposite(metric, path, errors,
+                    new[] { "touchdownWeight", "threeSecondWeight" },
+                    new[] { "touchdown", "threeSecondIntegral" },
+                    new[] { "touchdownWeight", "threeSecondWeight" });
+                break;
         }
     }
 

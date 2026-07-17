@@ -55,11 +55,13 @@ public sealed class ScoreEngineTests
         TouchdownLateralOffsetM = 1,
         MaxLateralOffsetM = 2,
         TouchdownHeadingErrorDeg = 1,
+        CrabAngle = new CrabAngleAnalysis(true, 0.5, 1.5, 3, 0.5, 0.5, 20, null),
         ApproachPathRms = 1,
         ApproachPathSampleCount = 3,
         ApproachGlideslopeMeanAbsFt = 20,
+        ApproachGlideslopeWeightedDeviationDeg = 0.1,
         ApproachVerticalVariationFtPerSec = 1.5,
-        ApproachLateralWeaveIndex = 0.01,
+        ApproachLateralWeaveIndex = 0.001,
         ApproachLateralDistanceM = 2000,
         ApproachMetricDurationSec = 45,
         PostTouchdownAlignmentSampleCount = 2,
@@ -253,10 +255,10 @@ public sealed class ScoreEngineTests
             ApproachPathSampleCount = 10,
             ApproachMetricDurationSec = 30,
             ApproachLateralDistanceM = 2000,
-            ApproachGlideslopeMeanAbsFt = 350, // zero on soft curve
+            ApproachGlideslopeWeightedDeviationDeg = 1.75, // zero on asymmetric curve
             ApproachVerticalVariationFtPerSec = 25, // zero
-            ApproachLateralWeaveIndex = 0.20, // zero
-            ApproachBankMeanAbsDeg = 18 // zero on bank curve
+            ApproachLateralWeaveIndex = 0.08, // zero
+            ApproachBankMeanAbsDeg = 8 // zero on bank curve
         };
         var preview = new ScoreEngine(key).EvaluatePreview(challenge, snap);
         Assert.True(preview.IsPreview);
@@ -388,9 +390,10 @@ public sealed class ScoreEngineTests
         Assert.DoesNotContain(td.Metrics, m => m.Id == "contact_stability");
         Assert.DoesNotContain(td.Metrics, m => m.Id == "excess_speed");
         Assert.DoesNotContain(td.Metrics, m => m.Id == "alignment");
-        Assert.Equal(20, td.Metrics.Single(m => m.Id == "touchdown_point").ImportancePercent);
-        Assert.Equal(10.4, td.Metrics.Single(m => m.Id == "airspeed").ImportancePercent);
-        Assert.Equal(5.6, td.Metrics.Single(m => m.Id == "centerline").ImportancePercent);
+        Assert.Equal(19, td.Metrics.Single(m => m.Id == "touchdown_point").ImportancePercent);
+        Assert.Equal(10, td.Metrics.Single(m => m.Id == "airspeed").ImportancePercent);
+        Assert.Equal(5, td.Metrics.Single(m => m.Id == "centerline").ImportancePercent);
+        Assert.Equal(5, td.Metrics.Single(m => m.Id == "crab_angle").ImportancePercent);
         Assert.Equal(100, td.Metrics.Sum(m => m.ImportancePercent), 2);
     }
 
@@ -400,7 +403,8 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(23, loaded.Key.Version);
+        Assert.Equal(26, loaded.Key.Version);
+        Assert.Equal(0, loaded.Key.Timing!.PostTouchdownAlignmentDelaySeconds);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
 
@@ -413,7 +417,7 @@ public sealed class ScoreEngineTests
 
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("free-flight-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(9, loaded.Key.Version);
+        Assert.Equal(12, loaded.Key.Version);
         Assert.Equal(70, loaded.Key.SpeedTarget!.DefaultVappKts);
         Assert.NotNull(loaded.Key.FreeMode);
         Assert.NotNull(loaded.Key.Phases.Single(p => p.Id == "touchdown").Penalties!.Flaps);
@@ -446,15 +450,29 @@ public sealed class ScoreEngineTests
     }
 
     [Fact]
-    public void ApproachGlideslope_SoftCurve_GivesPartialCreditForMeanAbsoluteError()
+    public void ApproachGlideslope_AsymmetricWeightedCurve_GivesPartialCredit()
     {
         var (key, _) = Load();
         var metric = key.Phases.SelectMany(p => p.Metrics).Single(m => m.Id == "approach_glideslope");
-        Assert.Equal(1.0, TargetEvaluator.Instance.Evaluate(20, metric), 6);
-        Assert.Equal(1.0, TargetEvaluator.Instance.Evaluate(40, metric), 6);
-        Assert.Equal(0.0, TargetEvaluator.Instance.Evaluate(350, metric), 6);
-        var mid = TargetEvaluator.Instance.Evaluate(195, metric); // halfway tol→max ≈ 50%
+        Assert.Equal("approachGlideslopeWeightedDeviationDeg", metric.Metric);
+        Assert.Equal(1.0, TargetEvaluator.Instance.Evaluate(0.20, metric), 6);
+        Assert.Equal(1.0, TargetEvaluator.Instance.Evaluate(0.25, metric), 6);
+        Assert.Equal(0.0, TargetEvaluator.Instance.Evaluate(1.75, metric), 6);
+        var mid = TargetEvaluator.Instance.Evaluate(1.0, metric); // halfway tolerance→zero ≈ 50%
         Assert.InRange(mid, 0.45, 0.55);
+    }
+
+    [Fact]
+    public void ApproachLateralAndBankCurves_NoLongerGiveRoutineValuesFullCredit()
+    {
+        var (key, _) = Load();
+        var metrics = key.Phases.SelectMany(p => p.Metrics).ToDictionary(m => m.Id);
+
+        var lateral = TargetEvaluator.Instance.Evaluate(0.0095, metrics["approach_lateral_steady"]);
+        var bank = TargetEvaluator.Instance.Evaluate(1.54, metrics["approach_bank_stability"]);
+
+        Assert.InRange(lateral, 0.92, 0.94);
+        Assert.InRange(bank, 0.85, 0.87);
     }
 
     [Fact]

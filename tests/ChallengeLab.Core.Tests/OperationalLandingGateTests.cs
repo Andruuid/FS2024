@@ -16,7 +16,7 @@ public sealed class OperationalLandingGateTests
         var free = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey);
 
         Assert.True(challenge.IsValid, string.Join("; ", challenge.Errors));
-        Assert.Equal(23, challenge.Key!.Version);
+        Assert.Equal(26, challenge.Key!.Version);
         var touchdown = challenge.Key.Phases.Single(p => p.Id == "touchdown").Penalties!;
         var approach = challenge.Key.Phases.Single(p => p.Id == "approach").Penalties!;
         var rollout = challenge.Key.Phases.Single(p => p.Id == "rollout").Penalties!;
@@ -33,7 +33,7 @@ public sealed class OperationalLandingGateTests
         Assert.Equal(0.8, rollout.Rollout!.MultiplierOnFail, 6);
 
         Assert.True(free.IsValid, string.Join("; ", free.Errors));
-        Assert.Equal(9, free.Key!.Version);
+        Assert.Equal(12, free.Key!.Version);
         Assert.NotNull(free.Key.FreeMode);
         Assert.NotNull(free.Key.GeneralPenalties?.PauseUsage);
         Assert.NotNull(free.Key.GeneralPenalties?.SimulationRate);
@@ -1320,10 +1320,11 @@ public sealed class OperationalLandingGateTests
             TouchdownIasErrorKts = 0,
             PeakGForce = 1.1,
             TouchdownLateralOffsetM = 1,
+            CrabAngle = new CrabAngleAnalysis(true, 0.5, 1.5, 3, 0.5, 0.5, 20, null),
             ApproachPathSampleCount = 3,
             ApproachGlideslopeMeanAbsFt = 20,
             ApproachVerticalVariationFtPerSec = 1.5,
-            ApproachLateralWeaveIndex = 0.01,
+            ApproachLateralWeaveIndex = 0.001,
             ApproachLateralDistanceM = 2000,
             ApproachMetricDurationSec = 45,
             PostTouchdownAlignmentSampleCount = 2,
