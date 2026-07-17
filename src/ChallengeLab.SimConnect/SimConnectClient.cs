@@ -1892,6 +1892,9 @@ public sealed class SimConnectClient : ISimBridge
                     t.BrakeLeft, t.IniBrakePedalLeft, t.AutoBrakesActive > 0.5),
                 ManualBrakeRightPosition = ResolveManualBrakePosition(
                     t.BrakeRight, t.IniBrakePedalRight, t.AutoBrakesActive > 0.5),
+                AutoBrakesActive = double.IsFinite(t.AutoBrakesActive)
+                    ? t.AutoBrakesActive > 0.5
+                    : null,
                 EngineCount = t.EngineCount is >= 1 and <= 4 && double.IsFinite(t.EngineCount)
                     ? (int)Math.Round(t.EngineCount)
                     : null,

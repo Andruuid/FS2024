@@ -101,6 +101,158 @@ public sealed class LandingReportV9Tests
     }
 
     [Fact]
+    public void Summary_OrdersPhasesAndWeightedMetricsByImportance()
+    {
+        static HighscoreCriterionDetail Metric(
+            string id,
+            string phaseId,
+            double importance,
+            MetricStatus status,
+            double? score) => new()
+        {
+            Id = id,
+            DisplayName = id.Replace('_', ' '),
+            PhaseId = phaseId,
+            PhaseDisplayName = phaseId,
+            PhaseImportancePercent = importance,
+            Status = status,
+            ScorePercent = score,
+            RawValue = score,
+            Note = $"Explanation for {id}."
+        };
+
+        var entry = new HighscoreEntry
+        {
+            ChallengeTitle = "Summary ordering",
+            Phases =
+            {
+                new HighscorePhaseDetail
+                    { PhaseId = "rollout", DisplayName = "Rollout", WeightPercent = 5, ScorePercent = 79.5 },
+                new HighscorePhaseDetail
+                    { PhaseId = "touchdown", DisplayName = "Touchdown", WeightPercent = 70, ScorePercent = 56.5 },
+                new HighscorePhaseDetail
+                    { PhaseId = "approach", DisplayName = "Approach", WeightPercent = 25, ScorePercent = 76.7 }
+            },
+            Criteria =
+            {
+                Metric("touchdown_point", "touchdown", 20, MetricStatus.Scored, 70),
+                Metric("touchdown_impact", "touchdown", 54.4, MetricStatus.Scored, 62.1),
+                Metric("touchdown_gate", "touchdown", 60, MetricStatus.GateFailed, null),
+                Metric("touchdown_info", "touchdown", 50, MetricStatus.Informational, 100),
+                Metric("touchdown_na", "touchdown", 40, MetricStatus.NotApplicable, null),
+                Metric("approach_degraded", "approach", 26.67, MetricStatus.Degraded, 80),
+                Metric("rollout_assumed", "rollout", 25, MetricStatus.Assumed, 50),
+                Metric("rollout_unavailable", "rollout", 20, MetricStatus.Unavailable, null)
+            }
+        };
+
+        var report = new LandingReportViewModel(entry);
+
+        Assert.Equal(new[] { "touchdown", "approach", "rollout" },
+            report.SummaryPhases.Select(phase => phase.PhaseId));
+        Assert.Equal(new[] { "touchdown_impact", "touchdown_point" },
+            report.SummaryPhases[0].Metrics.Select(metric => metric.DisplayName.Replace(' ', '_')));
+        Assert.Equal(MetricStatus.Degraded, Assert.Single(report.SummaryPhases[1].Metrics).Status);
+        Assert.Equal(
+            new[] { MetricStatus.Assumed, MetricStatus.Unavailable },
+            report.SummaryPhases[2].Metrics.Select(metric => metric.Status));
+        Assert.DoesNotContain(report.SummaryPhases.SelectMany(phase => phase.Metrics), metric =>
+            metric.Status is MetricStatus.GateFailed or MetricStatus.Informational or MetricStatus.NotApplicable);
+    }
+
+    [Theory]
+    [InlineData(80.1, SummaryScoreBand.Green)]
+    [InlineData(80d, SummaryScoreBand.Orange)]
+    [InlineData(70d, SummaryScoreBand.Orange)]
+    [InlineData(69.9, SummaryScoreBand.Red)]
+    [InlineData(null, SummaryScoreBand.Unavailable)]
+    public void Summary_UsesLiteralScoreBandBoundaries(double? score, SummaryScoreBand expected)
+    {
+        var metric = new SummaryMetricViewModel(new HighscoreCriterionDetail
+        {
+            Id = "metric",
+            DisplayName = "Metric",
+            PhaseId = "touchdown",
+            PhaseDisplayName = "Touchdown",
+            PhaseImportancePercent = 25,
+            Status = score is null ? MetricStatus.Unavailable : MetricStatus.Scored,
+            ScorePercent = score
+        });
+
+        Assert.Equal(expected, metric.ScoreBand);
+        Assert.Equal(score is null ? "N/A" : ScoreBreakdownFormatter.Pct(score), metric.ScoreDisplay);
+    }
+
+    [Fact]
+    public void Summary_TooltipsExplainMetricsAndPhasePenaltySemantics()
+    {
+        var entry = new HighscoreEntry
+        {
+            ChallengeTitle = "Summary tooltips",
+            Phases =
+            {
+                new HighscorePhaseDetail
+                    { PhaseId = "touchdown", DisplayName = "Touchdown", WeightPercent = 70, ScorePercent = 74 }
+            },
+            Criteria =
+            {
+                new HighscoreCriterionDetail
+                {
+                    Id = "touchdown_point",
+                    DisplayName = "Touchdown point",
+                    PhaseId = "touchdown",
+                    PhaseDisplayName = "Touchdown",
+                    PhaseImportancePercent = 20,
+                    Status = MetricStatus.Scored,
+                    ScorePercent = 75,
+                    RawValue = 120,
+                    Unit = "ft",
+                    Note = "Distance from the ideal touchdown point."
+                }
+            }
+        };
+
+        var phase = Assert.Single(new LandingReportViewModel(entry).SummaryPhases);
+        var metric = Assert.Single(phase.Metrics);
+
+        Assert.Contains("after phase-specific penalties", phase.ToolTip, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("70%", phase.ToolTip, StringComparison.Ordinal);
+        Assert.Contains("Distance from the ideal touchdown point", metric.ToolTip, StringComparison.Ordinal);
+        Assert.Contains("Measured value: 120.0 ft from threshold", metric.ToolTip, StringComparison.Ordinal);
+        Assert.Contains("Importance: 20% of Touchdown", metric.ToolTip, StringComparison.Ordinal);
+        Assert.Contains("Status: Scored", metric.ToolTip, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Summary_HandlesLegacyAndPartiallyStoredResults()
+    {
+        var legacy = new LandingReportViewModel(new HighscoreEntry
+        {
+            ChallengeTitle = "Legacy",
+            ScorePercent = 50
+        });
+
+        Assert.False(legacy.HasSummary);
+        Assert.Empty(legacy.SummaryPhases);
+        Assert.Contains("historical result", legacy.SummaryUnavailableText, StringComparison.OrdinalIgnoreCase);
+
+        var partial = new LandingReportViewModel(new HighscoreEntry
+        {
+            ChallengeTitle = "Partial",
+            Phases =
+            {
+                new HighscorePhaseDetail
+                    { PhaseId = "approach", DisplayName = "Approach", WeightPercent = 25, ScorePercent = null }
+            }
+        });
+
+        var phase = Assert.Single(partial.SummaryPhases);
+        Assert.Equal("N/A", phase.ScoreDisplay);
+        Assert.Equal(SummaryScoreBand.Unavailable, phase.ScoreBand);
+        Assert.Empty(phase.Metrics);
+    }
+
+    [Fact]
     public void Report_DegradedMetricRemainsVisibleAndExplainable()
     {
         var entry = new HighscoreEntry
@@ -385,11 +537,20 @@ public sealed class LandingReportV9Tests
         Assert.Contains("x:Name=\"MetricsHost\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"PenaltiesHost\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"PhaseSummaryHost\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Header=\"SUMMARY\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"SummaryHost\"", xaml, StringComparison.Ordinal);
+        Assert.True(
+            xaml.IndexOf("Header=\"SUMMARY\"", StringComparison.Ordinal) <
+            xaml.IndexOf("Header=\"LANDING VISUAL\"", StringComparison.Ordinal));
         Assert.Contains("LandingReport.ProjectedScoreHistory, Mode=OneWay", xaml, StringComparison.Ordinal);
         Assert.Contains("LandingReport.RunwayLengthDisplay", xaml, StringComparison.Ordinal);
         Assert.Contains("LandingReport.HasRunwayLength", xaml, StringComparison.Ordinal);
         Assert.Contains("MetricsHost.Children.Add(CreateMetricCard", codeBehind, StringComparison.Ordinal);
         Assert.Contains("PenaltiesHost.Children.Add(CreatePenaltyCard", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("SummaryHost.Children.Add(CreateSummaryPhaseSection", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("0x62, 0xE6, 0xA7", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("0xFF, 0xB0, 0x20", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("0xFF, 0x4D, 0x6A", codeBehind, StringComparison.Ordinal);
         Assert.DoesNotContain("Text=\"{Binding LandingReport.Notes}\"", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("Header=\"Career\"", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("Header=\"Grade\"", xaml, StringComparison.Ordinal);

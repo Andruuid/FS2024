@@ -691,15 +691,6 @@ public sealed class LandingSession
 
         var observations = Snapshot.GateObservations;
         observations.NoseGearContactCoverageAvailable |= logical.NoseGearContactAvailable;
-        if (sample.ManualBrakeLeftPosition is not { } left
-            || !double.IsFinite(left)
-            || sample.ManualBrakeRightPosition is not { } right
-            || !double.IsFinite(right))
-            return;
-
-        observations.ManualBrakeTelemetryCoverageAvailable = true;
-        var leftPressed = left > gate.PedalPressThreshold;
-        var rightPressed = right > gate.PedalPressThreshold;
 
         if (logical.NoseGearContactAvailable
             && logical.NoseOnGround
@@ -707,16 +698,38 @@ public sealed class LandingSession
             && observations.NoseGearTouchdownTimeSeconds is null)
             observations.NoseGearTouchdownTimeSeconds = timeSeconds;
 
-        if ((leftPressed || rightPressed)
-            && logical.NoseGearContactAvailable
-            && !logical.NoseOnGround)
-            observations.EarlyOrAirborneBrakeViolation = true;
+        // Pedal path: both toe brakes after nose TD; pedals must stay released while nose airborne.
+        if (sample.ManualBrakeLeftPosition is { } left
+            && double.IsFinite(left)
+            && sample.ManualBrakeRightPosition is { } right
+            && double.IsFinite(right))
+        {
+            observations.ManualBrakeTelemetryCoverageAvailable = true;
+            var leftPressed = left > gate.PedalPressThreshold;
+            var rightPressed = right > gate.PedalPressThreshold;
 
-        if (leftPressed && rightPressed
-            && logical.NoseOnGround
-            && observations.NoseGearTouchdownTimeSeconds is not null
-            && observations.FirstSimultaneousBrakingTimeSeconds is null)
-            observations.FirstSimultaneousBrakingTimeSeconds = timeSeconds;
+            if ((leftPressed || rightPressed)
+                && logical.NoseGearContactAvailable
+                && !logical.NoseOnGround)
+                observations.EarlyOrAirborneBrakeViolation = true;
+
+            if (leftPressed && rightPressed
+                && logical.NoseOnGround
+                && observations.NoseGearTouchdownTimeSeconds is not null
+                && observations.FirstSimultaneousBrakingTimeSeconds is null)
+                observations.FirstSimultaneousBrakingTimeSeconds = timeSeconds;
+        }
+
+        // Autobrake path: active after verified nose-gear touchdown also satisfies the gate.
+        // Autobrake pressure while the nose is still airborne is normal and is not a violation.
+        if (sample.AutoBrakesActive is { } autoActive)
+        {
+            observations.AutoBrakeTelemetryCoverageAvailable = true;
+            if (autoActive
+                && observations.NoseGearTouchdownTimeSeconds is not null
+                && observations.FirstAutoBrakeActiveTimeSeconds is null)
+                observations.FirstAutoBrakeActiveTimeSeconds = timeSeconds;
+        }
     }
 
     private void UpdateSpoilerDeploymentGate(TelemetrySample sample, double timeSeconds)

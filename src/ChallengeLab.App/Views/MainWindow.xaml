@@ -548,6 +548,12 @@
                             <TabControl Grid.Row="1" Style="{StaticResource ResultTabControlStyle}"
                                         SelectedIndex="{Binding SelectedResultTab, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                         Margin="0,10,0,0">
+                                <TabItem Header="SUMMARY" Style="{StaticResource ResultTabItemStyle}">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                                  Padding="18,14,18,18">
+                                        <StackPanel x:Name="SummaryHost"/>
+                                    </ScrollViewer>
+                                </TabItem>
                                 <TabItem Header="LANDING VISUAL" Style="{StaticResource ResultTabItemStyle}">
                                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                                                   Padding="18,14,18,18">

@@ -168,7 +168,7 @@ internal static class OperationalGateEvaluator
         FreeGateEvaluationContext context)
     {
         const string id = "manual_braking";
-        const string name = "Manual braking after nose touchdown";
+        const string name = "Braking after nose touchdown";
         if (AppendNotApplicableIfNeeded(context, id, name, criteria))
             return 1;
         if (!RequireMonitoring(id, name, obs, criteria, incomplete, preview, cfg.MultiplierOnFail, context,
@@ -176,33 +176,58 @@ internal static class OperationalGateEvaluator
             return monitoringMultiplier;
         if (!obs.NoseGearContactCoverageAvailable)
             return PendingOrUnavailable(id, name, "Nose-gear contact mapping is unavailable.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
-        if (!obs.ManualBrakeTelemetryCoverageAvailable)
-            return PendingOrUnavailable(id, name, "Independent manual brake-pedal telemetry is unavailable.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
+        if (!obs.ManualBrakeTelemetryCoverageAvailable && !obs.AutoBrakeTelemetryCoverageAvailable)
+            return PendingOrUnavailable(id, name, "Brake pedal and autobrake telemetry are unavailable.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
         if (obs.NoseGearTouchdownTimeSeconds is null)
             return PendingOrUnavailable(id, name, "A verified nose-gear touchdown was not observed.", criteria, incomplete, preview, cfg.MultiplierOnFail, context);
 
-        var elapsed = obs.FirstSimultaneousBrakingTimeSeconds - obs.NoseGearTouchdownTimeSeconds;
-        var failed = obs.EarlyOrAirborneBrakeViolation
-                     || elapsed is null
-                     || elapsed > cfg.DeadlineSecondsAfterNoseTouchdown + 1e-9;
+        var noseTd = obs.NoseGearTouchdownTimeSeconds.Value;
+        var deadline = cfg.DeadlineSecondsAfterNoseTouchdown;
+        double? pedalElapsed = obs.FirstSimultaneousBrakingTimeSeconds is { } pedalTime
+            ? pedalTime - noseTd
+            : null;
+        double? autoElapsed = obs.FirstAutoBrakeActiveTimeSeconds is { } autoTime
+            ? autoTime - noseTd
+            : null;
+
+        var pedalOk = pedalElapsed is { } pe && pe <= deadline + 1e-9;
+        var autoOk = autoElapsed is { } ae && ae <= deadline + 1e-9;
+        var satisfiedElapsed = (pedalOk, autoOk) switch
+        {
+            (true, true) => Math.Min(pedalElapsed!.Value, autoElapsed!.Value),
+            (true, false) => pedalElapsed,
+            (false, true) => autoElapsed,
+            _ => pedalElapsed ?? autoElapsed
+        };
+
+        var failed = obs.EarlyOrAirborneBrakeViolation || !(pedalOk || autoOk);
         if (!failed)
         {
-            AddPassed(criteria, id, name, elapsed, "s after nose touchdown",
-                $"Both pedals exceeded {cfg.PedalPressThreshold:P0} within {cfg.DeadlineSecondsAfterNoseTouchdown:0.##} s and no pedal was pressed with the nose gear airborne.");
+            var method = pedalOk && autoOk
+                ? "manual pedals and autobrake"
+                : pedalOk
+                    ? "manual pedals"
+                    : "autobrake";
+            AddPassed(criteria, id, name, satisfiedElapsed, "s after nose touchdown",
+                $"Braking satisfied via {method} within {deadline:0.##} s of nose-gear touchdown" +
+                (pedalOk
+                    ? $" (both pedals > {cfg.PedalPressThreshold:P0})"
+                    : "") +
+                " with no pedal pressed while the nose gear was airborne.");
             return 1;
         }
 
-        if (preview && !obs.EarlyOrAirborneBrakeViolation && elapsed is null)
+        if (preview && !obs.EarlyOrAirborneBrakeViolation && !pedalOk && !autoOk)
         {
             AddPending(criteria, id, name,
-                $"Waiting for both manual brake pedals by nose TD+{cfg.DeadlineSecondsAfterNoseTouchdown:0.##} s.");
+                $"Waiting for both manual brake pedals or autobrake by nose TD+{deadline:0.##} s.");
             return 1;
         }
 
         var reason = obs.EarlyOrAirborneBrakeViolation
             ? "A manual brake pedal was pressed while the nose gear was airborne."
-            : $"Both pedals were not applied by nose TD+{cfg.DeadlineSecondsAfterNoseTouchdown:0.##} s.";
-        AddFailed(criteria, id, name, elapsed, "s after nose touchdown", cfg.MultiplierOnFail, scoreTarget,
+            : $"Neither both manual pedals nor autobrake were applied by nose TD+{deadline:0.##} s.";
+        AddFailed(criteria, id, name, satisfiedElapsed, "s after nose touchdown", cfg.MultiplierOnFail, scoreTarget,
             $"{reason} {cfg.PenaltyDescription}");
         return cfg.MultiplierOnFail;
     }

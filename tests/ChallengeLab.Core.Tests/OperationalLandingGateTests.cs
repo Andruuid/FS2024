@@ -332,10 +332,70 @@ public sealed class OperationalLandingGateTests
         var snapshot = PassingSnapshot();
         snapshot.GateObservations.NoseGearTouchdownTimeSeconds = 20;
         snapshot.GateObservations.FirstSimultaneousBrakingTimeSeconds = brakeTime;
+        snapshot.GateObservations.FirstAutoBrakeActiveTimeSeconds = null;
         var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
 
         Assert.Equal(penalized ? MetricStatus.GateFailed : MetricStatus.Informational,
             result.Criteria.Single(c => c.Id == "manual_braking").Status);
+    }
+
+    [Theory]
+    [InlineData(20, false)]
+    [InlineData(24, false)]
+    [InlineData(24.001, true)]
+    public void Brakes_AutobrakeAloneSatisfiesInclusiveFourSecondDeadline(double autoTime, bool penalized)
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var snapshot = PassingSnapshot();
+        var obs = snapshot.GateObservations;
+        obs.NoseGearTouchdownTimeSeconds = 20;
+        obs.FirstSimultaneousBrakingTimeSeconds = null;
+        obs.AutoBrakeTelemetryCoverageAvailable = true;
+        obs.FirstAutoBrakeActiveTimeSeconds = autoTime;
+
+        var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
+
+        Assert.Equal(penalized ? MetricStatus.GateFailed : MetricStatus.Informational,
+            result.Criteria.Single(c => c.Id == "manual_braking").Status);
+        if (!penalized)
+            Assert.Contains("autobrake", result.Criteria.Single(c => c.Id == "manual_braking").Note!,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Brakes_AutobrakeActiveAfterNoseTouchdownPassesWithoutPedals()
+    {
+        var session = CreateSession();
+        session.Arm();
+        session.Ingest(AirSample(10, 100));
+        session.Ingest(AirSample(11, 10, noseOnGround: true));
+        session.Ingest(AirSample(12, 10, noseOnGround: true, autoBrakesActive: true));
+
+        var obs = session.Snapshot.GateObservations;
+        Assert.Equal(11, obs.NoseGearTouchdownTimeSeconds);
+        Assert.Equal(12, obs.FirstAutoBrakeActiveTimeSeconds);
+        Assert.Null(obs.FirstSimultaneousBrakingTimeSeconds);
+        Assert.False(obs.EarlyOrAirborneBrakeViolation);
+        Assert.True(obs.AutoBrakeTelemetryCoverageAvailable);
+    }
+
+    [Fact]
+    public void Brakes_NeitherPedalsNorAutobrakeByDeadlineFails()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var snapshot = PassingSnapshot();
+        var obs = snapshot.GateObservations;
+        obs.NoseGearTouchdownTimeSeconds = 20;
+        obs.FirstSimultaneousBrakingTimeSeconds = null;
+        obs.FirstAutoBrakeActiveTimeSeconds = null;
+        obs.AutoBrakeTelemetryCoverageAvailable = true;
+        obs.EarlyOrAirborneBrakeViolation = false;
+
+        var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
+        var criterion = result.Criteria.Single(c => c.Id == "manual_braking");
+
+        Assert.Equal(MetricStatus.GateFailed, criterion.Status);
+        Assert.Contains("Neither both manual pedals nor autobrake", criterion.Note!, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1021,6 +1081,7 @@ public sealed class OperationalLandingGateTests
         double brakeLeft = 0,
         double brakeRight = 0,
         bool noseOnGround = false,
+        bool? autoBrakesActive = false,
         bool paused = false,
         bool activePaused = false,
         long pauseGeneration = 0,
@@ -1047,6 +1108,7 @@ public sealed class OperationalLandingGateTests
         },
         ManualBrakeLeftPosition = brakeLeft,
         ManualBrakeRightPosition = brakeRight,
+        AutoBrakesActive = autoBrakesActive,
         SpoilersLeftPosition = 0,
         SpoilersRightPosition = 0,
         EngineCount = 2,
@@ -1100,6 +1162,7 @@ public sealed class OperationalLandingGateTests
         },
         ManualBrakeLeftPosition = brakes,
         ManualBrakeRightPosition = brakes,
+        AutoBrakesActive = false,
         SpoilersLeftPosition = spoilers,
         SpoilersRightPosition = spoilers,
         EngineCount = 2,

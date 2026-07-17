@@ -82,6 +82,12 @@ public sealed class TelemetrySample
     public double? ManualBrakeLeftPosition { get; init; }
     public double? ManualBrakeRightPosition { get; init; }
 
+    /// <summary>
+    /// True while MSFS reports autobrakes applying brake pressure
+    /// (<c>AUTOBRAKES ACTIVE</c>). Null when not sampled.
+    /// </summary>
+    public bool? AutoBrakesActive { get; init; }
+
     /// <summary>Installed engine count (1-4). Null when engine telemetry was not sampled.</summary>
     public int? EngineCount { get; init; }
 

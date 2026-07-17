@@ -45,10 +45,17 @@ public sealed class LandingGateObservations
 
     public bool NoseGearContactCoverageAvailable { get; set; }
     public bool ManualBrakeTelemetryCoverageAvailable { get; set; }
+    /// <summary>True once autobrake active/inactive state was sampled while monitoring.</summary>
+    public bool AutoBrakeTelemetryCoverageAvailable { get; set; }
     public double? MainGearTouchdownTimeSeconds { get; set; }
     public double? NoseGearTouchdownTimeSeconds { get; set; }
     public bool EarlyOrAirborneBrakeViolation { get; set; }
     public double? FirstSimultaneousBrakingTimeSeconds { get; set; }
+    /// <summary>
+    /// First sim-time (after verified nose-gear touchdown) when autobrake was active.
+    /// Satisfies the braking gate as an alternative to simultaneous pedals.
+    /// </summary>
+    public double? FirstAutoBrakeActiveTimeSeconds { get; set; }
     public double? LastNoseGearImpactContactTimeSeconds { get; set; }
     public NoseGearImpactAnalysis? NoseGearImpact { get; set; }
 
@@ -105,10 +112,12 @@ public sealed class LandingGateObservations
         FirstSpoilerDeploymentTimeSeconds = null;
         NoseGearContactCoverageAvailable = false;
         ManualBrakeTelemetryCoverageAvailable = false;
+        AutoBrakeTelemetryCoverageAvailable = false;
         MainGearTouchdownTimeSeconds = null;
         NoseGearTouchdownTimeSeconds = null;
         EarlyOrAirborneBrakeViolation = false;
         FirstSimultaneousBrakingTimeSeconds = null;
+        FirstAutoBrakeActiveTimeSeconds = null;
         LastNoseGearImpactContactTimeSeconds = null;
         NoseGearImpact = null;
         RolloutDistanceEvaluated = false;

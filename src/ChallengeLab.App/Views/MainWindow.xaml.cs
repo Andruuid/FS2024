@@ -6,9 +6,11 @@ using ChallengeLab.App.ViewModels;
 using ChallengeLab.Core.Highscores;
 using ChallengeLab.SimConnect;
 using MediaBrushes = System.Windows.Media.Brushes;
+using MediaBrush = System.Windows.Media.Brush;
 using MediaColor = System.Windows.Media.Color;
 using MediaFontFamily = System.Windows.Media.FontFamily;
 using WpfProgressBar = System.Windows.Controls.ProgressBar;
+using WpfToolTip = System.Windows.Controls.ToolTip;
 
 namespace ChallengeLab.App.Views;
 
@@ -71,6 +73,7 @@ public partial class MainWindow : Window
             var report = _vm.LandingReport;
             if (report is null)
             {
+                SummaryHost?.Children.Clear();
                 MetricsHost?.Children.Clear();
                 PenaltiesHost?.Children.Clear();
                 PhaseSummaryHost?.Children.Clear();
@@ -89,6 +92,20 @@ public partial class MainWindow : Window
             {
                 ReportBodyBlock.Text = _vm.ReportBodyText;
                 ReportBodyBlock.Visibility = Visibility.Collapsed;
+            }
+
+            if (SummaryHost is not null)
+            {
+                SummaryHost.Children.Clear();
+                if (report.HasSummary)
+                {
+                    foreach (var phase in report.SummaryPhases)
+                        SummaryHost.Children.Add(CreateSummaryPhaseSection(phase));
+                }
+                else
+                {
+                    SummaryHost.Children.Add(CreateSummaryUnavailableCard(report.SummaryUnavailableText));
+                }
             }
 
             if (PhaseSummaryHost is not null)
@@ -147,6 +164,206 @@ public partial class MainWindow : Window
                 ReportBodyBlock.Text = ex.ToString();
         }
     }
+
+    private static Border CreateSummaryPhaseSection(SummaryPhaseViewModel phase)
+    {
+        var stack = new StackPanel();
+        var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var titleStack = new StackPanel();
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = $"TOTAL {phase.DisplayName.ToUpperInvariant()}",
+            FontSize = 13,
+            FontWeight = FontWeights.Bold,
+            Foreground = MediaBrushes.White
+        });
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = phase.WeightDisplay,
+            FontSize = 10,
+            Foreground = new SolidColorBrush(MediaColor.FromRgb(0x8B, 0x9B, 0xB8)),
+            Margin = new Thickness(0, 3, 0, 0)
+        });
+        header.Children.Add(titleStack);
+
+        var score = new TextBlock
+        {
+            Text = phase.ScoreDisplay,
+            FontSize = 22,
+            FontWeight = FontWeights.Bold,
+            Foreground = SummaryScoreBrush(phase.ScoreBand),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 0, 0, 0)
+        };
+        Grid.SetColumn(score, 1);
+        header.Children.Add(score);
+        stack.Children.Add(header);
+
+        stack.Children.Add(CreateSummaryProgressBar(
+            phase.BarValue,
+            phase.ScoreBand,
+            20,
+            new Thickness(0, 10, 0, 0)));
+
+        if (phase.Metrics.Count == 0)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = "Subcategory data was not stored for this phase.",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(0x8B, 0x9B, 0xB8)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 13, 0, 0)
+            });
+        }
+        else
+        {
+            foreach (var metric in phase.Metrics)
+                stack.Children.Add(CreateSummaryMetricRow(metric));
+        }
+
+        var section = new Border
+        {
+            Child = stack,
+            Background = new SolidColorBrush(MediaColor.FromRgb(0x10, 0x18, 0x2B)),
+            BorderBrush = new SolidColorBrush(MediaColor.FromArgb(0x55, 0x4A, 0x90, 0xA4)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(15),
+            Margin = new Thickness(0, 0, 0, 13),
+            ToolTip = CreateSummaryToolTip(phase.ToolTip)
+        };
+        ConfigureSummaryToolTip(section);
+        return section;
+    }
+
+    private static Border CreateSummaryMetricRow(SummaryMetricViewModel metric)
+    {
+        var stack = new StackPanel();
+        var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var titleStack = new StackPanel();
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = metric.DisplayName,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = MediaBrushes.White,
+            TextWrapping = TextWrapping.Wrap
+        });
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = metric.ImportanceDisplay,
+            FontSize = 9,
+            Foreground = new SolidColorBrush(MediaColor.FromRgb(0x8B, 0x9B, 0xB8)),
+            Margin = new Thickness(0, 2, 0, 0)
+        });
+        header.Children.Add(titleStack);
+
+        var score = new TextBlock
+        {
+            Text = metric.ScoreDisplay,
+            FontSize = 14,
+            FontWeight = FontWeights.Bold,
+            Foreground = SummaryScoreBrush(metric.ScoreBand),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 0, 0, 0)
+        };
+        Grid.SetColumn(score, 1);
+        header.Children.Add(score);
+        stack.Children.Add(header);
+
+        stack.Children.Add(CreateSummaryProgressBar(
+            metric.BarValue,
+            metric.ScoreBand,
+            12,
+            new Thickness(0, 7, 0, 0)));
+
+        var row = new Border
+        {
+            Child = stack,
+            Background = new SolidColorBrush(MediaColor.FromArgb(0x99, 0x0D, 0x15, 0x27)),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(11, 9, 11, 10),
+            Margin = new Thickness(0, 10, 0, 0),
+            ToolTip = CreateSummaryToolTip(metric.ToolTip)
+        };
+        ConfigureSummaryToolTip(row);
+        return row;
+    }
+
+    private static WpfProgressBar CreateSummaryProgressBar(
+        double value,
+        SummaryScoreBand band,
+        double height,
+        Thickness margin) => new()
+    {
+        Minimum = 0,
+        Maximum = 100,
+        Value = Math.Clamp(value, 0, 100),
+        Height = height,
+        Margin = margin,
+        Foreground = SummaryScoreBrush(band),
+        Background = new SolidColorBrush(MediaColor.FromArgb(0x55, 0x4A, 0x55, 0x68)),
+        BorderThickness = new Thickness(0),
+        HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
+        SnapsToDevicePixels = true
+    };
+
+    private static Border CreateSummaryUnavailableCard(string message) => new()
+    {
+        Child = new TextBlock
+        {
+            Text = message,
+            FontSize = 13,
+            Foreground = new SolidColorBrush(MediaColor.FromRgb(0xC5, 0xD0, 0xE6)),
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center
+        },
+        Background = new SolidColorBrush(MediaColor.FromRgb(0x10, 0x18, 0x2B)),
+        BorderBrush = new SolidColorBrush(MediaColor.FromArgb(0x55, 0x4A, 0x90, 0xA4)),
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(12),
+        Padding = new Thickness(20),
+        Margin = new Thickness(0, 8, 0, 0)
+    };
+
+    private static WpfToolTip CreateSummaryToolTip(string text) => new()
+    {
+        Content = new TextBlock
+        {
+            Text = text,
+            FontSize = 11,
+            Foreground = MediaBrushes.White,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 390,
+            LineHeight = 16
+        },
+        Background = new SolidColorBrush(MediaColor.FromRgb(0x1A, 0x25, 0x40)),
+        BorderBrush = new SolidColorBrush(MediaColor.FromRgb(0x4A, 0x90, 0xA4)),
+        BorderThickness = new Thickness(1),
+        Padding = new Thickness(10)
+    };
+
+    private static void ConfigureSummaryToolTip(FrameworkElement element)
+    {
+        ToolTipService.SetInitialShowDelay(element, 150);
+        ToolTipService.SetShowDuration(element, 30_000);
+        ToolTipService.SetBetweenShowDelay(element, 50);
+    }
+
+    private static MediaBrush SummaryScoreBrush(SummaryScoreBand band) => band switch
+    {
+        SummaryScoreBand.Green => new SolidColorBrush(MediaColor.FromRgb(0x62, 0xE6, 0xA7)),
+        SummaryScoreBand.Orange => new SolidColorBrush(MediaColor.FromRgb(0xFF, 0xB0, 0x20)),
+        SummaryScoreBand.Red => new SolidColorBrush(MediaColor.FromRgb(0xFF, 0x4D, 0x6A)),
+        _ => new SolidColorBrush(MediaColor.FromRgb(0x8B, 0x9B, 0xB8))
+    };
 
     private static Border CreatePhaseCard(ReportPhaseViewModel phase)
     {

@@ -11,6 +11,7 @@ public sealed class LandingReportViewModel : ViewModelBase
 {
     public LandingReportViewModel(HighscoreEntry entry)
     {
+        var storedCriteria = entry.Criteria ?? new List<HighscoreCriterionDetail>();
         Entry = entry;
         Title = entry.ChallengeTitle;
         Subtitle = $"{entry.Utc:yyyy-MM-dd HH:mm} UTC" +
@@ -36,6 +37,13 @@ public sealed class LandingReportViewModel : ViewModelBase
                 .OrderBy(phase => PhaseOrder(phase.PhaseId))
                 .ThenBy(phase => phase.DisplayName)
                 .Select(phase => new ReportPhaseViewModel(phase)));
+
+        SummaryPhases = new ObservableCollection<SummaryPhaseViewModel>(
+            entry.Phases
+                .Where(phase => phase.Used)
+                .OrderBy(phase => PhaseOrder(phase.PhaseId))
+                .ThenBy(phase => phase.DisplayName)
+                .Select(phase => new SummaryPhaseViewModel(phase, storedCriteria)));
 
         VerticalSpeedRaw = entry.ResolveVerticalSpeedFpm();
         VerticalSpeedDisplay = FormatVerticalSpeedDisplay(VerticalSpeedRaw);
@@ -148,6 +156,10 @@ public sealed class LandingReportViewModel : ViewModelBase
         : $"Metric score: {AirspeedScorePercent:0}%";
 
     public ObservableCollection<ReportPhaseViewModel> Phases { get; }
+    public ObservableCollection<SummaryPhaseViewModel> SummaryPhases { get; }
+    public bool HasSummary => SummaryPhases.Count > 0;
+    public string SummaryUnavailableText =>
+        "Summary unavailable for this historical result because its phase breakdown was not stored.";
     public ObservableCollection<PenaltyViewModel> Penalties { get; }
     public ObservableCollection<ReportMetricViewModel> Metrics { get; }
     public ObservableCollection<ReportMetricViewModel> DetailMetrics { get; }
@@ -283,6 +295,117 @@ public sealed class LandingReportViewModel : ViewModelBase
         return string.Create(CultureInfo.InvariantCulture,
             $"{meters:#,##0} m · {feet:#,##0} ft");
     }
+}
+
+public enum SummaryScoreBand
+{
+    Green,
+    Orange,
+    Red,
+    Unavailable
+}
+
+public sealed class SummaryPhaseViewModel
+{
+    public SummaryPhaseViewModel(
+        HighscorePhaseDetail phase,
+        IEnumerable<HighscoreCriterionDetail> criteria)
+    {
+        PhaseId = phase.PhaseId;
+        DisplayName = phase.DisplayName;
+        ScorePercent = NormalizedScore(phase.ScorePercent);
+        ScoreDisplay = FormatScore(ScorePercent);
+        WeightPercent = phase.WeightPercent;
+        WeightDisplay = $"{phase.WeightPercent:0.#}% of overall score";
+        ScoreBand = BandFor(ScorePercent);
+        ToolTip = $"Combined {DisplayName} phase score after phase-specific penalties. " +
+                  $"This phase contributes {phase.WeightPercent:0.#}% of the overall score. " +
+                  $"Phase total: {ScoreDisplay}. Subcategory bars show their individual metric scores before phase penalties.";
+
+        Metrics = criteria
+            .Where(criterion => string.Equals(
+                criterion.PhaseId,
+                phase.PhaseId,
+                StringComparison.OrdinalIgnoreCase))
+            .Where(criterion => criterion.PhaseImportancePercent > 0)
+            .Where(criterion => criterion.EffectiveStatus is
+                MetricStatus.Scored or
+                MetricStatus.Assumed or
+                MetricStatus.Degraded or
+                MetricStatus.Unavailable)
+            .OrderByDescending(criterion => criterion.PhaseImportancePercent)
+            .ThenBy(criterion => criterion.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .Select(criterion => new SummaryMetricViewModel(criterion))
+            .ToList();
+    }
+
+    public string PhaseId { get; }
+    public string DisplayName { get; }
+    public double? ScorePercent { get; }
+    public string ScoreDisplay { get; }
+    public double WeightPercent { get; }
+    public string WeightDisplay { get; }
+    public SummaryScoreBand ScoreBand { get; }
+    public double BarValue => ScorePercent ?? 0;
+    public string ToolTip { get; }
+    public IReadOnlyList<SummaryMetricViewModel> Metrics { get; }
+
+    internal static double? NormalizedScore(double? score) =>
+        score is { } value && double.IsFinite(value)
+            ? Math.Clamp(value, 0, 100)
+            : null;
+
+    internal static string FormatScore(double? score) =>
+        score is null ? "N/A" : ScoreBreakdownFormatter.Pct(score);
+
+    internal static SummaryScoreBand BandFor(double? score) => score switch
+    {
+        null => SummaryScoreBand.Unavailable,
+        > 80 => SummaryScoreBand.Green,
+        >= 70 => SummaryScoreBand.Orange,
+        _ => SummaryScoreBand.Red
+    };
+}
+
+public sealed class SummaryMetricViewModel
+{
+    public SummaryMetricViewModel(HighscoreCriterionDetail criterion)
+    {
+        var reportMetric = new ReportMetricViewModel(criterion, false);
+        DisplayName = criterion.DisplayName;
+        ScorePercent = SummaryPhaseViewModel.NormalizedScore(criterion.ScorePercent);
+        ScoreDisplay = SummaryPhaseViewModel.FormatScore(ScorePercent);
+        ImportancePercent = criterion.PhaseImportancePercent;
+        ImportanceDisplay = $"{ImportancePercent:0.##}% of {criterion.PhaseDisplayName}";
+        RawDisplay = reportMetric.RawDisplay;
+        Status = criterion.EffectiveStatus;
+        ScoreBand = SummaryPhaseViewModel.BandFor(ScorePercent);
+        ToolTip = $"{reportMetric.Note}\n\n" +
+                  $"Measured value: {RawDisplay}\n" +
+                  $"Score: {ScoreDisplay}\n" +
+                  $"Importance: {ImportanceDisplay}\n" +
+                  $"Status: {FormatStatus(Status)}";
+    }
+
+    public string DisplayName { get; }
+    public double? ScorePercent { get; }
+    public string ScoreDisplay { get; }
+    public double ImportancePercent { get; }
+    public string ImportanceDisplay { get; }
+    public string RawDisplay { get; }
+    public MetricStatus Status { get; }
+    public SummaryScoreBand ScoreBand { get; }
+    public double BarValue => ScorePercent ?? 0;
+    public string ToolTip { get; }
+
+    private static string FormatStatus(MetricStatus status) => status switch
+    {
+        MetricStatus.Scored => "Scored",
+        MetricStatus.Assumed => "Assumed fallback",
+        MetricStatus.Degraded => "Degraded telemetry",
+        MetricStatus.Unavailable => "Unavailable",
+        _ => status.ToString()
+    };
 }
 
 public sealed class ReportPhaseViewModel

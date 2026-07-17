@@ -283,7 +283,7 @@
           "pedalPressThreshold": 0.05,
           "deadlineSecondsAfterNoseTouchdown": 4.0,
           "multiplierOnFail": 0.9,
-          "penaltyDescription": "Manual brake pedals must remain released while the nose gear is airborne, then both must be applied within four seconds of nose-gear touchdown. Failure multiplies the Rollout phase; autobrake does not satisfy this gate."
+          "penaltyDescription": "Manual brake pedals must remain released while the nose gear is airborne. Within four seconds of nose-gear touchdown either both pedals must be applied or autobrake must be active. Failure multiplies the Rollout phase."
         },
         "rollout": {
           "multiplierOnFail": 0.8,

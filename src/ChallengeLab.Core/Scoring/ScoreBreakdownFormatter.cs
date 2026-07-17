@@ -207,7 +207,7 @@ public static class ScoreBreakdownFormatter
         "alignment" => "alignment",
         "flaps" => "flaps",
         "spoiler_deployment" => "spoilers",
-        "manual_braking" => "manual brakes",
+        "manual_braking" => "braking",
         "nose_gear_impact" => "nose impact",
         "automation" => "automation",
         "pause_usage" => "pause",

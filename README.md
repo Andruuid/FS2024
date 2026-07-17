@@ -160,7 +160,7 @@ The touchdown phase keeps its 70% overall weight and separates the initial impac
 - `contact_stability` is a Touchdown penalty. The initial landing is the baseline; one valid airborne/recontact cycle (second touchdown) applies ×0.9 to Touchdown, while two or more cycles (third touchdown or later) apply ×0.8. One-main-first touchdown and contact chatter are not bounces.
 - `stall_warning` is an Approach penalty. Any `STALL WARNING` activation during the armed attempt applies ×0.5 to Approach; a warning-free attempt earns no points.
 - Ground spoilers must deploy on both sides by main TD+2 s (×0.9 to Touchdown on failure).
-- Manual brake pedals must remain released while the nose gear is airborne and both be applied by nose TD+4 s; autobrake is ignored (×0.9 to Rollout on failure).
+- Manual brake pedals must remain released while the nose gear is airborne; by nose TD+4 s either both pedals must be applied or autobrake must be active (×0.9 to Rollout on failure).
 - Heading/altitude hold must be off at or below 2,000 ft RA. AP master/AP1/AP2 and active/armed autothrust must be off at or below 1,000 ft RA; flight directors may remain on (×0.9 to Approach on failure).
 - Normal pause or Active Pause after the controlled start hold and before touchdown applies the general ×0.95 factor.
 - Reducing simulation rate below 0.99× before touchdown applies the general ×0.8 factor.

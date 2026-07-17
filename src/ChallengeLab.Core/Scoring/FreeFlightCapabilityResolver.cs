@@ -86,8 +86,8 @@ public static class FreeFlightCapabilityResolver
         Set(context, FreeFlightGateIds.ManualBraking, noseAndBrakes,
             "Conventional tricycle wheeled gear is available on a land runway.",
             isWaterRunway
-                ? "Manual-braking gate is not applicable to water operations."
-                : "Manual-braking gate is not applicable to taildraggers, floats, or non-conventional gear.");
+                ? "Braking gate is not applicable to water operations."
+                : "Braking gate is not applicable to taildraggers, floats, or non-conventional gear.");
 
         Set(context, FreeFlightGateIds.StallWarning, FreeFlightGateApplicability.Applicable,
             "Stall-warning gate applies to every armed Free Flight attempt.", "");
