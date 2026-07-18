@@ -150,8 +150,8 @@ public sealed class TouchdownPointScoringTests
         Assert.Equal(75, shortMetric.ScorePercent);
         Assert.Equal(60, longMetric.ScorePercent);
         Assert.Equal(1_100, shortMetric.RawValue!.Value, 3);
-        Assert.Equal(19, shortMetric.PhaseImportancePercent);
-        Assert.Equal(13.3, shortMetric.MaxOverallPoints, 6);
+        Assert.Equal(22, shortMetric.PhaseImportancePercent);
+        Assert.Equal(13.2, shortMetric.MaxOverallPoints, 6);
         Assert.Contains("aiming marker 1000.0 ft", insideMetric.Note, StringComparison.Ordinal);
         Assert.Contains("ideal band 1300.0-1500.0 ft", insideMetric.Note, StringComparison.Ordinal);
         Assert.Contains("200.0 ft short", shortMetric.Note, StringComparison.Ordinal);

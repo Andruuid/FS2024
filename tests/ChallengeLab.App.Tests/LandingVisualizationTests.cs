@@ -263,7 +263,7 @@ public sealed class LandingVisualizationTests
         [
             new HighscorePhaseDetail
             {
-                PhaseId = "touchdown", DisplayName = "Touchdown", WeightPercent = 70,
+                PhaseId = "touchdown", DisplayName = "Touchdown", WeightPercent = 60,
                 ScorePercent = 86.4, Used = true
             }
         ],

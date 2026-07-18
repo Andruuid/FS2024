@@ -271,56 +271,63 @@ public sealed class ScoreEngine
             });
         }
 
-        var phaseMultipliers = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         var gearPenaltyApplied = false;
         var flapsPenaltyApplied = false;
-        foreach (var phase in _key.Phases)
+        var generalPenaltyMultiplier = 1.0;
+        var penalties = _key.GeneralPenalties;
+
+        if (penalties?.ContactStability is { } contactStability)
         {
-            var penalties = phase.Penalties;
-            var phaseMultiplier = 1.0;
-            var firstPhaseCriterion = criteria.Count;
-            if (penalties?.ContactStability is { } contactStability)
-            {
-                phaseMultiplier *= preview
-                    ? AppendContactStabilityGatePreview(contactStability, phase, snapshot, criteria, diagnostics, freeGateContext)
-                    : AppendContactStabilityGate(
-                        contactStability, phase, snapshot, criteria, incompleteReasons, diagnostics, freeGateContext);
-            }
-
-            if (penalties?.StallWarning is { } stallWarning)
-                phaseMultiplier *= AppendStallWarningGate(
-                    stallWarning, phase, snapshot, criteria, incompleteReasons, preview, freeGateContext);
-
-            if (penalties?.Gear is { } gear)
-            {
-                var gateMultiplier = preview
-                    ? AppendGearGatePreview(gear, phase, challenge, snapshot, criteria, freeGateContext)
-                    : AppendGearGate(gear, phase, challenge, snapshot, criteria, incompleteReasons, freeGateContext);
-                phaseMultiplier *= gateMultiplier;
-                if (gateMultiplier < 1 && criteria.Any(item =>
-                        item.Id == FreeFlightGateIds.Gear && item.Status == MetricStatus.GateFailed))
-                    gearPenaltyApplied = true;
-            }
-
-            if (penalties?.Flaps is { } flaps)
-            {
-                var gateMultiplier = preview
-                    ? AppendFlapsGatePreview(flaps, phase, snapshot, criteria, freeGateContext)
-                    : AppendFlapsGate(flaps, phase, snapshot, criteria, incompleteReasons, freeGateContext);
-                phaseMultiplier *= gateMultiplier;
-                if (gateMultiplier < 1 && criteria.Any(item =>
-                        item.Id == FreeFlightGateIds.Flaps && item.Status == MetricStatus.GateFailed))
-                    flapsPenaltyApplied = true;
-            }
-
-            phaseMultiplier *= OperationalGateEvaluator.AppendPhase(
-                penalties, phase.DisplayName, snapshot, criteria, incompleteReasons, preview, freeGateContext);
-            TagPhaseCriteria(criteria, firstPhaseCriterion, phase);
-            phaseMultipliers[phase.Id] = phaseMultiplier;
+            generalPenaltyMultiplier *= preview
+                ? AppendContactStabilityGatePreview(contactStability, snapshot, criteria, diagnostics, freeGateContext)
+                : AppendContactStabilityGate(
+                    contactStability, snapshot, criteria, incompleteReasons, diagnostics, freeGateContext);
         }
 
-        var generalPenaltyMultiplier = OperationalGateEvaluator.AppendGeneral(
-            _key.GeneralPenalties, snapshot, criteria, incompleteReasons, preview, freeGateContext);
+        if (penalties?.StallWarning is { } stallWarning)
+            generalPenaltyMultiplier *= AppendAircraftWarningGate(
+                FreeFlightGateIds.StallWarning,
+                "Aircraft stall warning",
+                snapshot.StallWarningCoverageAvailable,
+                snapshot.StallWarningOccurred,
+                stallWarning.MultiplierOnWarning,
+                stallWarning.PenaltyDescription,
+                criteria, incompleteReasons, preview, freeGateContext);
+
+        if (penalties?.OverspeedWarning is { } overspeedWarning)
+            generalPenaltyMultiplier *= AppendAircraftWarningGate(
+                FreeFlightGateIds.OverspeedWarning,
+                "Aircraft overspeed warning",
+                snapshot.OverspeedWarningCoverageAvailable,
+                snapshot.OverspeedWarningOccurred,
+                overspeedWarning.MultiplierOnWarning,
+                overspeedWarning.PenaltyDescription,
+                criteria, incompleteReasons, preview, freeGateContext);
+
+        if (penalties?.Gear is { } gear)
+        {
+            var gateMultiplier = preview
+                ? AppendGearGatePreview(gear, challenge, snapshot, criteria, freeGateContext)
+                : AppendGearGate(gear, challenge, snapshot, criteria, incompleteReasons, freeGateContext);
+            generalPenaltyMultiplier *= gateMultiplier;
+            if (gateMultiplier < 1 && criteria.Any(item =>
+                    item.Id == FreeFlightGateIds.Gear && item.Status == MetricStatus.GateFailed))
+                gearPenaltyApplied = true;
+        }
+
+        if (penalties?.Flaps is { } flaps)
+        {
+            var gateMultiplier = preview
+                ? AppendFlapsGatePreview(flaps, snapshot, criteria, freeGateContext)
+                : AppendFlapsGate(flaps, snapshot, criteria, incompleteReasons, freeGateContext);
+            generalPenaltyMultiplier *= gateMultiplier;
+            if (gateMultiplier < 1 && criteria.Any(item =>
+                    item.Id == FreeFlightGateIds.Flaps && item.Status == MetricStatus.GateFailed))
+                flapsPenaltyApplied = true;
+        }
+
+        generalPenaltyMultiplier *= OperationalGateEvaluator.AppendGeneral(
+            penalties, snapshot, criteria, incompleteReasons, preview, freeGateContext);
         diagnostics.OperationalGates = snapshot.GateObservations;
         // Free-flight lock (and catalog challenges) already know LengthM from facilities/config.
         // Always latch it on the result so highscores do not depend on rollout-gate evaluation.
@@ -334,16 +341,13 @@ public sealed class ScoreEngine
         {
             var rawScoreBeforeGates = Math.Clamp(totalBeforeGate, 0, 100);
             scoreBeforeGates = Math.Round(rawScoreBeforeGates, 1);
-            var afterPhasePenalties = _key.Phases.Sum(phase =>
-                phaseScores01[phase.Id]!.Value
-                * phaseMultipliers[phase.Id]
-                * phase.WeightPercent);
-            var final = afterPhasePenalties * generalPenaltyMultiplier;
+            var final = rawScoreBeforeGates * generalPenaltyMultiplier;
 
             scorePercent = Math.Round(Math.Clamp(final, 0, 100), 1);
             grade = ScoreResult.GradeFromPercent(scorePercent.Value);
         }
 
+        // Phase scores stay pure metric quality; all gates multiply the combined score only.
         phases = phases.Select(phase =>
         {
             var rawScore01 = phaseScores01[phase.PhaseId];
@@ -354,7 +358,7 @@ public sealed class ScoreEngine
                 WeightPercent = phase.WeightPercent,
                 ScorePercent = rawScore01 is null
                     ? null
-                    : Math.Round(Math.Clamp(rawScore01.Value * phaseMultipliers[phase.PhaseId] * 100, 0, 100), 1),
+                    : Math.Round(Math.Clamp(rawScore01.Value * 100, 0, 100), 1),
                 IsComplete = phase.IsComplete,
                 Note = phase.Note
             };
@@ -481,7 +485,6 @@ public sealed class ScoreEngine
     /// <summary>Before bounce analysis completes, preview assumes no bounce penalty.</summary>
     private double AppendContactStabilityGatePreview(
         ContactStabilityGateConfig cfg,
-        EvaluationPhase phase,
         LandingSnapshot snapshot,
         List<CriterionScore> criteria,
         LandingResultDiagnostics diagnostics,
@@ -503,12 +506,11 @@ public sealed class ScoreEngine
         }
 
         var incomplete = new List<string>();
-        return AppendContactStabilityGate(cfg, phase, snapshot, criteria, incomplete, diagnostics, context);
+        return AppendContactStabilityGate(cfg, snapshot, criteria, incomplete, diagnostics, context);
     }
 
     private double AppendContactStabilityGate(
         ContactStabilityGateConfig cfg,
-        EvaluationPhase phase,
         LandingSnapshot snapshot,
         List<CriterionScore> criteria,
         List<string> incompleteReasons,
@@ -599,72 +601,74 @@ public sealed class ScoreEngine
             AppliedMultiplier = multiplier,
             Note =
                 $"{analysis.BounceCount} valid bounce{(analysis.BounceCount == 1 ? "" : "s")} " +
-                $"({touchdownLabel}). {phase.DisplayName} phase × {multiplier:0.##}. " +
+                $"({touchdownLabel}). Combined ranked score × {multiplier:0.##}. " +
                 cfg.PenaltyDescription
         });
         return multiplier;
     }
 
-    private double AppendStallWarningGate(
-        StallWarningGateConfig cfg,
-        EvaluationPhase phase,
-        LandingSnapshot snapshot,
+    private double AppendAircraftWarningGate(
+        string gateId,
+        string displayName,
+        bool coverageAvailable,
+        bool warningOccurred,
+        double multiplierOnWarning,
+        string? penaltyDescription,
         List<CriterionScore> criteria,
         List<string> incompleteReasons,
         bool preview,
         FreeGateEvaluationContext context)
     {
-        if (!snapshot.StallWarningCoverageAvailable)
+        if (!coverageAvailable)
         {
             if (preview)
             {
                 criteria.Add(new CriterionScore
                 {
-                    Id = FreeFlightGateIds.StallWarning,
-                    DisplayName = "Stall warning (safety gate)",
+                    Id = gateId,
+                    DisplayName = displayName + " (safety gate)",
                     Status = MetricStatus.Informational,
-                    Note = "[PREVIEW - pending] Stall-warning telemetry is not covered yet."
+                    Note = $"[PREVIEW - pending] {displayName} telemetry is not covered yet."
                 });
                 return 1;
             }
             return AppendUnavailableGate(
-                FreeFlightGateIds.StallWarning, "Stall warning (safety gate)",
-                "Stall-warning telemetry is unavailable.", cfg.MultiplierOnWarning,
+                gateId, displayName + " (safety gate)",
+                $"{displayName} telemetry is unavailable.", multiplierOnWarning,
                 criteria, incompleteReasons, context);
         }
 
-        if (!snapshot.StallWarningOccurred)
+        if (!warningOccurred)
         {
             criteria.Add(new CriterionScore
             {
-                Id = "stall_warning",
-                DisplayName = "Stall warning (safety gate)",
+                Id = gateId,
+                DisplayName = displayName + " (safety gate)",
                 RawValue = 0,
                 Status = MetricStatus.Informational,
                 AppliedMultiplier = 1,
-                Note = "No stall warning occurred. This is the required baseline and awards no points."
+                Note = $"No {displayName.ToLowerInvariant()} occurred. This is the required baseline and awards no points."
             });
             return 1;
         }
 
         criteria.Add(new CriterionScore
         {
-            Id = "stall_warning",
-            DisplayName = "STALL WARNING — hard penalty",
+            Id = gateId,
+            DisplayName = displayName.ToUpperInvariant() + " — penalty",
             RawValue = 1,
             Status = MetricStatus.GateFailed,
-            AppliedMultiplier = cfg.MultiplierOnWarning,
+            AppliedMultiplier = multiplierOnWarning,
             Note =
-                $"A stall warning occurred during the armed attempt. {phase.DisplayName} phase × " +
-                $"{cfg.MultiplierOnWarning:0.##}. {cfg.PenaltyDescription}"
+                $"The MSFS {displayName.ToUpperInvariant()} state activated during the armed attempt. " +
+                $"Combined ranked score × {multiplierOnWarning:0.##}. {penaltyDescription}"
         });
-        return cfg.MultiplierOnWarning;
+        return multiplierOnWarning;
     }
 
     /// <summary>Before touchdown, preview assumes the required gear state.</summary>
     private double AppendGearGatePreview(
         GearGateConfig cfg,
-        EvaluationPhase phase,
         ChallengeConfig challenge,
         LandingSnapshot snapshot,
         List<CriterionScore> criteria,
@@ -686,12 +690,11 @@ public sealed class ScoreEngine
 
         // After TD, same gate semantics as final (informational / fail).
         var incomplete = new List<string>();
-        return AppendGearGate(cfg, phase, challenge, snapshot, criteria, incomplete, context);
+        return AppendGearGate(cfg, challenge, snapshot, criteria, incomplete, context);
     }
 
     private double AppendGearGate(
         GearGateConfig cfg,
-        EvaluationPhase phase,
         ChallengeConfig challenge,
         LandingSnapshot snapshot,
         List<CriterionScore> criteria,
@@ -755,8 +758,8 @@ public sealed class ScoreEngine
             Status = MetricStatus.GateFailed,
             AppliedMultiplier = multiplier,
             Note =
-                $"Gear up at touchdown. {phase.DisplayName} phase × {multiplier:0.##} " +
-                $"(~{(1 - multiplier) * 100:0}% phase cut). {cfg.PenaltyDescription}"
+                $"Gear up at touchdown. Combined ranked score × {multiplier:0.##} " +
+                $"(~{(1 - multiplier) * 100:0}% overall cut). {cfg.PenaltyDescription}"
         });
         return multiplier;
     }
@@ -764,7 +767,6 @@ public sealed class ScoreEngine
     /// <summary>Preview flaps: no TD yet → assume OK; after TD use real flaps index.</summary>
     private double AppendFlapsGatePreview(
         FlapsGateConfig cfg,
-        EvaluationPhase phase,
         LandingSnapshot snapshot,
         List<CriterionScore> criteria,
         FreeGateEvaluationContext context)
@@ -784,18 +786,17 @@ public sealed class ScoreEngine
         }
 
         var incomplete = new List<string>();
-        return AppendFlapsGate(cfg, phase, snapshot, criteria, incomplete, context);
+        return AppendFlapsGate(cfg, snapshot, criteria, incomplete, context);
     }
 
     /// <summary>
     /// Flaps gate like gear: correct landing flaps award no points;
-    /// flaps not set (below the landing band) multiplies the owning phase score.
+    /// flaps not set multiplies the combined ranked score.
     /// Free Flight adapts the band from frozen handle-position count; if the measured
     /// index exceeds that count (NUM HANDLE POSITIONS under-report), treat as full flaps.
     /// </summary>
     private double AppendFlapsGate(
         FlapsGateConfig cfg,
-        EvaluationPhase phase,
         LandingSnapshot snapshot,
         List<CriterionScore> criteria,
         List<string> incompleteReasons,
@@ -863,8 +864,8 @@ public sealed class ScoreEngine
             AppliedMultiplier = multiplier,
             Note =
                 $"Flaps index {index} outside landing band [{min:0}…{max:0}]. " +
-                $"{phase.DisplayName} phase × {multiplier:0.##} " +
-                $"(~{(1 - multiplier) * 100:0}% phase cut). {cfg.PenaltyDescription}"
+                $"Combined ranked score × {multiplier:0.##} " +
+                $"(~{(1 - multiplier) * 100:0}% overall cut). {cfg.PenaltyDescription}"
         });
         return multiplier;
     }
@@ -931,19 +932,6 @@ public sealed class ScoreEngine
             Note = reason
         });
         return 1;
-    }
-
-    private static void TagPhaseCriteria(
-        List<CriterionScore> criteria,
-        int startIndex,
-        EvaluationPhase phase)
-    {
-        for (var index = startIndex; index < criteria.Count; index++)
-        {
-            criteria[index].PhaseId = phase.Id;
-            criteria[index].PhaseDisplayName = phase.DisplayName;
-            criteria[index].PhaseWeightPercent = phase.WeightPercent;
-        }
     }
 
     /// <summary>

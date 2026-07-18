@@ -157,6 +157,7 @@ public sealed class SimConnectClient : ISimBridge
         public double RadioHeight;
         public double DesignSpeedVs0;
         public double StallWarning;
+        public double OverspeedWarning;
         public double TotalWeight;
         public double SpoilersHandle;
         public double SpoilersLeft;
@@ -2042,6 +2043,9 @@ public sealed class SimConnectClient : ISimBridge
                 AircraftTitle = _cachedAircraftTitle,
                 DesignSpeedVs0Kts = t.DesignSpeedVs0,
                 StallWarningActive = t.StallWarning > 0.5,
+                StallWarningAvailable = true,
+                OverspeedWarningActive = t.OverspeedWarning > 0.5,
+                OverspeedWarningAvailable = true,
                 TotalWeightLbs = t.TotalWeight > 0 ? t.TotalWeight : null
             };
             TelemetryReceived?.Invoke(this, sample);
@@ -2201,6 +2205,8 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.Telemetry, "DESIGN SPEED VS0", "knots",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "STALL WARNING", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "OVERSPEED WARNING", "bool",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "TOTAL WEIGHT", "pounds",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);

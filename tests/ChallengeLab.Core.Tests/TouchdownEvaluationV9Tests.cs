@@ -49,7 +49,7 @@ public sealed class TouchdownEvaluationV9Tests
         var catalog = loader.LoadCatalog();
         foreach (var (path, version) in new[]
                  {
-                     (catalog.EvaluationKey, 27),
+                     (catalog.EvaluationKey, 32),
                      (catalog.FreeFlightEvaluationKey, 15)
                  })
         {
@@ -59,35 +59,35 @@ public sealed class TouchdownEvaluationV9Tests
             Assert.Equal(100, loaded.Key.Phases.Sum(p => p.WeightPercent), 6);
             var touchdown = loaded.Key.Phases.Single(p => p.Id == "touchdown");
             Assert.Equal(100, touchdown.Metrics.Sum(m => m.ImportancePercent), 6);
-            Assert.Equal(52,
+            Assert.Equal(40,
                 touchdown.Metrics.Single(m => m.Id == "touchdown_impact").ImportancePercent);
-            Assert.Equal(19, touchdown.Metrics.Single(m => m.Id == "touchdown_point").ImportancePercent);
+            Assert.Equal(22, touchdown.Metrics.Single(m => m.Id == "touchdown_point").ImportancePercent);
             Assert.Equal(8, touchdown.Metrics.Single(m => m.Id == "flare_efficiency").ImportancePercent);
-            Assert.Equal(5, touchdown.Metrics.Single(m => m.Id == "crab_angle").ImportancePercent);
+            Assert.Equal(6, touchdown.Metrics.Single(m => m.Id == "crab_angle").ImportancePercent);
             Assert.DoesNotContain(
                 loaded.Key.Phases.Single(p => p.Id == "rollout").Metrics,
                 m => m.Id == "post_td_alignment");
             Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "contact_stability");
             Assert.DoesNotContain(touchdown.Metrics, m => m.Id == "touchdown_vs");
-            Assert.Equal(70, touchdown.WeightPercent);
-            Assert.Equal(25, loaded.Key.Phases.Single(p => p.Id == "approach").WeightPercent);
-            Assert.Equal(5, loaded.Key.Phases.Single(p => p.Id == "rollout").WeightPercent);
+            Assert.Equal(60, touchdown.WeightPercent);
+            Assert.Equal(30, loaded.Key.Phases.Single(p => p.Id == "approach").WeightPercent);
+            Assert.Equal(10, loaded.Key.Phases.Single(p => p.Id == "rollout").WeightPercent);
         }
 
         var normal = loader.LoadEvaluationKey(catalog.EvaluationKey).Key!;
-        var touchdownPenalties = normal.Phases.Single(p => p.Id == "touchdown").Penalties!;
-        var approachPenalties = normal.Phases.Single(p => p.Id == "approach").Penalties!;
-        Assert.Equal(0.1, touchdownPenalties.Gear!.MultiplierOnFail, 6);
-        Assert.Equal(0.9, touchdownPenalties.ContactStability!.OneBounceMultiplier, 6);
-        Assert.Equal(0.8, touchdownPenalties.ContactStability.TwoOrMoreBouncesMultiplier, 6);
-        Assert.Equal(0.5, approachPenalties.StallWarning!.MultiplierOnWarning, 6);
-        Assert.Equal(2, touchdownPenalties.Flaps!.MinIndex, 6);
-        Assert.Equal(5, touchdownPenalties.Flaps.MaxIndex, 6);
-        Assert.Equal(0.8, touchdownPenalties.Flaps.MultiplierOnFail, 6);
+        var general = normal.GeneralPenalties!;
+        Assert.Equal(0.1, general.Gear!.MultiplierOnFail, 6);
+        Assert.Equal(0.9, general.ContactStability!.OneBounceMultiplier, 6);
+        Assert.Equal(0.8, general.ContactStability.TwoOrMoreBouncesMultiplier, 6);
+        Assert.Equal(0.9, general.StallWarning!.MultiplierOnWarning, 6);
+        Assert.Equal(0.9, general.OverspeedWarning!.MultiplierOnWarning, 6);
+        Assert.Equal(2, general.Flaps!.MinIndex, 6);
+        Assert.Equal(5, general.Flaps.MaxIndex, 6);
+        Assert.Equal(0.8, general.Flaps.MultiplierOnFail, 6);
         var free = loader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey).Key!;
-        var freeTouchdownPenalties = free.Phases.Single(p => p.Id == "touchdown").Penalties!;
-        Assert.Equal(0.1, freeTouchdownPenalties.Gear!.MultiplierOnFail, 6);
-        Assert.NotNull(freeTouchdownPenalties.Flaps);
+        var freeGeneral = free.GeneralPenalties!;
+        Assert.Equal(0.1, freeGeneral.Gear!.MultiplierOnFail, 6);
+        Assert.NotNull(freeGeneral.Flaps);
     }
 
     [Fact]
@@ -244,7 +244,7 @@ public sealed class TouchdownEvaluationV9Tests
         var result = new ScoreEngine(profile11.Key, profile11.ProfileHash)
             .EvaluatePreview(challenge, new LandingSnapshot());
         Assert.Equal(profile11.Key.Id, result.EvaluationKeyId);
-        Assert.Equal(27, result.EvaluationKeyVersion);
+        Assert.Equal(32, result.EvaluationKeyVersion);
         Assert.Equal(profile11.ProfileHash, result.ScoringProfileHash);
         Assert.Equal(profile11.BucketId(challenge.Id), result.RankedBucketId);
 
@@ -523,7 +523,7 @@ public sealed class TouchdownEvaluationV9Tests
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         var key = loaded.Key!;
         Assert.DoesNotContain(key.Phases.SelectMany(p => p.Metrics), m => m.Id == "contact_stability");
-        var gate = key.Phases.Single(p => p.Id == "touchdown").Penalties!.ContactStability;
+        var gate = key.GeneralPenalties!.ContactStability;
         Assert.NotNull(gate);
         Assert.Equal(0.9, gate!.OneBounceMultiplier, 6);
         Assert.Equal(0.8, gate.TwoOrMoreBouncesMultiplier, 6);
@@ -715,7 +715,7 @@ public sealed class TouchdownEvaluationV9Tests
                 {
                     new PhaseScore
                     {
-                        PhaseId = "touchdown", DisplayName = "Touchdown", WeightPercent = 70,
+                        PhaseId = "touchdown", DisplayName = "Touchdown", WeightPercent = 60,
                         ScorePercent = 91, IsComplete = true
                     }
                 },

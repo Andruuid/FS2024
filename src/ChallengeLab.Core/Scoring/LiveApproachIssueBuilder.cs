@@ -215,6 +215,9 @@ public static class LiveApproachIssueBuilder
         if (preview.Criteria.Any(c =>
                 c.Id == "stall_warning" && c.Status == MetricStatus.GateFailed))
             issues.Add(new Issue("stall-warning penalty", 1.2));
+        if (preview.Criteria.Any(c =>
+                c.Id == "overspeed_warning" && c.Status == MetricStatus.GateFailed))
+            issues.Add(new Issue("overspeed-warning penalty", 1.2));
         foreach (var criterion in preview.Criteria.Where(c =>
                      c.Status == MetricStatus.GateFailed
                      && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "cockpit_view"))

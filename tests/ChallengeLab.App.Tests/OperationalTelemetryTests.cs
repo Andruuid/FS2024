@@ -60,6 +60,21 @@ public sealed class OperationalTelemetryTests
         Assert.Contains("SPOILER AVAILABLE", client, StringComparison.Ordinal);
         Assert.Contains("AUTOPILOT AVAILABLE", client, StringComparison.Ordinal);
         Assert.Contains("THROTTLE LOWER LIMIT", client, StringComparison.Ordinal);
+        Assert.Contains("OVERSPEED WARNING", client, StringComparison.Ordinal);
+        Assert.Contains("OverspeedWarningActive = t.OverspeedWarning > 0.5", client, StringComparison.Ordinal);
+        Assert.Contains("OverspeedWarningAvailable = true", client, StringComparison.Ordinal);
+        Assert.True(
+            client.IndexOf("public double StallWarning;", StringComparison.Ordinal)
+            < client.IndexOf("public double OverspeedWarning;", StringComparison.Ordinal));
+        Assert.True(
+            client.IndexOf("public double OverspeedWarning;", StringComparison.Ordinal)
+            < client.IndexOf("public double TotalWeight;", StringComparison.Ordinal));
+        Assert.True(
+            client.IndexOf("\"STALL WARNING\"", StringComparison.Ordinal)
+            < client.IndexOf("\"OVERSPEED WARNING\"", StringComparison.Ordinal));
+        Assert.True(
+            client.IndexOf("\"OVERSPEED WARNING\"", StringComparison.Ordinal)
+            < client.IndexOf("\"TOTAL WEIGHT\"", StringComparison.Ordinal));
         Assert.Contains("noseImpactApplicable", viewModel, StringComparison.Ordinal);
         Assert.Contains("OperationalGates.NoseGearImpact is not null", viewModel, StringComparison.Ordinal);
         Assert.DoesNotContain("ContactPointCompressionByIndex", trace, StringComparison.Ordinal);

@@ -37,6 +37,7 @@ public sealed class LandingSessionTests
         double gs = 140,
         double ias = 145,
         bool stallWarning = false,
+        bool overspeedWarning = false,
         double heading = 313)
         => new()
         {
@@ -56,7 +57,10 @@ public sealed class LandingSessionTests
             GearHandlePosition = 1,
             FlapsHandleIndex = 3,
             GForce = 1.1,
-            StallWarningActive = stallWarning
+            StallWarningActive = stallWarning,
+            StallWarningAvailable = true,
+            OverspeedWarningActive = overspeedWarning,
+            OverspeedWarningAvailable = true
         };
 
     [Fact]
@@ -89,6 +93,24 @@ public sealed class LandingSessionTests
         Assert.True(session.Snapshot.StallWarningOccurred);
         session.CleanMetrics();
         Assert.False(session.Snapshot.StallWarningOccurred);
+    }
+
+    [Fact]
+    public void OverspeedWarning_IsLatchedForTheAttemptAndClearedWithMetrics()
+    {
+        var (challenge, settings) = Load();
+        var session = new LandingSession(challenge, settings);
+        var t0 = DateTimeOffset.UtcNow;
+        session.Arm();
+
+        session.Ingest(Sample(t0, onGround: false, overspeedWarning: true));
+        session.Ingest(Sample(t0.AddSeconds(0.1), onGround: false));
+
+        Assert.True(session.Snapshot.OverspeedWarningCoverageAvailable);
+        Assert.True(session.Snapshot.OverspeedWarningOccurred);
+        session.CleanMetrics();
+        Assert.False(session.Snapshot.OverspeedWarningOccurred);
+        Assert.False(session.Snapshot.OverspeedWarningCoverageAvailable);
     }
 
     [Fact]
@@ -303,7 +325,8 @@ public sealed class LandingSessionTests
             FlapsHandleIndex = 3,
             GForce = 1.1
         });
-        for (var i = 1; i <= 8; i++)
+        // Past reverse-thrust / spoiler / brake gate windows and settle hold (GS < 50 for ≥1 s).
+        for (var i = 1; i <= 14; i++)
         {
             session.Ingest(new TelemetrySample
             {
@@ -315,7 +338,7 @@ public sealed class LandingSessionTests
                 AglFeet = 0,
                 RadioHeightFeet = 0,
                 HeadingTrueDeg = challenge.Runway.HeadingTrueDeg,
-                GroundSpeedKts = i < 6 ? 80 : 20,
+                GroundSpeedKts = i < 10 ? 80 : 20,
                 AirspeedKts = 80,
                 VerticalSpeedFpm = 0,
                 GearHandlePosition = 1,
@@ -324,7 +347,8 @@ public sealed class LandingSessionTests
             });
         }
 
-        Assert.True(session.IsComplete || session.Phase is LandingPhase.Settled or LandingPhase.Scored);
+        Assert.True(session.IsComplete || session.Phase is LandingPhase.Settled or LandingPhase.Scored,
+            $"Expected settled after gate windows; phase={session.Phase}");
         // Perfect short final should yield near-zero average bias / variation; high spawn must not pollute.
         Assert.True(session.Snapshot.ApproachPathSampleCount >= 2);
         Assert.True(session.Snapshot.ApproachPathRms < 80,

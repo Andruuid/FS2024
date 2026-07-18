@@ -11,6 +11,7 @@ public static class FreeFlightGateIds
     public const string Spoilers = "spoiler_deployment";
     public const string NoseGearImpact = "nose_gear_impact";
     public const string StallWarning = "stall_warning";
+    public const string OverspeedWarning = "overspeed_warning";
     public const string Automation = "automation";
     public const string ManualBraking = "manual_braking";
     public const string RolloutDistance = "rollout_distance";
@@ -20,7 +21,7 @@ public static class FreeFlightGateIds
     public const string CockpitView = "cockpit_view";
 
     public static bool IsUniversal(string gateId) => gateId is
-        StallWarning or RolloutDistance or PauseUsage or SimulationRate or CockpitView;
+        StallWarning or OverspeedWarning or RolloutDistance or PauseUsage or SimulationRate or CockpitView;
 }
 
 /// <summary>Resolves and freezes Free Flight gate applicability at runway lock/arm time.</summary>
@@ -91,6 +92,8 @@ public static class FreeFlightCapabilityResolver
 
         Set(context, FreeFlightGateIds.StallWarning, FreeFlightGateApplicability.Applicable,
             "Stall-warning gate applies to every armed Free Flight attempt.", "");
+        Set(context, FreeFlightGateIds.OverspeedWarning, FreeFlightGateApplicability.Applicable,
+            "Overspeed-warning gate applies to every armed Free Flight attempt.", "");
         SetBooleanCapability(context, FreeFlightGateIds.Automation, context.AutopilotAvailable,
             "Aircraft reports installed autopilot capability.", "Aircraft reports no installed autopilot.");
         Set(context, FreeFlightGateIds.RolloutDistance, FreeFlightGateApplicability.Applicable,

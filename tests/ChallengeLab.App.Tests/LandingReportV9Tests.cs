@@ -34,7 +34,7 @@ public sealed class LandingReportV9Tests
             PhaseId = "touchdown",
             PhaseDisplayName = "Touchdown",
             PhaseImportancePercent = id == "touchdown_impact" ? 55 : 10,
-            PhaseWeightPercent = 70,
+            PhaseWeightPercent = 60,
             MaxOverallPoints = id == "touchdown_impact" ? 38.5 : 7
         };
 
@@ -67,7 +67,7 @@ public sealed class LandingReportV9Tests
                 new HighscorePhaseDetail
                 {
                     PhaseId = "touchdown", DisplayName = "Touchdown",
-                    WeightPercent = 70, ScorePercent = 90, Used = true
+                    WeightPercent = 60, ScorePercent = 90, Used = true
                 }
             },
             Criteria =
@@ -127,11 +127,11 @@ public sealed class LandingReportV9Tests
             Phases =
             {
                 new HighscorePhaseDetail
-                    { PhaseId = "rollout", DisplayName = "Rollout", WeightPercent = 5, ScorePercent = 79.5 },
+                    { PhaseId = "rollout", DisplayName = "Rollout", WeightPercent = 10, ScorePercent = 79.5 },
                 new HighscorePhaseDetail
-                    { PhaseId = "touchdown", DisplayName = "Touchdown", WeightPercent = 70, ScorePercent = 56.5 },
+                    { PhaseId = "touchdown", DisplayName = "Touchdown", WeightPercent = 60, ScorePercent = 56.5 },
                 new HighscorePhaseDetail
-                    { PhaseId = "approach", DisplayName = "Approach", WeightPercent = 25, ScorePercent = 76.7 }
+                    { PhaseId = "approach", DisplayName = "Approach", WeightPercent = 30, ScorePercent = 76.7 }
             },
             Criteria =
             {
@@ -315,7 +315,7 @@ public sealed class LandingReportV9Tests
             Phases =
             {
                 new HighscorePhaseDetail
-                    { PhaseId = "touchdown", DisplayName = "Touchdown", WeightPercent = 70, ScorePercent = 74 }
+                    { PhaseId = "touchdown", DisplayName = "Touchdown", WeightPercent = 60, ScorePercent = 74 }
             },
             Criteria =
             {
@@ -338,8 +338,8 @@ public sealed class LandingReportV9Tests
         var phase = Assert.Single(new LandingReportViewModel(entry).SummaryPhases);
         var metric = Assert.Single(phase.Metrics);
 
-        Assert.Contains("after phase-specific penalties", phase.ToolTip, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("70%", phase.ToolTip, StringComparison.Ordinal);
+        Assert.Contains("penalties apply to the overall score", phase.ToolTip, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("60%", phase.ToolTip, StringComparison.Ordinal);
         Assert.Contains("Distance from the ideal touchdown point", metric.ToolTip, StringComparison.Ordinal);
         Assert.Contains("Measured value: 120.0 ft from threshold", metric.ToolTip, StringComparison.Ordinal);
         Assert.Contains("Status: Scored", metric.ToolTip, StringComparison.Ordinal);
@@ -365,7 +365,7 @@ public sealed class LandingReportV9Tests
             Phases =
             {
                 new HighscorePhaseDetail
-                    { PhaseId = "approach", DisplayName = "Approach", WeightPercent = 25, ScorePercent = null }
+                    { PhaseId = "approach", DisplayName = "Approach", WeightPercent = 30, ScorePercent = null }
             }
         });
 
@@ -429,7 +429,7 @@ public sealed class LandingReportV9Tests
                     PhaseId = "touchdown",
                     PhaseDisplayName = "Touchdown",
                     PhaseImportancePercent = 20,
-                    PhaseWeightPercent = 70,
+                    PhaseWeightPercent = 60,
                     MaxOverallPoints = 14
                 }
             }
@@ -460,7 +460,7 @@ public sealed class LandingReportV9Tests
             PhaseId = "touchdown",
             PhaseDisplayName = "Touchdown",
             PhaseImportancePercent = 19,
-            PhaseWeightPercent = 70,
+            PhaseWeightPercent = 60,
             MaxOverallPoints = 13.3
         };
 
@@ -504,6 +504,37 @@ public sealed class LandingReportV9Tests
         Assert.Equal(9, report.Penalties.Count);
         Assert.All(ids, id => Assert.Single(report.Penalties, penalty => penalty.Id == id));
         Assert.All(report.Penalties, penalty => Assert.Contains("multiplied", penalty.Note));
+    }
+
+    [Fact]
+    public void Report_ShowsNativeOverspeedWarningAsItsOwnPenalty()
+    {
+        var entry = new HighscoreEntry
+        {
+            ChallengeTitle = "Native warning",
+            EvaluationKeyVersion = 30,
+            ScoringProfileHash = "warnings",
+            Criteria =
+            {
+                new HighscoreCriterionDetail
+                {
+                    Id = "overspeed_warning",
+                    DisplayName = "AIRCRAFT OVERSPEED WARNING — penalty",
+                    Status = MetricStatus.GateFailed,
+                    AppliedMultiplier = 0.9,
+                    Note = "The native MSFS warning activated; combined score multiplied by 0.9."
+                }
+            }
+        };
+
+        var report = new LandingReportViewModel(entry);
+
+        var penalty = Assert.Single(report.Penalties);
+        Assert.Equal("overspeed_warning", penalty.Id);
+        Assert.Empty(report.Metrics);
+        var summary = Assert.Single(report.OverallPenaltyChain!.Penalties);
+        Assert.Equal("OVERSPEED WARNING", summary.DisplayName);
+        Assert.Equal("×0.9", summary.MultiplierDisplay);
     }
 
     [Fact]
@@ -557,7 +588,7 @@ public sealed class LandingReportV9Tests
                 new HighscorePhaseDetail
                 {
                     PhaseId = "touchdown", DisplayName = "Touchdown",
-                    WeightPercent = 70, ScorePercent = 71.8, Used = true
+                    WeightPercent = 60, ScorePercent = 71.8, Used = true
                 }
             },
             Criteria =
@@ -567,8 +598,8 @@ public sealed class LandingReportV9Tests
                     Id = "touchdown_impact", DisplayName = "Touchdown impact",
                     ScorePercent = 80, RawValue = -421, Unit = "fpm",
                     Status = MetricStatus.Scored, PhaseId = "touchdown",
-                    PhaseDisplayName = "Touchdown", PhaseImportancePercent = 55,
-                    PhaseWeightPercent = 70, MaxOverallPoints = 38.5
+                    PhaseDisplayName = "Touchdown", PhaseImportancePercent = 40,
+                    PhaseWeightPercent = 60, MaxOverallPoints = 24
                 }
             }
         };
@@ -612,7 +643,7 @@ public sealed class LandingReportV9Tests
                 new HighscorePhaseDetail
                 {
                     PhaseId = "touchdown", DisplayName = "Touchdown",
-                    WeightPercent = 70, ScorePercent = 90, Used = true
+                    WeightPercent = 60, ScorePercent = 90, Used = true
                 }
             }
         };
@@ -639,7 +670,7 @@ public sealed class LandingReportV9Tests
                 new HighscorePhaseDetail
                 {
                     PhaseId = "touchdown", DisplayName = "Touchdown",
-                    WeightPercent = 70, ScorePercent = 60, Used = true
+                    WeightPercent = 60, ScorePercent = 60, Used = true
                 }
             },
             Criteria =
@@ -655,8 +686,8 @@ public sealed class LandingReportV9Tests
                     Id = "touchdown_impact", DisplayName = "Touchdown impact",
                     Status = MetricStatus.Assumed, ScorePercent = 50,
                     PhaseId = "touchdown", PhaseDisplayName = "Touchdown",
-                    PhaseImportancePercent = 54.4, PhaseWeightPercent = 70,
-                    MaxOverallPoints = 38.08
+                    PhaseImportancePercent = 40, PhaseWeightPercent = 60,
+                    MaxOverallPoints = 24
                 },
                 new HighscoreCriterionDetail
                 {

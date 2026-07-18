@@ -342,9 +342,9 @@ public sealed class SummaryPhaseViewModel
         WeightPercent = phase.WeightPercent;
         WeightDisplay = $"{phase.WeightPercent:0.#}% of overall score";
         ScoreBand = BandFor(ScorePercent);
-        ToolTip = $"Combined {DisplayName} phase score after phase-specific penalties. " +
+        ToolTip = $"Combined {DisplayName} phase metric score (penalties apply to the overall score, not this phase). " +
                   $"This phase contributes {phase.WeightPercent:0.#}% of the overall score. " +
-                  $"Phase total: {ScoreDisplay}. Subcategory bars show their individual metric scores before phase penalties.";
+                  $"Phase total: {ScoreDisplay}. Subcategory bars show their individual metric scores.";
 
         Metrics = phaseCriteria
             .Where(criterion => criterion.PhaseImportancePercent > 0)
@@ -536,6 +536,7 @@ public sealed class SummaryPenaltyViewModel
     {
         "contact_stability" => "BOUNCE",
         "stall_warning" => "STALL WARNING",
+        "overspeed_warning" => "OVERSPEED WARNING",
         "gear" => "GEAR",
         "flaps" => "FLAPS",
         "spoiler_deployment" => "SPOILERS",

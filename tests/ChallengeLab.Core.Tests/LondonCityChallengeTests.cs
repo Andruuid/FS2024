@@ -89,9 +89,7 @@ public class LondonCityChallengeTests
         var loadedKey = loader.LoadEvaluationKey();
         Assert.True(loadedKey.IsValid, string.Join("; ", loadedKey.Errors));
         var effective = EffectiveEvaluationProfileBuilder.Build(loadedKey.Key!, challenge);
-        var reverse = effective.Key.Phases
-            .Single(phase => phase.Id == "rollout")
-            .Penalties!.ReverseThrust!;
+        var reverse = effective.Key.GeneralPenalties!.ReverseThrust!;
 
         Assert.Equal(ReverseThrustPolicies.Prohibited, reverse.Policy);
         Assert.Contains("night-noise", reverse.ExceptionReason, StringComparison.OrdinalIgnoreCase);

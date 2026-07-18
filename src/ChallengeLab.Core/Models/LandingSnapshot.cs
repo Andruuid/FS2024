@@ -125,6 +125,10 @@ public sealed class LandingSnapshot
     public bool StallWarningOccurred { get; set; }
     public bool StallWarningCoverageAvailable { get; set; } = true;
 
+    /// <summary>Latched true if any telemetry sample warned of overspeed while armed.</summary>
+    public bool OverspeedWarningOccurred { get; set; }
+    public bool OverspeedWarningCoverageAvailable { get; set; } = true;
+
     /// <summary>Operational gate observations for Challenge, Career, and Free Flight.</summary>
     public LandingGateObservations GateObservations { get; } = new();
 

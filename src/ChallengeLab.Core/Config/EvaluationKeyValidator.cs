@@ -21,12 +21,7 @@ public static class EvaluationKeyValidator
         ValidateSettle(key.Settle, errors);
         ValidateTiming(key.Timing, errors);
         ValidateSpeedTarget(key.SpeedTarget, errors);
-        ValidateOptionalMultiplier(key.GeneralPenalties?.PauseUsage?.MultiplierOnFail,
-            "generalPenalties.pauseUsage.multiplierOnFail", errors);
-        ValidateSimulationRateGate(key.GeneralPenalties?.SimulationRate,
-            "generalPenalties.simulationRate", errors);
-        ValidateCockpitViewGate(key.GeneralPenalties?.CockpitView,
-            "generalPenalties.cockpitView", errors);
+        ValidateGeneralPenalties(key.GeneralPenalties, errors);
         ValidateContactMapping(key.ContactMapping, errors);
         ValidateFreeMode(key.FreeMode, key.Timing, errors);
 
@@ -50,8 +45,6 @@ public static class EvaluationKeyValidator
             foreach (var metric in phase.Metrics)
                 ValidateMetric(metric, phasePath, metricIds, errors);
 
-            ValidatePhasePenalties(phase, phasePath, errors);
-
             var metricWeight = phase.Metrics.Sum(m => m.ImportancePercent);
             if (phase.Metrics.Count > 0 && Math.Abs(metricWeight - 100) > WeightTolerance)
                 errors.Add($"{phasePath} metric importance must total 100, but totals {metricWeight:0.###}.");
@@ -61,12 +54,32 @@ public static class EvaluationKeyValidator
         if (key.Phases.Count > 0 && Math.Abs(phaseWeight - 100) > WeightTolerance)
             errors.Add($"Phase weights must total 100, but total {phaseWeight:0.###}.");
 
-        if (!key.Phases.Any(phase =>
-                phase.Id.Equals("touchdown", StringComparison.OrdinalIgnoreCase)
-                && phase.Penalties?.Gear is not null))
-            errors.Add("phase 'touchdown'.penalties.gear is required.");
+        if (key.GeneralPenalties?.Gear is null)
+            errors.Add("generalPenalties.gear is required.");
 
         return errors;
+    }
+
+    private static void ValidateGeneralPenalties(GeneralPenaltyConfig? penalties, List<string> errors)
+    {
+        if (penalties is null) return;
+
+        const string path = "generalPenalties";
+        ValidateContactStabilityGate(penalties.ContactStability, $"{path}.contactStability", errors);
+        ValidateStallWarningGate(penalties.StallWarning, $"{path}.stallWarning", errors);
+        ValidateOverspeedWarningGate(penalties.OverspeedWarning, $"{path}.overspeedWarning", errors);
+        ValidateGear(penalties.Gear, $"{path}.gear", errors);
+        ValidateFlapsGate(penalties.Flaps, $"{path}.flaps", errors);
+        ValidateSpoilerDeploymentGate(penalties.SpoilerDeployment, $"{path}.spoilerDeployment", errors);
+        ValidateManualBrakingGate(penalties.ManualBraking, $"{path}.manualBraking", errors);
+        ValidateAutomationGate(penalties.Automation, $"{path}.automation", errors);
+        ValidateNoseGearImpactGate(penalties.NoseGearImpact, $"{path}.noseGearImpact", errors);
+        ValidateRolloutGate(penalties.Rollout, $"{path}.rollout", errors);
+        ValidateReverseThrustGate(penalties.ReverseThrust, $"{path}.reverseThrust", errors);
+        ValidateOptionalMultiplier(penalties.PauseUsage?.MultiplierOnFail,
+            $"{path}.pauseUsage.multiplierOnFail", errors);
+        ValidateSimulationRateGate(penalties.SimulationRate, $"{path}.simulationRate", errors);
+        ValidateCockpitViewGate(penalties.CockpitView, $"{path}.cockpitView", errors);
     }
 
     private static void ValidateFreeMode(
@@ -92,48 +105,6 @@ public static class EvaluationKeyValidator
             errors.Add("freeMode.evaluationStart.approachPathMaxDistNm must be greater than timing.approachPathMinDistNm.");
     }
 
-    private static void ValidatePhasePenalties(
-        EvaluationPhase phase,
-        string phasePath,
-        List<string> errors)
-    {
-        if (phase.Penalties is not { } penalties) return;
-
-        var path = $"{phasePath}.penalties";
-        ValidateContactStabilityGate(penalties.ContactStability, $"{path}.contactStability", errors);
-        ValidateStallWarningGate(penalties.StallWarning, $"{path}.stallWarning", errors);
-        ValidateGear(penalties.Gear, $"{path}.gear", errors);
-        ValidateFlapsGate(penalties.Flaps, $"{path}.flaps", errors);
-        ValidateSpoilerDeploymentGate(penalties.SpoilerDeployment, $"{path}.spoilerDeployment", errors);
-        ValidateManualBrakingGate(penalties.ManualBraking, $"{path}.manualBraking", errors);
-        ValidateAutomationGate(penalties.Automation, $"{path}.automation", errors);
-        ValidateNoseGearImpactGate(penalties.NoseGearImpact, $"{path}.noseGearImpact", errors);
-        ValidateRolloutGate(penalties.Rollout, $"{path}.rollout", errors);
-        ValidateReverseThrustGate(penalties.ReverseThrust, $"{path}.reverseThrust", errors);
-
-        RequirePenaltyPhase(phase, penalties.ContactStability is not null, "contactStability", "touchdown", errors);
-        RequirePenaltyPhase(phase, penalties.StallWarning is not null, "stallWarning", "approach", errors);
-        RequirePenaltyPhase(phase, penalties.Gear is not null, "gear", "touchdown", errors);
-        RequirePenaltyPhase(phase, penalties.Flaps is not null, "flaps", "touchdown", errors);
-        RequirePenaltyPhase(phase, penalties.SpoilerDeployment is not null, "spoilerDeployment", "touchdown", errors);
-        RequirePenaltyPhase(phase, penalties.ManualBraking is not null, "manualBraking", "rollout", errors);
-        RequirePenaltyPhase(phase, penalties.Automation is not null, "automation", "approach", errors);
-        RequirePenaltyPhase(phase, penalties.NoseGearImpact is not null, "noseGearImpact", "touchdown", errors);
-        RequirePenaltyPhase(phase, penalties.Rollout is not null, "rollout", "rollout", errors);
-        RequirePenaltyPhase(phase, penalties.ReverseThrust is not null, "reverseThrust", "rollout", errors);
-    }
-
-    private static void RequirePenaltyPhase(
-        EvaluationPhase phase,
-        bool configured,
-        string penaltyName,
-        string requiredPhaseId,
-        List<string> errors)
-    {
-        if (configured && !phase.Id.Equals(requiredPhaseId, StringComparison.OrdinalIgnoreCase))
-            errors.Add($"phase '{phase.Id}'.penalties.{penaltyName} must belong to phase '{requiredPhaseId}'.");
-    }
-
     private static void ValidateContactStabilityGate(
         ContactStabilityGateConfig? gate,
         string path,
@@ -155,6 +126,18 @@ public static class EvaluationKeyValidator
 
     private static void ValidateStallWarningGate(
         StallWarningGateConfig? gate,
+        string path,
+        List<string> errors)
+    {
+        if (gate is null) return;
+
+        if (!double.IsFinite(gate.MultiplierOnWarning)
+            || gate.MultiplierOnWarning is < 0 or > 1)
+            errors.Add($"{path}.multiplierOnWarning must be between 0 and 1.");
+    }
+
+    private static void ValidateOverspeedWarningGate(
+        OverspeedWarningGateConfig? gate,
         string path,
         List<string> errors)
     {

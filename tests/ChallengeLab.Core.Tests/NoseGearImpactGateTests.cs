@@ -164,8 +164,7 @@ public sealed class NoseGearImpactGateTests
             RequireAirborneBeforeTouchdown = false,
             SettledHoldSeconds = 0,
             OperationalGates = new OperationalGateSessionSettings(
-                NoseGearImpact: key.Phases.Single(p => p.Id == "touchdown")
-                    .Penalties!.NoseGearImpact)
+                NoseGearImpact: key.GeneralPenalties!.NoseGearImpact)
         };
         var session = new LandingSession(challenge, settings);
         session.Arm();

@@ -5,37 +5,6 @@ namespace ChallengeLab.Core.Scoring;
 
 internal static class OperationalGateEvaluator
 {
-    public static double AppendPhase(
-        EvaluationPhasePenalties? penalties,
-        string phaseDisplayName,
-        LandingSnapshot snapshot,
-        List<CriterionScore> criteria,
-        List<string> incompleteReasons,
-        bool preview,
-        FreeGateEvaluationContext context)
-    {
-        if (penalties is null) return 1;
-
-        var observations = snapshot.GateObservations;
-        var multiplier = 1.0;
-        var scoreTarget = $"{phaseDisplayName} phase";
-
-        if (penalties.SpoilerDeployment is { } spoiler)
-            multiplier *= AppendSpoilers(spoiler, snapshot, observations, criteria, incompleteReasons, preview, scoreTarget, context);
-        if (penalties.ManualBraking is { } brakes)
-            multiplier *= AppendBrakes(brakes, observations, criteria, incompleteReasons, preview, scoreTarget, context);
-        if (penalties.NoseGearImpact is { } noseImpact)
-            multiplier *= AppendNoseGearImpact(noseImpact, observations, criteria, incompleteReasons, preview, scoreTarget, context);
-        if (penalties.Automation is { } automation)
-            multiplier *= AppendAutomation(automation, observations, criteria, incompleteReasons, preview, scoreTarget, context);
-        if (penalties.Rollout is { } rollout)
-            multiplier *= AppendRollout(rollout, observations, criteria, incompleteReasons, preview, scoreTarget, context);
-        if (penalties.ReverseThrust is { } reverseThrust)
-            multiplier *= AppendReverseThrust(reverseThrust, snapshot, observations, criteria, incompleteReasons, preview, scoreTarget, context);
-
-        return multiplier;
-    }
-
     public static double AppendGeneral(
         GeneralPenaltyConfig? penalties,
         LandingSnapshot snapshot,
@@ -50,6 +19,18 @@ internal static class OperationalGateEvaluator
         var multiplier = 1.0;
         const string scoreTarget = "combined ranked score";
 
+        if (penalties.SpoilerDeployment is { } spoiler)
+            multiplier *= AppendSpoilers(spoiler, snapshot, observations, criteria, incompleteReasons, preview, scoreTarget, context);
+        if (penalties.ManualBraking is { } brakes)
+            multiplier *= AppendBrakes(brakes, observations, criteria, incompleteReasons, preview, scoreTarget, context);
+        if (penalties.NoseGearImpact is { } noseImpact)
+            multiplier *= AppendNoseGearImpact(noseImpact, observations, criteria, incompleteReasons, preview, scoreTarget, context);
+        if (penalties.Automation is { } automation)
+            multiplier *= AppendAutomation(automation, observations, criteria, incompleteReasons, preview, scoreTarget, context);
+        if (penalties.Rollout is { } rollout)
+            multiplier *= AppendRollout(rollout, observations, criteria, incompleteReasons, preview, scoreTarget, context);
+        if (penalties.ReverseThrust is { } reverseThrust)
+            multiplier *= AppendReverseThrust(reverseThrust, snapshot, observations, criteria, incompleteReasons, preview, scoreTarget, context);
         if (penalties.PauseUsage is { } pause)
             multiplier *= AppendPause(pause, observations, criteria, incompleteReasons, preview, scoreTarget, context);
         if (penalties.SimulationRate is { } rate)

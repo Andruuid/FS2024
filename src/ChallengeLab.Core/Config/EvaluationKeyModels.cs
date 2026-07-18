@@ -48,22 +48,17 @@ public sealed class LandingEvaluationKey
         flare?.Params.GetValueOrDefault("minSustainSeconds", 0.15) ?? 0.15)
         {
             OperationalGates = new OperationalGateSessionSettings(
-                FindPhasePenalty(p => p.SpoilerDeployment),
-                FindPhasePenalty(p => p.ManualBraking),
-                FindPhasePenalty(p => p.Automation),
+                GeneralPenalties?.SpoilerDeployment,
+                GeneralPenalties?.ManualBraking,
+                GeneralPenalties?.Automation,
                 GeneralPenalties?.PauseUsage,
                 GeneralPenalties?.SimulationRate,
                 GeneralPenalties?.CockpitView,
-                FindPhasePenalty(p => p.NoseGearImpact),
-                FindPhasePenalty(p => p.Rollout),
-                FindPhasePenalty(p => p.ReverseThrust))
+                GeneralPenalties?.NoseGearImpact,
+                GeneralPenalties?.Rollout,
+                GeneralPenalties?.ReverseThrust)
         };
     }
-
-    private T? FindPhasePenalty<T>(Func<EvaluationPhasePenalties, T?> selector)
-        where T : class => Phases
-            .Select(phase => phase.Penalties is null ? null : selector(phase.Penalties))
-            .FirstOrDefault(penalty => penalty is not null);
 }
 
 /// <summary>
@@ -251,7 +246,6 @@ public sealed class EvaluationPhase
     public string DisplayName { get; set; } = "";
     public double WeightPercent { get; set; }
     public string? Note { get; set; }
-    public EvaluationPhasePenalties? Penalties { get; set; }
     public List<EvaluationMetric> Metrics { get; set; } = new();
 }
 
@@ -274,13 +268,14 @@ public sealed class EvaluationMetric
 }
 
 /// <summary>
-/// Penalty gates owned by a scoring phase. Their multipliers affect only that
-/// phase's score before the weighted phase contributions are summed.
+/// Attempt-wide penalties applied after all phase metric contributions are summed.
+/// Every configured gate multiplies the combined ranked score.
 /// </summary>
-public sealed class EvaluationPhasePenalties
+public sealed class GeneralPenaltyConfig
 {
     public ContactStabilityGateConfig? ContactStability { get; set; }
     public StallWarningGateConfig? StallWarning { get; set; }
+    public OverspeedWarningGateConfig? OverspeedWarning { get; set; }
     public GearGateConfig? Gear { get; set; }
     public FlapsGateConfig? Flaps { get; set; }
     public SpoilerDeploymentGateConfig? SpoilerDeployment { get; set; }
@@ -289,13 +284,6 @@ public sealed class EvaluationPhasePenalties
     public NoseGearImpactGateConfig? NoseGearImpact { get; set; }
     public RolloutGateConfig? Rollout { get; set; }
     public ReverseThrustGateConfig? ReverseThrust { get; set; }
-}
-
-/// <summary>
-/// Attempt-wide penalties applied after all phase contributions are summed.
-/// </summary>
-public sealed class GeneralPenaltyConfig
-{
     public PauseUsageGateConfig? PauseUsage { get; set; }
     public SimulationRateGateConfig? SimulationRate { get; set; }
     public CockpitViewGateConfig? CockpitView { get; set; }
@@ -432,7 +420,14 @@ public static class CameraStates
 /// <summary>Penalty-only gate latched by any stall warning during an armed attempt.</summary>
 public sealed class StallWarningGateConfig
 {
-    public double MultiplierOnWarning { get; set; } = 0.5;
+    public double MultiplierOnWarning { get; set; } = 0.9;
+    public string? PenaltyDescription { get; set; }
+}
+
+/// <summary>Penalty-only gate latched by any aircraft overspeed warning while armed.</summary>
+public sealed class OverspeedWarningGateConfig
+{
+    public double MultiplierOnWarning { get; set; } = 0.9;
     public string? PenaltyDescription { get; set; }
 }
 

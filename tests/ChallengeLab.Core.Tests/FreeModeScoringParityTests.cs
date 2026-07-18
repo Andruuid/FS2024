@@ -9,14 +9,14 @@ namespace ChallengeLab.Core.Tests;
 public sealed class FreeModeScoringParityTests
 {
     [Fact]
-    public void FreeV15_IsAStructuralOverlayOfLandingV27()
+    public void FreeV15_IsAStructuralOverlayOfLandingV30()
     {
         var loader = new ConfigLoader(FindConfig());
         var catalog = loader.LoadCatalog();
         var normal = loader.LoadEvaluationKey(catalog.EvaluationKey).Key!;
         var free = loader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey).Key!;
 
-        Assert.Equal(27, normal.Version);
+        Assert.Equal(32, normal.Version);
         Assert.Equal(15, free.Version);
         Assert.NotNull(free.FreeMode);
         Assert.Equal(50, free.FreeMode!.UnavailableMetricScorePercent);
@@ -80,8 +80,7 @@ public sealed class FreeModeScoringParityTests
         var arctic = loader.LoadChallenge("challenges/career-arctic-ice-runway-rescue.json");
 
         var effective = EffectiveEvaluationProfileBuilder.Build(free, arctic).Key;
-        var reverse = effective.Phases.Single(phase => phase.Id == "rollout")
-            .Penalties!.ReverseThrust!;
+        var reverse = effective.GeneralPenalties!.ReverseThrust!;
 
         Assert.Equal(ReverseThrustPolicies.Required, reverse.Policy);
         Assert.Null(reverse.ExceptionReason);
@@ -93,7 +92,11 @@ public sealed class FreeModeScoringParityTests
         var loader = new ConfigLoader(FindConfig());
         var free = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey).Key!;
         var challenge = MinimalFreeChallenge();
-        var snapshot = new LandingSnapshot { StallWarningCoverageAvailable = false };
+        var snapshot = new LandingSnapshot
+        {
+            StallWarningCoverageAvailable = false,
+            OverspeedWarningCoverageAvailable = false
+        };
 
         var result = new ScoreEngine(free).Evaluate(challenge, snapshot);
 
@@ -113,14 +116,16 @@ public sealed class FreeModeScoringParityTests
             [FreeFlightGateIds.Flaps] = 0.90,
             [FreeFlightGateIds.Spoilers] = 0.95,
             [FreeFlightGateIds.NoseGearImpact] = 0.975,
-            [FreeFlightGateIds.StallWarning] = 0.75,
+            [FreeFlightGateIds.StallWarning] = 0.95,
+            [FreeFlightGateIds.OverspeedWarning] = 0.95,
             [FreeFlightGateIds.Automation] = 0.95,
             [FreeFlightGateIds.ManualBraking] = 0.95,
-            [FreeFlightGateIds.RolloutDistance] = 0.90,
+            // Half of configured failure loss: 1 - 0.5*(1-m)
+            [FreeFlightGateIds.RolloutDistance] = 0.925,
             [FreeFlightGateIds.ReverseThrust] = 0.95,
             [FreeFlightGateIds.PauseUsage] = 0.975,
             [FreeFlightGateIds.SimulationRate] = 0.90,
-            [FreeFlightGateIds.CockpitView] = 0.975
+            [FreeFlightGateIds.CockpitView] = 0.985
         };
         foreach (var (id, multiplier) in expected)
         {
@@ -136,7 +141,11 @@ public sealed class FreeModeScoringParityTests
         var loader = new ConfigLoader(FindConfig());
         var free = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey).Key!;
         var challenge = MinimalFreeChallenge();
-        var snapshot = new LandingSnapshot { StallWarningCoverageAvailable = false };
+        var snapshot = new LandingSnapshot
+        {
+            StallWarningCoverageAvailable = false,
+            OverspeedWarningCoverageAvailable = false
+        };
         var engine = new ScoreEngine(free);
 
         var preview = engine.EvaluatePreview(challenge, snapshot);
@@ -321,7 +330,11 @@ public sealed class FreeModeScoringParityTests
         challenge.RequireGearDown = false;
 
         var result = new ScoreEngine(free).Evaluate(
-            challenge, new LandingSnapshot { StallWarningCoverageAvailable = false });
+            challenge, new LandingSnapshot
+            {
+                StallWarningCoverageAvailable = false,
+                OverspeedWarningCoverageAvailable = false
+            });
 
         foreach (var id in new[]
                  {
@@ -345,7 +358,11 @@ public sealed class FreeModeScoringParityTests
         var challenge = MinimalFreeChallenge();
         challenge.FreeFlightCapabilities = FreeFlightCapabilityResolver.Freeze(CapableJet(), false);
         var result = new ScoreEngine(free).Evaluate(
-            challenge, new LandingSnapshot { StallWarningCoverageAvailable = false });
+            challenge, new LandingSnapshot
+            {
+                StallWarningCoverageAvailable = false,
+                OverspeedWarningCoverageAvailable = false
+            });
 
         var root = Path.Combine(Path.GetTempPath(), "ChallengeLabTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -472,7 +489,8 @@ public sealed class FreeModeScoringParityTests
             FloatAnalysis = new FloatAnalysis(true, false, 9, 0, 0, 0, 0, null),
             ContactStability = new ContactStabilityAnalysis(
                 true, Array.Empty<BounceEvent>(), 0, 0, null),
-            StallWarningCoverageAvailable = true
+            StallWarningCoverageAvailable = true,
+            OverspeedWarningCoverageAvailable = true
         };
 
         var observations = snapshot.GateObservations;

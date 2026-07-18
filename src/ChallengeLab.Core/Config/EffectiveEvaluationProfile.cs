@@ -69,12 +69,9 @@ public static class EffectiveEvaluationProfileBuilder
         if (string.IsNullOrWhiteSpace(reverseOverride.Reason))
             throw new ArgumentException("scoringOverrides.reverseThrust.reason is required.");
 
-        var gate = key.Phases
-            .Where(phase => phase.Id.Equals("rollout", StringComparison.OrdinalIgnoreCase))
-            .Select(phase => phase.Penalties?.ReverseThrust)
-            .FirstOrDefault(candidate => candidate is not null)
+        var gate = key.GeneralPenalties?.ReverseThrust
             ?? throw new ArgumentException(
-                "scoringOverrides.reverseThrust requires a reverseThrust gate in the base evaluation key rollout phase.");
+                "scoringOverrides.reverseThrust requires a reverseThrust gate in generalPenalties.");
 
         gate.Policy = ReverseThrustPolicies.Normalize(reverseOverride.Policy);
         gate.ExceptionReason = reverseOverride.Reason.Trim();

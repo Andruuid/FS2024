@@ -32,6 +32,9 @@ public static class ScoreBreakdownFormatter
         var stallWarningPenaltyApplied = criteria.Any(c =>
             c.Id.Equals("stall_warning", StringComparison.OrdinalIgnoreCase)
             && c.Status == MetricStatus.GateFailed);
+        var overspeedWarningPenaltyApplied = criteria.Any(c =>
+            c.Id.Equals("overspeed_warning", StringComparison.OrdinalIgnoreCase)
+            && c.Status == MetricStatus.GateFailed);
         var operationalPenalties = criteria.Where(c =>
                 c.Status == MetricStatus.GateFailed
                 && c.Id is "spoiler_deployment" or "manual_braking" or "nose_gear_impact" or "automation" or "pause_usage" or "simulation_rate" or "cockpit_view" or "rollout_distance" or "reverse_thrust")
@@ -44,13 +47,14 @@ public static class ScoreBreakdownFormatter
             sb.Append("Total UNRANKED — incomplete telemetry");
         sb.AppendLine();
 
-        if (contactPenaltyApplied || stallWarningPenaltyApplied
+        if (contactPenaltyApplied || stallWarningPenaltyApplied || overspeedWarningPenaltyApplied
             || gearUpPenaltyApplied || flapsPenaltyApplied || operationalPenalties.Count > 0
             || assumedAdjustments.Count > 0)
         {
             sb.Append("(pre-penalty metric total ").Append(Pct(scoreBeforeGatesPercent));
             if (contactPenaltyApplied) sb.Append(" · bounce penalty");
             if (stallWarningPenaltyApplied) sb.Append(" · stall-warning penalty");
+            if (overspeedWarningPenaltyApplied) sb.Append(" · overspeed-warning penalty");
             if (gearUpPenaltyApplied) sb.Append(" · gear-up penalty");
             if (flapsPenaltyApplied) sb.Append(" · flaps penalty");
             foreach (var penalty in operationalPenalties)
@@ -81,7 +85,7 @@ public static class ScoreBreakdownFormatter
                 AppendMetricLine(sb, metric.Id, metric.DisplayName, metric.ScorePercent);
         }
 
-        if (contactPenaltyApplied || stallWarningPenaltyApplied
+        if (contactPenaltyApplied || stallWarningPenaltyApplied || overspeedWarningPenaltyApplied
             || gearUpPenaltyApplied || flapsPenaltyApplied
             || criteria.Any(c => c.Status == MetricStatus.GateFailed)
             || assumedAdjustments.Count > 0)
@@ -90,7 +94,9 @@ public static class ScoreBreakdownFormatter
             if (contactPenaltyApplied)
                 sb.AppendLine("BOUNCE (penalty gate)");
             if (stallWarningPenaltyApplied)
-                sb.AppendLine("STALL WARNING (hard penalty gate)");
+                sb.AppendLine("STALL WARNING (aircraft-warning penalty gate)");
+            if (overspeedWarningPenaltyApplied)
+                sb.AppendLine("OVERSPEED WARNING (aircraft-warning penalty gate)");
             if (gearUpPenaltyApplied)
                 sb.AppendLine("GEAR UP (hard penalty)");
             if (flapsPenaltyApplied)
@@ -207,6 +213,8 @@ public static class ScoreBreakdownFormatter
         "crab_angle" => "crab angle",
         "alignment" => "alignment",
         "flaps" => "flaps",
+        "stall_warning" => "stall warning",
+        "overspeed_warning" => "overspeed warning",
         "spoiler_deployment" => "spoilers",
         "manual_braking" => "braking",
         "nose_gear_impact" => "nose impact",

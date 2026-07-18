@@ -1,8 +1,8 @@
 {
   "id": "landing-evaluation-key",
-  "version": 27,
-  "description": "Single authoritative Challenge/Career landing score. Phase penalties affect only their owning phase; pause usage, reduced simulation rate, and cockpit-view exits are general penalties on the combined score.",
-  "formula": "phaseAfterPenalties = phaseScore * product(phase penalty multipliers); subtotal = sum(phaseAfterPenalties * phaseWeightPercent / 100); final = round(subtotal * product(general penalty multipliers), 1)",
+  "version": 32,
+  "description": "Single authoritative Challenge/Career landing score. Phase scores are pure metric quality; every penalty multiplies the combined ranked score.",
+  "formula": "subtotal = sum(phaseScore * phaseWeightPercent / 100); final = round(subtotal * product(general penalty multipliers), 1)",
   "settle": {
     "groundSpeedKts": 50,
     "holdSeconds": 1.0
@@ -35,6 +35,76 @@
     "vs0Factor": 1.3
   },
   "generalPenalties": {
+    "contactStability": {
+      "oneBounceMultiplier": 0.9,
+      "twoOrMoreBouncesMultiplier": 0.8,
+      "penaltyDescription": "The initial landing is the baseline. One valid airborne/recontact cycle (the second touchdown) multiplies the combined score by 0.9; two or more cycles (the third touchdown or later) multiply it by 0.8."
+    },
+    "gear": {
+      "multiplierOnFail": 0.1,
+      "penaltyDescription": "If gear is required and up, multiply the combined score by 0.1. Gear down is the required baseline and awards no points."
+    },
+    "flaps": {
+      "minIndex": 2,
+      "maxIndex": 5,
+      "multiplierOnFail": 0.8,
+      "penaltyDescription": "If flaps are not set for landing (index below min / above max), multiply the combined score by 0.8. Correct flaps award no points."
+    },
+    "spoilerDeployment": {
+      "minimumSurfacePosition": 0.15,
+      "deadlineSecondsAfterTouchdown": 2.0,
+      "multiplierOnFail": 0.9,
+      "penaltyDescription": "Both left and right spoiler surfaces must deploy at least 15% no later than two seconds after the accepted main-gear touchdown; failure multiplies the combined score."
+    },
+    "noseGearImpact": {
+      "preContactWindowSeconds": 0.25,
+      "postContactWindowSeconds": 0.75,
+      "filterCutoffHz": 10.0,
+      "peakQuantile": 0.99,
+      "minimumPostContactSamples": 8,
+      "moderateDeltaG": 0.25,
+      "moderatePeakG": 1.30,
+      "moderateMultiplier": 0.95,
+      "severeDeltaG": 0.50,
+      "severePeakG": 1.70,
+      "severeMultiplier": 0.90,
+      "recontactDebounceSeconds": 0.08,
+      "compressionNoiseThreshold": 0.02,
+      "penaltyDescription": "A moderate nose-gear impact multiplies the combined score by 0.95; a severe impact multiplies it by 0.9. The worst verified nose contact or recontact applies once."
+    },
+    "stallWarning": {
+      "multiplierOnWarning": 0.9,
+      "penaltyDescription": "If the aircraft-native STALL WARNING state activates at any time after the attempt is armed, multiply the combined score by 0.9. No warning is the required baseline and awards no points."
+    },
+    "overspeedWarning": {
+      "multiplierOnWarning": 0.9,
+      "penaltyDescription": "If the aircraft-native OVERSPEED WARNING state activates at any time after the attempt is armed, multiply the combined score by 0.9. No warning is the required baseline and awards no points."
+    },
+    "automation": {
+      "headingAltitudeOffRadioHeightFeet": 2000,
+      "allAutomationOffRadioHeightFeet": 1000,
+      "multiplierOnFail": 0.9,
+      "penaltyDescription": "Heading and altitude hold must be off at or below 2000 ft RA. AP master/AP1/AP2 and active or armed autothrust must be off at or below 1000 ft RA; failure multiplies the combined score. Flight directors may remain on."
+    },
+    "manualBraking": {
+      "pedalPressThreshold": 0.05,
+      "deadlineSecondsAfterNoseTouchdown": 3.0,
+      "multiplierOnFail": 0.9,
+      "penaltyDescription": "Manual brake pedals must remain released while the nose gear is airborne. Within three seconds of nose-gear touchdown either both pedals must be applied or autobrake must be active. Failure multiplies the combined score."
+    },
+    "rollout": {
+      "multiplierOnFail": 0.85,
+      "penaltyDescription": "As soon as groundspeed falls below the settle threshold, remaining runway must be at least max(400 m, 15% of runway length). Falling short multiplies the combined score by 0.85."
+    },
+    "reverseThrust": {
+      "policy": "required",
+      "deadlineSecondsAfterTouchdown": 5.0,
+      "minimumNozzlePosition": 0.01,
+      "poweredReverseThrottleThresholdPercent": -1.0,
+      "stowGroundSpeedKts": 60.0,
+      "multiplierOnFail": 0.9,
+      "penaltyDescription": "Every engine operating at main-gear touchdown must select at least idle reverse no later than TD+5 seconds, and all reversers must be completely stowed by 60 kt groundspeed. Failure multiplies the combined score once."
+    },
     "pauseUsage": {
       "multiplierOnFail": 0.95,
       "penaltyDescription": "Normal pause and Active Pause are prohibited from the first unpaused challenge-flight sample through main-gear touchdown. This general factor applies to the combined score."
@@ -45,60 +115,21 @@
       "penaltyDescription": "Reducing the simulation rate below normal speed before touchdown applies this general factor to the combined score once."
     },
     "cockpitView": {
-      "multiplierPerSwitch": 0.95,
-      "penaltyDescription": "Each transition from cockpit view (CAMERA STATE 2) to any exterior or other non-cockpit camera multiplies the combined score by 0.95. Multiple exits stack multiplicatively from the first unpaused challenge sample through main-gear touchdown."
+      "multiplierPerSwitch": 0.97,
+      "penaltyDescription": "Each transition from cockpit view (CAMERA STATE 2) to any exterior or other non-cockpit camera multiplies the combined score by 0.97. Multiple exits stack multiplicatively from the first unpaused challenge sample through main-gear touchdown."
     }
   },
   "phases": [
     {
       "id": "touchdown",
       "displayName": "Touchdown",
-      "weightPercent": 70,
+      "weightPercent": 60,
       "note": "Touchdown technique and aircraft state.",
-      "penalties": {
-        "contactStability": {
-          "oneBounceMultiplier": 0.9,
-          "twoOrMoreBouncesMultiplier": 0.8,
-          "penaltyDescription": "The initial landing is the baseline. One valid airborne/recontact cycle (the second touchdown) multiplies the Touchdown phase by 0.9; two or more cycles (the third touchdown or later) multiply it by 0.8."
-        },
-        "gear": {
-          "multiplierOnFail": 0.1,
-          "penaltyDescription": "If gear is required and up, multiply the Touchdown phase by 0.1. Gear down is the required baseline and awards no points."
-        },
-        "flaps": {
-          "minIndex": 2,
-          "maxIndex": 5,
-          "multiplierOnFail": 0.8,
-          "penaltyDescription": "If flaps are not set for landing (index below min / above max), multiply the Touchdown phase by 0.8. Correct flaps award no points."
-        },
-        "spoilerDeployment": {
-          "minimumSurfacePosition": 0.15,
-          "deadlineSecondsAfterTouchdown": 2.0,
-          "multiplierOnFail": 0.9,
-          "penaltyDescription": "Both left and right spoiler surfaces must deploy at least 15% no later than two seconds after the accepted main-gear touchdown; failure multiplies the Touchdown phase."
-        },
-        "noseGearImpact": {
-          "preContactWindowSeconds": 0.25,
-          "postContactWindowSeconds": 0.75,
-          "filterCutoffHz": 10.0,
-          "peakQuantile": 0.99,
-          "minimumPostContactSamples": 8,
-          "moderateDeltaG": 0.25,
-          "moderatePeakG": 1.30,
-          "moderateMultiplier": 0.95,
-          "severeDeltaG": 0.50,
-          "severePeakG": 1.70,
-          "severeMultiplier": 0.90,
-          "recontactDebounceSeconds": 0.08,
-          "compressionNoiseThreshold": 0.02,
-          "penaltyDescription": "A moderate nose-gear impact multiplies the Touchdown phase by 0.95; a severe impact multiplies it by 0.9. The worst verified nose contact or recontact applies once."
-        }
-      },
       "metrics": [
         {
           "id": "touchdown_impact",
           "displayName": "Touchdown impact",
-          "importancePercent": 52,
+          "importancePercent": 40,
           "unit": "%",
           "evaluator": "landingImpact",
           "note": "Initial main-gear impact only. Combines challenge-specific touchdown vertical-speed and robust filtered peak-G subscores using weighted RMS penalties.",
@@ -125,7 +156,7 @@
         {
           "id": "touchdown_point",
           "displayName": "Touchdown point",
-          "importancePercent": 19,
+          "importancePercent": 22,
           "unit": "ft",
           "evaluator": "touchdownPoint",
           "metric": "touchdownOffsetFromAimingMarkerFt",
@@ -190,13 +221,13 @@
         {
           "id": "centerline",
           "displayName": "Centerline offset",
-          "importancePercent": 5,
+          "importancePercent": 8,
           "unit": "m",
           "evaluator": "centerline",
           "metric": "centerlineDeviationM",
-          "note": "Touchdown lateral offset. Full score within ~half a strip width; zero near runway edge on a typical narrow runway.",
+          "note": "Touchdown lateral offset. Full score within 2 m of centerline; zero near runway edge on a typical narrow runway.",
           "params": {
-            "tolerance": 3,
+            "tolerance": 2,
             "zeroAt": 22,
             "exponent": 1.2
           }
@@ -204,7 +235,7 @@
         {
           "id": "bank",
           "displayName": "Bank at touchdown",
-          "importancePercent": 1,
+          "importancePercent": 6,
           "unit": "deg",
           "evaluator": "target",
           "metric": "bankAtTouchdownDeg",
@@ -213,7 +244,7 @@
         {
           "id": "crab_angle",
           "displayName": "Crab angle",
-          "importancePercent": 5,
+          "importancePercent": 6,
           "unit": "deg",
           "evaluator": "crabangle",
           "note": "Fuselage alignment with the runway at main-gear touchdown and through the next three seconds. Touchdown alignment carries 70% so later recovery cannot erase a crooked touchdown; the time-integrated deviation carries 30%.",
@@ -239,25 +270,13 @@
     {
       "id": "approach",
       "displayName": "Approach",
-      "weightPercent": 25,
+      "weightPercent": 30,
       "note": "Short final (≈0.2–4.5 NM, includes typical 4 NM spawn): runway-specific path match, vertical steadiness, lateral steadiness, and bank stability. Bank is 20%; the three path metrics share the remaining 80%.",
-      "penalties": {
-        "stallWarning": {
-          "multiplierOnWarning": 0.5,
-          "penaltyDescription": "If a stall warning occurs at any time after the attempt is armed, multiply the Approach phase by 0.5. No stall warning is the required baseline and awards no points."
-        },
-        "automation": {
-          "headingAltitudeOffRadioHeightFeet": 2000,
-          "allAutomationOffRadioHeightFeet": 1000,
-          "multiplierOnFail": 0.9,
-          "penaltyDescription": "Heading and altitude hold must be off at or below 2000 ft RA. AP master/AP1/AP2 and active or armed autothrust must be off at or below 1000 ft RA; failure multiplies the Approach phase. Flight directors may remain on."
-        }
-      },
       "metrics": [
         {
           "id": "approach_glideslope",
           "displayName": "Average glideslope match",
-          "importancePercent": 26.67,
+          "importancePercent": 30,
           "unit": "weighted deg",
           "evaluator": "target",
           "metric": "approachGlideslopeWeightedDeviationDeg",
@@ -267,7 +286,7 @@
         {
           "id": "approach_vertical_steady",
           "displayName": "Vertical steadiness",
-          "importancePercent": 26.67,
+          "importancePercent": 25,
           "unit": "ft/s",
           "evaluator": "target",
           "metric": "approachVerticalVariationFtPerSec",
@@ -277,7 +296,7 @@
         {
           "id": "approach_lateral_steady",
           "displayName": "Lateral steadiness",
-          "importancePercent": 26.66,
+          "importancePercent": 25,
           "unit": "m/m",
           "evaluator": "target",
           "metric": "approachLateralWeaveIndex",
@@ -299,44 +318,23 @@
     {
       "id": "rollout",
       "displayName": "Rollout",
-      "weightPercent": 5,
+      "weightPercent": 10,
       "note": "Centerline path, weave, and peak lateral deviation share the phase. Crab angle is scored in Touchdown.",
-      "penalties": {
-        "manualBraking": {
-          "pedalPressThreshold": 0.05,
-          "deadlineSecondsAfterNoseTouchdown": 4.0,
-          "multiplierOnFail": 0.9,
-          "penaltyDescription": "Manual brake pedals must remain released while the nose gear is airborne. Within four seconds of nose-gear touchdown either both pedals must be applied or autobrake must be active. Failure multiplies the Rollout phase."
-        },
-        "rollout": {
-          "multiplierOnFail": 0.8,
-          "penaltyDescription": "As soon as groundspeed falls below the settle threshold, remaining runway must be at least max(400 m, 15% of runway length). Falling short multiplies the Rollout phase by 0.8."
-        },
-        "reverseThrust": {
-          "policy": "required",
-          "deadlineSecondsAfterTouchdown": 4.0,
-          "minimumNozzlePosition": 0.01,
-          "poweredReverseThrottleThresholdPercent": -1.0,
-          "stowGroundSpeedKts": 60.0,
-          "multiplierOnFail": 0.9,
-          "penaltyDescription": "Every engine operating at main-gear touchdown must select at least idle reverse no later than TD+4 seconds, and all reversers must be completely stowed by 60 kt groundspeed. Failure multiplies the Rollout phase once."
-        }
-      },
       "metrics": [
         {
           "id": "rollout_path",
           "displayName": "Rollout centerline path",
-          "importancePercent": 33.34,
+          "importancePercent": 45,
           "unit": "m",
           "evaluator": "target",
           "metric": "rolloutLateralMeanM",
-          "note": "Distance-weighted mean |offset| on rollout. Full score within a few metres; zero near a typical runway edge (~half-width).",
-          "params": { "ideal": 0, "tolerance": 5, "maxError": 50 }
+          "note": "Distance-weighted mean |offset| on rollout. Full score within 2 m of centerline; zero near a typical runway edge (~half-width).",
+          "params": { "ideal": 0, "tolerance": 2, "maxError": 50 }
         },
         {
           "id": "rollout_weave",
           "displayName": "Rollout weave (S-turns)",
-          "importancePercent": 33.33,
+          "importancePercent": 20,
           "unit": "m/m",
           "evaluator": "target",
           "metric": "rolloutWeaveIndex",
@@ -345,7 +343,7 @@
         {
           "id": "max_centerline",
           "displayName": "Max lateral deviation (rollout)",
-          "importancePercent": 33.33,
+          "importancePercent": 35,
           "unit": "m",
           "evaluator": "target",
           "metric": "rolloutLateralPeakM",

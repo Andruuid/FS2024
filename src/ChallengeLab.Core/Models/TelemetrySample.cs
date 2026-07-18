@@ -153,6 +153,15 @@ public sealed class TelemetrySample
     public bool StallWarningActive { get; init; }
     public bool StallWarningAvailable { get; init; } = true;
 
+    /// <summary>True while the simulator's OVERSPEED WARNING SimVar is active.</summary>
+    public bool OverspeedWarningActive { get; init; }
+
+    /// <summary>
+    /// True when OVERSPEED WARNING was captured for this sample. Defaults false so
+    /// pre-v30 flight tapes are not silently treated as warning-free when replayed.
+    /// </summary>
+    public bool OverspeedWarningAvailable { get; init; }
+
     /// <summary>Total weight (lbs), if available.</summary>
     public double? TotalWeightLbs { get; init; }
 

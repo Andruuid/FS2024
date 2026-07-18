@@ -153,6 +153,8 @@ public sealed class LandingSession
         Snapshot.ContactMappingDegraded = false;
         Snapshot.StallWarningOccurred = false;
         Snapshot.StallWarningCoverageAvailable = false;
+        Snapshot.OverspeedWarningOccurred = false;
+        Snapshot.OverspeedWarningCoverageAvailable = false;
         Snapshot.GateObservations.Reset();
         SeedRunwayLengthObservation();
         Snapshot.ApproachSamples.Clear();
@@ -179,6 +181,8 @@ public sealed class LandingSession
         var timeSeconds = ResolveTimeSeconds(sample);
         Snapshot.StallWarningOccurred |= sample.StallWarningActive;
         Snapshot.StallWarningCoverageAvailable |= sample.StallWarningAvailable;
+        Snapshot.OverspeedWarningOccurred |= sample.OverspeedWarningActive;
+        Snapshot.OverspeedWarningCoverageAvailable |= sample.OverspeedWarningAvailable;
         var logical = ToLandingSample(sample, timeSeconds);
         Snapshot.LandingEventSamples.Add(logical);
         var anyMainOnGround = logical.MainGearContactsAvailable

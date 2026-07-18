@@ -61,6 +61,7 @@ public sealed class FlightTapeTests
         Assert.True(loaded.Samples[40].ReverseThrustEngagedByIndex![2]);
         Assert.True(loaded.Samples[40].ReverseNozzlePositionByIndex![1] >= 0.01);
         Assert.Equal(0, loaded.Samples[40].ThrottleLeverPositionPercentByIndex![2]);
+        Assert.True(loaded.Samples[40].OverspeedWarningAvailable);
         Assert.Equal(88.5, loaded.OriginalScorePercent);
         Assert.Equal("A", loaded.OriginalGrade);
 
@@ -189,6 +190,38 @@ public sealed class FlightTapeTests
     }
 
     [Fact]
+    public void Replayer_PreV30TapeWithoutOverspeedTelemetry_IsUnranked()
+    {
+        var preV30Sample = System.Text.Json.JsonSerializer.Deserialize<TelemetrySample>("{}");
+        Assert.NotNull(preV30Sample);
+        Assert.False(preV30Sample!.OverspeedWarningAvailable);
+
+        var (challenge, key, _) = Load();
+        var t0 = new DateTimeOffset(2026, 3, 1, 12, 0, 0, TimeSpan.Zero);
+        var samples = BuildSettlingLanding(
+            challenge,
+            t0,
+            includeOverspeedWarningTelemetry: false);
+
+        var replay = FlightTapeReplayer.Replay(
+            new FlightTapeDocument
+            {
+                Challenge = challenge,
+                ChallengeId = challenge.Id,
+                ChallengeTitle = challenge.Title,
+                Samples = samples,
+                SampleCount = samples.Count,
+                Utc = t0
+            },
+            key);
+
+        Assert.False(replay.Result.IsRanked);
+        var criterion = replay.Result.Criteria.Single(c => c.Id == "overspeed_warning");
+        Assert.Equal(MetricStatus.Unavailable, criterion.Status);
+        Assert.Contains("overspeed warning", criterion.Note, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Replayer_FreeV8_PreservesFrozenCapabilitiesAndNumericFallbacksDeterministically()
     {
         var (challenge, _, _) = Load();
@@ -276,7 +309,8 @@ public sealed class FlightTapeTests
     private static List<TelemetrySample> BuildSettlingLanding(
         ChallengeConfig challenge,
         DateTimeOffset t0,
-        bool includeReverseTelemetry = true)
+        bool includeReverseTelemetry = true,
+        bool includeOverspeedWarningTelemetry = true)
     {
         var rwy = challenge.Runway;
         var hdg = rwy.HeadingTrueDeg;
@@ -294,7 +328,8 @@ public sealed class FlightTapeTests
                 challenge, t0.AddSeconds(simT - 10), simT,
                 onGround: false, agl: Math.Max(alt - elev, 80),
                 gs: 145, ias: 145, lat: lat, lon: lon, alt: alt, vs: -700,
-                includeReverseTelemetry: includeReverseTelemetry));
+                includeReverseTelemetry: includeReverseTelemetry,
+                includeOverspeedWarningTelemetry: includeOverspeedWarningTelemetry));
             simT += 0.2;
         }
 
@@ -304,7 +339,8 @@ public sealed class FlightTapeTests
             onGround: true, agl: 0, gs: 130, ias: 138,
             lat: rwy.ThresholdLatitude, lon: rwy.ThresholdLongitude, alt: elev, vs: -140,
             g: 1.15, spoilers: 0.4, brake: 0.2, reverseSelected: true,
-            includeReverseTelemetry: includeReverseTelemetry));
+            includeReverseTelemetry: includeReverseTelemetry,
+            includeOverspeedWarningTelemetry: includeOverspeedWarningTelemetry));
         simT += 0.2;
 
         // Rollout then settle well below settle GS for several seconds.
@@ -318,7 +354,8 @@ public sealed class FlightTapeTests
                 onGround: true, agl: 0, gs: gs, ias: gs,
                 lat: lat, lon: lon, alt: elev, vs: 0,
                 g: 1.0, spoilers: 0.8, brake: 0.5, reverseSelected: gs > 60,
-                includeReverseTelemetry: includeReverseTelemetry));
+                includeReverseTelemetry: includeReverseTelemetry,
+                includeOverspeedWarningTelemetry: includeOverspeedWarningTelemetry));
             simT += 0.25;
         }
 
@@ -359,7 +396,8 @@ public sealed class FlightTapeTests
         double spoilers = 0,
         double brake = 0,
         bool reverseSelected = false,
-        bool includeReverseTelemetry = true)
+        bool includeReverseTelemetry = true,
+        bool includeOverspeedWarningTelemetry = true)
     {
         var rwy = challenge.Runway;
         return new TelemetrySample
@@ -391,6 +429,8 @@ public sealed class FlightTapeTests
             ManualBrakeRightPosition = brake,
             SimulationRate = 1.0,
             PauseStateAvailable = true,
+            StallWarningAvailable = true,
+            OverspeedWarningAvailable = includeOverspeedWarningTelemetry,
             EngineCount = includeReverseTelemetry ? 2 : null,
             EngineCombustionByIndex = includeReverseTelemetry
                 ? new Dictionary<int, bool> { [1] = true, [2] = true }
