@@ -26,6 +26,10 @@ public sealed class ScoreEngineTests
         return (loaded.Key!, loader.LoadChallenge("challenges/barcelona-crosswind-final.json"));
     }
 
+    private static RunwayAlignmentAnalysis PassingRunwayAlignment() =>
+        new(true, 0.5, 0.5, 0, 1.5, 1.5, 3, 0.5, 0.5, 0.5, 0.5, 20,
+            "GPS GROUND TRUE TRACK", null);
+
     private static LandingSnapshot CompleteSnapshot(
         ChallengeConfig challenge,
         bool gearDown = true,
@@ -55,7 +59,7 @@ public sealed class ScoreEngineTests
         TouchdownLateralOffsetM = 1,
         MaxLateralOffsetM = 2,
         TouchdownHeadingErrorDeg = 1,
-        CrabAngle = new CrabAngleAnalysis(true, 0.5, 1.5, 3, 0.5, 0.5, 20, null),
+        RunwayAlignment = PassingRunwayAlignment(),
         ApproachPathRms = 1,
         ApproachPathSampleCount = 3,
         ApproachGlideslopeMeanAbsFt = 20,
@@ -75,7 +79,7 @@ public sealed class ScoreEngineTests
         RolloutLateralPeakM = 2,
         RolloutWeaveIndex = .01,
         InitialImpact = new ImpactAnalysis(
-            true, false, 10, -100, "PLANE TOUCHDOWN NORMAL VELOCITY",
+            true, false, 10, -100, "VERTICAL SPEED (airborne/contact bracket mean)",
             1.2, 1.2, 10, 1.0, null),
         FloatAnalysis = new FloatAnalysis(
             true, false, 0, 0, 0, 0, 0, null),
@@ -424,7 +428,7 @@ public sealed class ScoreEngineTests
         Assert.Equal(10, td.Metrics.Single(m => m.Id == "airspeed").ImportancePercent);
         Assert.Equal(8, td.Metrics.Single(m => m.Id == "centerline").ImportancePercent);
         Assert.Equal(6, td.Metrics.Single(m => m.Id == "bank").ImportancePercent);
-        Assert.Equal(6, td.Metrics.Single(m => m.Id == "crab_angle").ImportancePercent);
+        Assert.Equal(6, td.Metrics.Single(m => m.Id == "runway_alignment").ImportancePercent);
         Assert.Equal(100, td.Metrics.Sum(m => m.ImportancePercent), 2);
     }
 
@@ -434,7 +438,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(32, loaded.Key.Version);
+        Assert.Equal(33, loaded.Key.Version);
         Assert.Equal(0, loaded.Key.Timing!.PostTouchdownAlignmentDelaySeconds);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
@@ -448,7 +452,7 @@ public sealed class ScoreEngineTests
 
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("free-flight-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(15, loaded.Key.Version);
+        Assert.Equal(16, loaded.Key.Version);
         Assert.Equal(70, loaded.Key.SpeedTarget!.DefaultVappKts);
         Assert.NotNull(loaded.Key.FreeMode);
         Assert.NotNull(loaded.Key.GeneralPenalties!.Flaps);

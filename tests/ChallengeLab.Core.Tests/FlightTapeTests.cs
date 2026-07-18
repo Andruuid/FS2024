@@ -39,6 +39,11 @@ public sealed class FlightTapeTests
 
         var samples = BuildSettlingLanding(challenge, DateTimeOffset.UtcNow);
         var result = FakeResult(challenge, score: 88.5);
+        result.Diagnostics.TouchdownSinkRateFpm = -238.3;
+        result.Diagnostics.TouchdownNormalVelocityFpm = -436.3;
+        result.Diagnostics.RunwayAlignmentHeadingTouchdownDeg = -0.47;
+        result.Diagnostics.RunwayAlignmentTrackTouchdownDeg = 1.37;
+        result.Diagnostics.TouchdownTrueCrabAngleDeg = -1.84;
 
         var path = store.Save(challenge, samples, result, attemptOrigin: "DefaultChallenge");
         Assert.True(File.Exists(path));
@@ -56,6 +61,7 @@ public sealed class FlightTapeTests
         Assert.Equal(samples.Count, loaded.Samples.Count);
         Assert.Equal(samples[0].Latitude, loaded.Samples[0].Latitude, 6);
         Assert.Equal(samples[^1].GroundSpeedKts, loaded.Samples[^1].GroundSpeedKts, 3);
+        Assert.Equal(samples[^1].GroundTrackTrueDeg, loaded.Samples[^1].GroundTrackTrueDeg);
         Assert.Equal(2, loaded.Samples[40].EngineCount);
         Assert.True(loaded.Samples[40].EngineCombustionByIndex![1]);
         Assert.True(loaded.Samples[40].ReverseThrustEngagedByIndex![2]);
@@ -64,6 +70,9 @@ public sealed class FlightTapeTests
         Assert.True(loaded.Samples[40].OverspeedWarningAvailable);
         Assert.Equal(88.5, loaded.OriginalScorePercent);
         Assert.Equal("A", loaded.OriginalGrade);
+        Assert.Equal(-238.3, loaded.OriginalDiagnostics!.TouchdownSinkRateFpm);
+        Assert.Equal(-436.3, loaded.OriginalDiagnostics.TouchdownNormalVelocityFpm!.Value);
+        Assert.Equal(1.37, loaded.OriginalDiagnostics.RunwayAlignmentTrackTouchdownDeg);
 
         var listed = store.List();
         Assert.Single(listed);
@@ -412,11 +421,13 @@ public sealed class FlightTapeTests
             RadioHeightFeet = agl,
             RadioHeightAvailable = true,
             HeadingTrueDeg = rwy.HeadingTrueDeg,
+            GroundTrackTrueDeg = rwy.HeadingTrueDeg,
             PitchDeg = onGround ? 0 : 2,
             BankDeg = 0,
             GroundSpeedKts = gs,
             AirspeedKts = ias,
             VerticalSpeedFpm = vs,
+            TouchdownNormalVelocityFps = onGround && vs < 0 ? Math.Abs(vs) / 60.0 : null,
             GForce = g,
             GForceAvailable = true,
             GearHandlePosition = 1,

@@ -48,7 +48,8 @@ public sealed class TouchdownAttitudeView : FrameworkElement
 
         var viewport = new Rect(1, 1, ActualWidth - 2, ActualHeight - 40);
         dc.PushClip(new RectangleGeometry(viewport, 11, 11));
-        var horizonY = viewport.Top + viewport.Height * .49 + Math.Clamp(data.TouchdownPitchDeg, -15, 15) * 1.5;
+        var pitch = data.Version >= 4 ? data.TouchdownPitchDeg : -data.TouchdownPitchDeg;
+        var horizonY = viewport.Top + viewport.Height * .49 + Math.Clamp(pitch, -15, 15) * 1.5;
         var center = new Point(viewport.Left + viewport.Width / 2, horizonY);
         dc.PushTransform(new RotateTransform(-data.TouchdownBankDeg, center.X, center.Y));
         dc.DrawRectangle(SkyBrush, null,
@@ -66,7 +67,7 @@ public sealed class TouchdownAttitudeView : FrameworkElement
 
         var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         DrawText(dc, "TOUCHDOWN ATTITUDE", 12, ActualHeight - 32, 9, MutedBrush, dpi, FontWeights.Bold);
-        var values = $"BANK {Signed(data.TouchdownBankDeg)}°   ·   PITCH {Signed(data.TouchdownPitchDeg)}°";
+        var values = $"BANK {Signed(data.TouchdownBankDeg)}°   ·   PITCH {Signed(pitch)}°";
         var text = CreateText(values, 11, WhiteBrush, dpi, FontWeights.SemiBold);
         dc.DrawText(text, new Point(ActualWidth - text.Width - 12, ActualHeight - 34));
     }

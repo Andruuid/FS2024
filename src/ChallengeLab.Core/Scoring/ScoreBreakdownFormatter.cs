@@ -211,6 +211,7 @@ public static class ScoreBreakdownFormatter
         "excess_speed" => "excessSpeed",
         "bank" => "bank",
         "crab_angle" => "crab angle",
+        "runway_alignment" => "runway alignment",
         "alignment" => "alignment",
         "flaps" => "flaps",
         "stall_warning" => "stall warning",

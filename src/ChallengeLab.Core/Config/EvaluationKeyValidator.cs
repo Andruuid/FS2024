@@ -248,6 +248,7 @@ public static class EvaluationKeyValidator
                     new[] { "countWeight", "maxAirborneDurationWeight", "worstSecondaryImpactWeight" });
                 break;
             case "crabangle":
+            case "runwayalignment":
                 ValidateComposite(metric, path, errors,
                     new[] { "touchdownWeight", "threeSecondWeight" },
                     new[] { "touchdown", "threeSecondIntegral" },

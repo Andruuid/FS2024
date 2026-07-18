@@ -10,6 +10,11 @@ public sealed class LandingSnapshot
     public double TouchdownLateralOffsetM { get; set; }
     public double TouchdownHeadingErrorDeg { get; set; }
     public CrabAngleAnalysis? CrabAngle { get; set; }
+    public RunwayAlignmentAnalysis? RunwayAlignment { get; set; }
+    public double? TouchdownGroundTrackTrueDeg { get; set; }
+    public string TouchdownGroundTrackSource { get; set; } = "";
+    public double TouchdownTrackErrorDeg { get; set; }
+    public double TouchdownTrueCrabAngleDeg { get; set; }
     /// <summary>Diagnostic: time-weighted RMS altitude error vs the stabilized path (ft).</summary>
     public double ApproachPathRms { get; set; }
     public int ApproachPathSampleCount { get; set; }
@@ -96,9 +101,15 @@ public sealed class LandingSnapshot
 
     public bool GearDownAtTouchdown { get; set; } = true;
     public int FlapsIndexAtTouchdown { get; set; }
+    /// <summary>Pilot-facing vertical speed at the contact edge. Negative = descending.</summary>
+    public double TouchdownSinkRateFpm { get; set; }
+    /// <summary>MSFS velocity along the ground normal at impact; diagnostic only.</summary>
+    public double? TouchdownNormalVelocityFpm { get; set; }
+    /// <summary>Legacy alias retained for historical traces and consumers.</summary>
     public double VerticalSpeedAtTouchdownFpm { get; set; }
     public double AirspeedAtTouchdownKts { get; set; }
     public double BankAtTouchdownDeg { get; set; }
+    /// <summary>Pilot-facing pitch attitude. Positive = nose up.</summary>
     public double PitchAtTouchdownDeg { get; set; }
 
     /// <summary>Resolved approach speed (VAPP) used for scoring.</summary>

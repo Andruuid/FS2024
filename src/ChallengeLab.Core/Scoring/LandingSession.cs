@@ -22,8 +22,9 @@ public sealed class LandingSession
     private double _lastTimeSeconds = double.NaN;
     private double _touchdownTimeSeconds = double.NaN;
     private double? _preTouchdownNormalVelocityFps;
+    private TelemetrySample? _lastAirborneSample;
     private bool _touchdownVerticalSpeedDegraded;
-    private string _touchdownVerticalSpeedSource = "instantaneous vertical speed";
+    private string _touchdownVerticalSpeedSource = "VERTICAL SPEED (contact sample)";
     private double? _noseImpactAirborneSince;
     private bool? _previousCameraInCockpit;
 
@@ -70,8 +71,9 @@ public sealed class LandingSession
         _lastTimeSeconds = double.NaN;
         _touchdownTimeSeconds = double.NaN;
         _preTouchdownNormalVelocityFps = null;
+        _lastAirborneSample = null;
         _touchdownVerticalSpeedDegraded = false;
-        _touchdownVerticalSpeedSource = "instantaneous vertical speed";
+        _touchdownVerticalSpeedSource = "VERTICAL SPEED (contact sample)";
         _noseImpactAirborneSince = null;
         _previousCameraInCockpit = null;
         // Re-open post-arm grace and seed ground so a mid-clean on the runway
@@ -97,8 +99,9 @@ public sealed class LandingSession
         _lastTimeSeconds = double.NaN;
         _touchdownTimeSeconds = double.NaN;
         _preTouchdownNormalVelocityFps = null;
+        _lastAirborneSample = null;
         _touchdownVerticalSpeedDegraded = false;
-        _touchdownVerticalSpeedSource = "instantaneous vertical speed";
+        _touchdownVerticalSpeedSource = "VERTICAL SPEED (contact sample)";
         _noseImpactAirborneSince = null;
         _previousCameraInCockpit = null;
     }
@@ -112,6 +115,11 @@ public sealed class LandingSession
         Snapshot.TouchdownLateralOffsetM = 0;
         Snapshot.TouchdownHeadingErrorDeg = 0;
         Snapshot.CrabAngle = null;
+        Snapshot.RunwayAlignment = null;
+        Snapshot.TouchdownGroundTrackTrueDeg = null;
+        Snapshot.TouchdownGroundTrackSource = "";
+        Snapshot.TouchdownTrackErrorDeg = 0;
+        Snapshot.TouchdownTrueCrabAngleDeg = 0;
         Snapshot.ApproachPathRms = 0;
         Snapshot.ApproachPathSampleCount = 0;
         Snapshot.ApproachGlideslopeMeanAbsFt = 0;
@@ -137,6 +145,8 @@ public sealed class LandingSession
         Snapshot.RolloutPathSegmentCount = 0;
         Snapshot.GearDownAtTouchdown = true;
         Snapshot.FlapsIndexAtTouchdown = 0;
+        Snapshot.TouchdownSinkRateFpm = 0;
+        Snapshot.TouchdownNormalVelocityFpm = null;
         Snapshot.VerticalSpeedAtTouchdownFpm = 0;
         Snapshot.AirspeedAtTouchdownKts = 0;
         Snapshot.BankAtTouchdownDeg = 0;
@@ -202,6 +212,9 @@ public sealed class LandingSession
         // Count airborne samples after arm (including during grace) for the touchdown gate.
         if (!anyMainOnGround && agl >= _settings.MinAirborneAglFeet)
             _airborneSampleCount++;
+
+        if (!_touchdownCaptured && !anyMainOnGround)
+            _lastAirborneSample = sample;
 
         if (Phase is LandingPhase.Armed or LandingPhase.Approach or LandingPhase.Flare)
         {
@@ -304,7 +317,7 @@ public sealed class LandingSession
         if (_touchdownCaptured)
         {
             ComputeTouchdownEventMetrics(finalizing);
-            ComputeCrabAngleMetrics();
+            ComputeRunwayAlignmentMetrics();
             ComputePostTouchdownAlignmentMetrics();
             ComputeRolloutPathIntegralMetrics();
         }
@@ -317,16 +330,26 @@ public sealed class LandingSession
         Snapshot.GateObservations.MainGearTouchdownTimeSeconds = logical.TimeSeconds;
         Snapshot.ContactMappingDegraded = !logical.MainGearContactsAvailable;
         Snapshot.Touchdown = sample;
-        Snapshot.VerticalSpeedAtTouchdownFpm = sample.VerticalSpeedFpm;
-        _touchdownVerticalSpeedDegraded = true;
+        CaptureTouchdownSinkRate(sample, logical.TimeSeconds);
         TryCaptureOfficialTouchdownVelocity(sample, logical.TimeSeconds);
         Snapshot.AirspeedAtTouchdownKts = sample.AirspeedKts;
         Snapshot.BankAtTouchdownDeg = sample.BankDeg;
-        Snapshot.PitchAtTouchdownDeg = sample.PitchDeg;
+        // MSFS PLANE PITCH DEGREES is negative nose-up; reports use the aviation convention.
+        Snapshot.PitchAtTouchdownDeg = -sample.PitchDeg;
         Snapshot.FlapsIndexAtTouchdown = sample.FlapsHandleIndex;
         Snapshot.GearDownAtTouchdown = sample.GearHandlePosition > 0.5;
         Snapshot.TouchdownLateralOffsetM = lateral;
         Snapshot.TouchdownHeadingErrorDeg = NormalizeHeading(sample.HeadingTrueDeg - _challenge.Runway.HeadingTrueDeg);
+        if (GroundTrackCalculator.TryResolve(
+                sample, Snapshot.ApproachSamples, out var groundTrack, out var groundTrackSource))
+        {
+            Snapshot.TouchdownGroundTrackTrueDeg = groundTrack;
+            Snapshot.TouchdownGroundTrackSource = groundTrackSource;
+            Snapshot.TouchdownTrackErrorDeg = NormalizeHeading(
+                groundTrack - _challenge.Runway.HeadingTrueDeg);
+            Snapshot.TouchdownTrueCrabAngleDeg = NormalizeHeading(
+                sample.HeadingTrueDeg - groundTrack);
+        }
         Snapshot.PeakGForce = Math.Max(Snapshot.PeakGForce, sample.GForce);
 
         var (vapp, targetTd, source) = SpeedTargetCalculator.Resolve(_challenge, _settings, sample);
@@ -811,7 +834,7 @@ public sealed class LandingSession
         var gates = _settings.OperationalGates;
         if (!_touchdownCaptured)
             return true;
-        if (timeSeconds < _touchdownTimeSeconds + CrabAngleCalculator.WindowSeconds)
+        if (timeSeconds < _touchdownTimeSeconds + RunwayAlignmentCalculator.WindowSeconds)
             return false;
         if (!gates.Enabled)
             return true;
@@ -878,10 +901,11 @@ public sealed class LandingSession
                 firstBounceStart,
                 _touchdownVerticalSpeedDegraded || Snapshot.ContactMappingDegraded,
                 _touchdownVerticalSpeedDegraded
-                    ? "Official touchdown-normal velocity was unavailable; instantaneous vertical speed was used."
+                    ? "A finite contact-edge VERTICAL SPEED sample was unavailable."
                     : Snapshot.ContactMappingDegraded
                         ? "Independent main-gear contact mapping was unavailable."
-                        : null);
+                        : null,
+                Snapshot.TouchdownNormalVelocityFpm);
         }
 
         Snapshot.FloatAnalysis ??= TouchdownAnalysisCalculator.AnalyzeFloat(
@@ -916,8 +940,8 @@ public sealed class LandingSession
 
     private void TryCaptureOfficialTouchdownVelocity(TelemetrySample sample, double timeSeconds)
     {
-        if (!_touchdownCaptured && !double.IsFinite(_touchdownTimeSeconds)) return;
-        if (!_touchdownVerticalSpeedDegraded) return;
+        if (!_touchdownCaptured || !double.IsFinite(_touchdownTimeSeconds)) return;
+        if (Snapshot.TouchdownNormalVelocityFpm is not null) return;
         if (timeSeconds > _touchdownTimeSeconds + Math.Min(0.25, _settings.ImpactWindowSeconds)) return;
         if (sample.TouchdownNormalVelocityFps is not { } value || !double.IsFinite(value)
             || Math.Abs(value) < 0.001)
@@ -925,9 +949,50 @@ public sealed class LandingSession
         if (_preTouchdownNormalVelocityFps is { } previous && Math.Abs(value - previous) < 0.0001)
             return;
 
-        Snapshot.VerticalSpeedAtTouchdownFpm = -Math.Abs(value * 60.0);
-        _touchdownVerticalSpeedSource = "PLANE TOUCHDOWN NORMAL VELOCITY";
-        _touchdownVerticalSpeedDegraded = false;
+        Snapshot.TouchdownNormalVelocityFpm = -Math.Abs(value * 60.0);
+    }
+
+    private void CaptureTouchdownSinkRate(TelemetrySample contactSample, double contactTimeSeconds)
+    {
+        var contactValid = double.IsFinite(contactSample.VerticalSpeedFpm);
+        var airborneValid = _lastAirborneSample is { } airborne
+                            && double.IsFinite(airborne.VerticalSpeedFpm);
+        var airborneTime = airborneValid
+            ? SampleTimeSeconds(_lastAirborneSample!)
+            : double.NaN;
+        var bracketSeconds = contactTimeSeconds - airborneTime;
+
+        double sinkRate;
+        if (contactValid && airborneValid
+            && double.IsFinite(bracketSeconds)
+            && bracketSeconds >= 0
+            && bracketSeconds <= 0.25)
+        {
+            sinkRate = (_lastAirborneSample!.VerticalSpeedFpm + contactSample.VerticalSpeedFpm) / 2.0;
+            _touchdownVerticalSpeedSource = "VERTICAL SPEED (airborne/contact bracket mean)";
+            _touchdownVerticalSpeedDegraded = false;
+        }
+        else if (contactValid)
+        {
+            sinkRate = contactSample.VerticalSpeedFpm;
+            _touchdownVerticalSpeedSource = "VERTICAL SPEED (contact sample)";
+            _touchdownVerticalSpeedDegraded = false;
+        }
+        else if (airborneValid)
+        {
+            sinkRate = _lastAirborneSample!.VerticalSpeedFpm;
+            _touchdownVerticalSpeedSource = "VERTICAL SPEED (nearest airborne sample)";
+            _touchdownVerticalSpeedDegraded = false;
+        }
+        else
+        {
+            sinkRate = 0;
+            _touchdownVerticalSpeedSource = "VERTICAL SPEED unavailable";
+            _touchdownVerticalSpeedDegraded = true;
+        }
+
+        Snapshot.TouchdownSinkRateFpm = sinkRate;
+        Snapshot.VerticalSpeedAtTouchdownFpm = sinkRate;
     }
 
     private double ResolveTimeSeconds(TelemetrySample sample)
@@ -1045,12 +1110,14 @@ public sealed class LandingSession
         Snapshot.PostTouchdownAlignmentPeakDeg = errors.Max();
     }
 
-    private void ComputeCrabAngleMetrics()
+    private void ComputeRunwayAlignmentMetrics()
     {
-        Snapshot.CrabAngle = CrabAngleCalculator.Calculate(
+        Snapshot.RunwayAlignment = RunwayAlignmentCalculator.Calculate(
             Snapshot.RolloutSamples,
             _touchdownTimeSeconds,
-            _challenge.Runway.HeadingTrueDeg);
+            _challenge.Runway.HeadingTrueDeg,
+            Snapshot.TouchdownGroundTrackTrueDeg,
+            Snapshot.TouchdownGroundTrackSource);
     }
 
     /// <summary>

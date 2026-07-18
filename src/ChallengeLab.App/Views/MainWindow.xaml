@@ -601,6 +601,21 @@
                                                     </Grid>
                                                 </Border>
 
+                                                <Border Margin="0,10,0,0" Padding="14,11" CornerRadius="11"
+                                                        Background="#B3182238" BorderBrush="#334A90A4" BorderThickness="1"
+                                                        Visibility="{Binding LandingReport.Visualization.HasRunwayAlignment, Converter={StaticResource BoolToVis}}">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding LandingReport.Visualization.AlignmentHeadline, Mode=OneWay}"
+                                                                   FontSize="9" FontWeight="Bold" Foreground="#FF2DE2E6"/>
+                                                        <TextBlock Text="{Binding LandingReport.Visualization.AlignmentDetail, Mode=OneWay}"
+                                                                   FontSize="12" FontWeight="SemiBold" Foreground="#FFF4F7FF"
+                                                                   Margin="0,5,0,0" TextWrapping="Wrap"/>
+                                                        <TextBlock Text="{Binding LandingReport.Visualization.AlignmentSource, Mode=OneWay}"
+                                                                   FontSize="9" Foreground="#FF8B9BB8" Margin="0,4,0,0"
+                                                                   TextWrapping="Wrap" FontFamily="{StaticResource MonoFont}"/>
+                                                    </StackPanel>
+                                                </Border>
+
                                                 <Grid Margin="0,12,0,0">
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="1.02*"/>
@@ -1080,38 +1095,44 @@
             <TabItem Header="STORE">
                 <Grid Margin="0,16,0,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="1*"/>
-                        <ColumnDefinition Width="16"/>
-                        <ColumnDefinition Width="1.3*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
+                    <!-- 1/3 · Save -->
                     <Border Style="{StaticResource CardBorder}" Padding="12">
-                        <StackPanel>
-                            <TextBlock Text="SAVE FLIGHT STATE" FontSize="11" FontWeight="Bold"
-                                       Foreground="{StaticResource BrushTextMuted}"/>
-                            <TextBlock Margin="0,6,0,0" TextWrapping="Wrap"
-                                       Foreground="{StaticResource BrushTextPrimary}"
-                                       Text="Stores position, attitude, exact speed vector, gear, flaps, spoilers, trim, parking brake, fuel, engines, lights, autopilot (modes + targets), time of day and ambient weather — so you can come back to this exact moment."/>
-                            <TextBlock Text="{Binding SnapshotsFolderPath}" FontFamily="{StaticResource MonoFont}"
-                                       FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"
-                                       Foreground="{StaticResource BrushAccentCyan}"/>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel>
+                                <TextBlock Text="SAVE FLIGHT STATE" FontSize="11" FontWeight="Bold"
+                                           Foreground="{StaticResource BrushTextMuted}"/>
+                                <TextBlock Margin="0,6,0,0" TextWrapping="Wrap"
+                                           Foreground="{StaticResource BrushTextPrimary}"
+                                           Text="Stores position, attitude, exact speed vector, gear, flaps, spoilers, trim, parking brake, fuel, engines, lights, autopilot (modes + targets), time of day and ambient weather."/>
+                                <TextBlock Text="{Binding SnapshotsFolderPath}" FontFamily="{StaticResource MonoFont}"
+                                           FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"
+                                           Foreground="{StaticResource BrushAccentCyan}"/>
 
-                            <TextBlock Text="NAME (OPTIONAL PREFIX)" FontSize="10" FontWeight="Bold"
-                                       Foreground="{StaticResource BrushTextMuted}" Margin="0,14,0,4"/>
-                            <TextBox Text="{Binding SnapshotNameInput, UpdateSourceTrigger=PropertyChanged}"
-                                     Background="#FF0B1020" Foreground="#FFF2F6FF" CaretBrush="#FFF2F6FF"
-                                     BorderBrush="#33FFFFFF" BorderThickness="1" Padding="8,6"/>
+                                <TextBlock Text="NAME (OPTIONAL PREFIX)" FontSize="10" FontWeight="Bold"
+                                           Foreground="{StaticResource BrushTextMuted}" Margin="0,14,0,4"/>
+                                <TextBox Text="{Binding SnapshotNameInput, UpdateSourceTrigger=PropertyChanged}"
+                                         Background="#FF0B1020" Foreground="#FFF2F6FF" CaretBrush="#FFF2F6FF"
+                                         BorderBrush="#33FFFFFF" BorderThickness="1" Padding="8,6"/>
 
-                            <Button Content="Save flight state" Command="{Binding SaveSnapshotCommand}"
-                                    Style="{StaticResource PrimaryButton}"
-                                    Padding="14,8" Margin="0,12,0,0" HorizontalAlignment="Left"/>
+                                <Button Content="Save flight state" Command="{Binding SaveSnapshotCommand}"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Padding="14,8" Margin="0,12,0,0" HorizontalAlignment="Left"/>
 
-                            <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" FontSize="11"
-                                       Foreground="{StaticResource BrushTextMuted}"
-                                       Text="Not captured: addon avionics / FMS programming and routes (no safe sim API), exact live-weather clouds. Autopilot restores via the standard interface — addon 'managed' FMGC modes are best-effort, NAV mode needs a flight plan. Live weather is stored as an approximate fixed METAR. Loading requires the same aircraft."/>
-                        </StackPanel>
+                                <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" FontSize="11"
+                                           Foreground="{StaticResource BrushTextMuted}"
+                                           Text="Not captured: addon FMS/routes. Autopilot is best-effort on complex addons; NAV needs a flight plan. Weather is an approximate fixed METAR. Load requires the same aircraft."/>
+                            </StackPanel>
+                        </ScrollViewer>
                     </Border>
 
+                    <!-- 1/3 · List + actions -->
                     <Border Grid.Column="2" Style="{StaticResource CardBorder}" Padding="12">
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
@@ -1119,37 +1140,37 @@
                                            Foreground="{StaticResource BrushTextMuted}"/>
                                 <TextBlock Text="{Binding StoreStatus}" TextWrapping="Wrap" Margin="0,8,0,0"
                                            Foreground="{StaticResource BrushAccentAmber}"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                <WrapPanel Margin="0,12,0,0">
                                     <Button Content="Load" Command="{Binding LoadSnapshotCommand}"
                                             Style="{StaticResource PrimaryButton}"
-                                            Padding="14,6" Margin="0,0,8,0"/>
+                                            Padding="12,6" Margin="0,0,8,8"/>
                                     <Button Content="Resume now" Command="{Binding ResumeNowCommand}"
                                             Style="{StaticResource AmberButton}"
-                                            Padding="12,6" Margin="0,0,8,0"/>
+                                            Padding="12,6" Margin="0,0,8,8"/>
                                     <Button Content="Rename" Command="{Binding RenameSnapshotCommand}"
                                             Style="{StaticResource GhostButton}"
-                                            Padding="12,6" Margin="0,0,8,0"/>
+                                            Padding="12,6" Margin="0,0,8,8"/>
                                     <Button Content="Delete" Command="{Binding DeleteSnapshotCommand}"
                                             Style="{StaticResource GhostButton}"
-                                            Padding="12,6" Margin="0,0,8,0"/>
+                                            Padding="12,6" Margin="0,0,8,8"/>
                                     <Button Content="Refresh" Command="{Binding RefreshSnapshotsCommand}"
                                             Style="{StaticResource GhostButton}"
-                                            Padding="12,6" Margin="0,0,8,0"/>
+                                            Padding="12,6" Margin="0,0,8,8"/>
                                     <Button Content="Open folder" Command="{Binding OpenSnapshotsFolderCommand}"
                                             Style="{StaticResource GhostButton}"
-                                            Padding="12,6"/>
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                            Padding="12,6" Margin="0,0,8,8"/>
+                                </WrapPanel>
+                                <StackPanel Margin="0,2,0,0">
                                     <CheckBox Content="Restore weather (approx.)"
                                               IsChecked="{Binding RestoreWeatherEnabled}"
-                                              Foreground="{StaticResource BrushTextPrimary}"/>
+                                              Foreground="{StaticResource BrushTextPrimary}"
+                                              Margin="0,0,0,6"/>
                                     <CheckBox Content="Restore autopilot"
                                               IsChecked="{Binding RestoreAutopilotEnabled}"
-                                              Margin="16,0,0,0"
-                                              Foreground="{StaticResource BrushTextPrimary}"/>
+                                              Foreground="{StaticResource BrushTextPrimary}"
+                                              Margin="0,0,0,6"/>
                                     <CheckBox Content="Auto-resume after load"
                                               IsChecked="{Binding AutoResumeAfterRestore}"
-                                              Margin="16,0,0,0"
                                               Foreground="{StaticResource BrushTextPrimary}"/>
                                 </StackPanel>
                             </StackPanel>
@@ -1157,7 +1178,7 @@
                             <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0"
                                         Visibility="{Binding IsRenamingSnapshot, Converter={StaticResource BoolToVis}}">
                                 <TextBox Text="{Binding RenameText, UpdateSourceTrigger=PropertyChanged}"
-                                         Width="320" Background="#FF0B1020" Foreground="#FFF2F6FF"
+                                         MinWidth="120" Background="#FF0B1020" Foreground="#FFF2F6FF"
                                          CaretBrush="#FFF2F6FF" BorderBrush="#33FFFFFF" BorderThickness="1"
                                          Padding="8,6" VerticalAlignment="Center"/>
                                 <Button Content="OK" Command="{Binding ConfirmRenameSnapshotCommand}"
@@ -1223,6 +1244,200 @@
                                 </ListBox.ItemContainerStyle>
                             </ListBox>
                         </DockPanel>
+                    </Border>
+
+                    <!-- 1/3 · Selected snapshot detail -->
+                    <Border Grid.Column="4" Style="{StaticResource CardBorder}" Padding="12">
+                        <Grid>
+                            <TextBlock Text="Select a stored flight to inspect its saved state."
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Center" HorizontalAlignment="Center"
+                                       Foreground="{StaticResource BrushTextMuted}"
+                                       Visibility="{Binding HasSelectedSnapshotDetail, Converter={StaticResource BoolToVisInvert}}"/>
+
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          Visibility="{Binding HasSelectedSnapshotDetail, Converter={StaticResource BoolToVis}}">
+                                <StackPanel DataContext="{Binding SelectedSnapshotDetail}">
+                                    <TextBlock Text="SAVED STATE" FontSize="11" FontWeight="Bold"
+                                               Foreground="{StaticResource BrushTextMuted}"/>
+                                    <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold"
+                                               Foreground="{StaticResource BrushTextPrimary}"
+                                               TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                    <TextBlock Text="{Binding Subtitle}" FontSize="11"
+                                               Foreground="{StaticResource BrushAccentCyan}" Margin="0,2,0,0"/>
+                                    <TextBlock Text="{Binding Aircraft}" TextWrapping="Wrap" Margin="0,8,0,0"
+                                               Foreground="{StaticResource BrushTextPrimary}"/>
+                                    <TextBlock Text="{Binding Airport}" TextWrapping="Wrap" Margin="0,2,0,0"
+                                               Foreground="{StaticResource BrushTextMuted}"/>
+                                    <TextBlock Text="{Binding Situation}" FontWeight="Bold" Margin="0,4,0,0"
+                                               Foreground="{StaticResource BrushAccentAmber}"/>
+
+                                    <TextBlock Text="SPEED &amp; ALTITUDE" FontSize="10" FontWeight="Bold"
+                                               Foreground="{StaticResource BrushTextMuted}" Margin="0,16,0,6"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <StackPanel Margin="0,0,8,8">
+                                            <TextBlock Text="IAS" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding Ias}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Margin="0,0,0,8">
+                                            <TextBlock Text="TAS" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding Tas}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="1" Margin="0,0,8,8">
+                                            <TextBlock Text="Ground speed" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding GroundSpeed}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,8">
+                                            <TextBlock Text="Vertical speed" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding VerticalSpeed}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="2" Margin="0,0,8,8">
+                                            <TextBlock Text="Altitude" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding AltitudeMsl}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,0,0,8">
+                                            <TextBlock Text="Height AGL" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding AltitudeAgl}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="3" Margin="0,0,8,0">
+                                            <TextBlock Text="Heading" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding Heading}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="3" Grid.Column="1">
+                                            <TextBlock Text="Pitch / bank" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock FontWeight="SemiBold" Foreground="#FFF2F6FF">
+                                                <Run Text="{Binding Pitch, Mode=OneWay}"/>
+                                                <Run Text=" / "/>
+                                                <Run Text="{Binding Bank, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <TextBlock Text="CONFIGURATION" FontSize="10" FontWeight="Bold"
+                                               Foreground="{StaticResource BrushTextMuted}" Margin="0,16,0,6"/>
+                                    <StackPanel Margin="0,0,0,6">
+                                        <TextBlock Text="Gear" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                        <TextBlock Text="{Binding Gear}" FontWeight="SemiBold" Foreground="#FFF2F6FF" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,0,6">
+                                        <TextBlock Text="Flaps" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                        <TextBlock Text="{Binding Flaps}" FontWeight="SemiBold" Foreground="#FFF2F6FF" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,0,6">
+                                        <TextBlock Text="Spoilers" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                        <TextBlock Text="{Binding Spoilers}" FontWeight="SemiBold" Foreground="#FFF2F6FF" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,0,6">
+                                        <TextBlock Text="Parking brake" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                        <TextBlock Text="{Binding ParkingBrake}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,0,6">
+                                        <TextBlock Text="Throttles" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                        <TextBlock Text="{Binding Engines}" FontWeight="SemiBold" Foreground="#FFF2F6FF" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="Fuel" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                        <TextBlock Text="{Binding Fuel}" FontWeight="SemiBold" Foreground="#FFF2F6FF" TextWrapping="Wrap"/>
+                                    </StackPanel>
+
+                                    <TextBlock Text="AUTOPILOT" FontSize="10" FontWeight="Bold"
+                                               Foreground="{StaticResource BrushTextMuted}" Margin="0,16,0,6"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <StackPanel Margin="0,0,8,8">
+                                            <TextBlock Text="AP master" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding AutopilotMaster}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Margin="0,0,0,8">
+                                            <TextBlock Text="Flight director" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding FlightDirector}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="1" Margin="0,0,8,8">
+                                            <TextBlock Text="Autothrust" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding Autothrust}" FontWeight="SemiBold" Foreground="#FFF2F6FF" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,8">
+                                            <TextBlock Text="A/T target" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding AutothrustTarget}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="2" Margin="0,0,8,8">
+                                            <TextBlock Text="Lateral / NAV mode" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding NavMode}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,0,0,8">
+                                            <TextBlock Text="Heading mode" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding HeadingMode}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="3" Margin="0,0,8,8">
+                                            <TextBlock Text="Heading bug" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding HeadingBug}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,8">
+                                            <TextBlock Text="Altitude mode" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding AltitudeMode}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="4" Margin="0,0,8,8">
+                                            <TextBlock Text="Altitude set" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding AltitudeTarget}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,0,0,8">
+                                            <TextBlock Text="Vertical mode" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding VerticalMode}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="5" Margin="0,0,8,8">
+                                            <TextBlock Text="VS / FLC target" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding VerticalTarget}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="5" Grid.Column="1" Margin="0,0,0,8">
+                                            <TextBlock Text="Speed mode" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding SpeedMode}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="6" Margin="0,0,8,0">
+                                            <TextBlock Text="Speed target" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding SpeedTarget}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="6" Grid.Column="1">
+                                            <TextBlock Text="Yaw damper" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding YawDamper}" FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <TextBlock Text="TIME &amp; WEATHER" FontSize="10" FontWeight="Bold"
+                                               Foreground="{StaticResource BrushTextMuted}" Margin="0,16,0,6"/>
+                                    <StackPanel Margin="0,0,0,6">
+                                        <TextBlock Text="Zulu time" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                        <TextBlock Text="{Binding TimeZulu}" FontWeight="SemiBold" Foreground="#FFF2F6FF" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="Weather" FontSize="10" Foreground="{StaticResource BrushTextMuted}"/>
+                                        <TextBlock Text="{Binding Weather}" FontWeight="SemiBold" Foreground="#FFF2F6FF" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
                     </Border>
                 </Grid>
             </TabItem>

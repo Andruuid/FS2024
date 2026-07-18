@@ -18,6 +18,9 @@ public sealed class TelemetrySample
 
     public double HeadingTrueDeg { get; init; }
 
+    /// <summary>True ground track (degrees). Null for historical tapes or unavailable telemetry.</summary>
+    public double? GroundTrackTrueDeg { get; init; }
+
     public double PitchDeg { get; init; }
     public double BankDeg { get; init; }
 

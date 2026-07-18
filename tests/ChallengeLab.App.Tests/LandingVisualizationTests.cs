@@ -38,7 +38,11 @@ public sealed class LandingVisualizationTests
         Assert.Contains("Aiming marker 1000 ft", view.PositionDetail);
         Assert.Contains("high confidence", view.PositionDetail);
         Assert.Equal("-245", view.VerticalSpeed.Value);
+        Assert.Equal("SINK RATE", view.VerticalSpeed.Label);
         Assert.Equal("1.31", view.PeakG.Value);
+        Assert.Contains("Heading error -1.50°", view.AlignmentDetail);
+        Assert.Contains("track error +1.37°", view.AlignmentDetail);
+        Assert.Contains("true crab -2.87°", view.AlignmentDetail);
         Assert.Equal("Centerline", view.StrengthTitle);
         Assert.Contains("98%", view.StrengthBody);
         Assert.Equal("Touchdown point", view.ImprovementTitle);
@@ -115,6 +119,22 @@ public sealed class LandingVisualizationTests
         Assert.Contains("50 FT LATE", view.PositionDetail);
         Assert.False(target.HasBand);
         Assert.Equal(target.NearX, target.FarX, 6);
+    }
+
+    [Fact]
+    public void HistoricalNormalVelocityResult_IsClearlyLabelledAsLegacyDiagnostic()
+    {
+        var entry = Entry();
+        entry.LandingVisualization!.Version = 3;
+        entry.Diagnostics = new LandingResultDiagnostics
+        {
+            TouchdownVerticalSpeedSource = "PLANE TOUCHDOWN NORMAL VELOCITY"
+        };
+
+        var view = new LandingVisualizationViewModel(entry, entry.LandingVisualization);
+
+        Assert.Equal("MSFS NORMAL RATE", view.VerticalSpeed.Label);
+        Assert.False(view.HasRunwayAlignment);
     }
 
     [Fact]
@@ -285,8 +305,14 @@ public sealed class LandingVisualizationTests
             AimingMarkerConfidence = "High",
             TouchdownLateralOffsetM = 3.2,
             TouchdownHeadingErrorDeg = -1.5,
+            TouchdownGroundTrackTrueDeg = 92.37,
+            TouchdownGroundTrackSource = "GPS GROUND TRUE TRACK",
+            TouchdownTrackErrorDeg = 1.37,
+            TouchdownTrueCrabAngleDeg = -2.87,
             TouchdownBankDeg = 2.4,
             TouchdownPitchDeg = 5.1,
+            TouchdownSinkRateFpm = -245,
+            TouchdownNormalVelocityFpm = -436,
             TouchdownVerticalSpeedFpm = -245,
             TouchdownRawPeakG = 1.38,
             TouchdownRobustPeakG = 1.31,

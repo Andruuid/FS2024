@@ -64,6 +64,8 @@ public sealed class FlightTapeStore
             OriginalScorePercent = result.ScorePercent,
             OriginalGrade = result.Grade,
             OriginalIsRanked = result.IsRanked,
+            OriginalDiagnostics = result.Diagnostics,
+            OriginalLandingVisualization = result.LandingVisualization,
             FreeFlightCapabilities = challenge.FreeFlightCapabilities,
             OriginalCriteria = result.Criteria.Select(criterion => new FlightTapeCriterion
             {
@@ -151,6 +153,8 @@ public sealed class FlightTapeDocument
     public double? OriginalScorePercent { get; set; }
     public string OriginalGrade { get; set; } = "";
     public bool OriginalIsRanked { get; set; }
+    public LandingResultDiagnostics? OriginalDiagnostics { get; set; }
+    public LandingVisualizationData? OriginalLandingVisualization { get; set; }
     public FreeFlightCapabilityContext? FreeFlightCapabilities { get; set; }
     public List<FlightTapeCriterion> OriginalCriteria { get; set; } = new();
     public int SampleCount { get; set; }

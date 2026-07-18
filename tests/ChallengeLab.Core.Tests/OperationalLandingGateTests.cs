@@ -8,6 +8,10 @@ namespace ChallengeLab.Core.Tests;
 
 public sealed class OperationalLandingGateTests
 {
+    private static RunwayAlignmentAnalysis PassingRunwayAlignment() =>
+        new(true, 0.5, 0.5, 0, 1.5, 1.5, 3, 0.5, 0.5, 0.5, 0.5, 20,
+            "GPS GROUND TRUE TRACK", null);
+
     [Fact]
     public void ShippedFreeProfile_InheritsEveryOperationalGate()
     {
@@ -16,7 +20,7 @@ public sealed class OperationalLandingGateTests
         var free = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey);
 
         Assert.True(challenge.IsValid, string.Join("; ", challenge.Errors));
-        Assert.Equal(32, challenge.Key!.Version);
+        Assert.Equal(33, challenge.Key!.Version);
         var general = challenge.Key.GeneralPenalties!;
         Assert.NotNull(general.SpoilerDeployment);
         Assert.NotNull(general.NoseGearImpact);
@@ -31,7 +35,7 @@ public sealed class OperationalLandingGateTests
         Assert.Equal(0.85, general.Rollout!.MultiplierOnFail, 6);
 
         Assert.True(free.IsValid, string.Join("; ", free.Errors));
-        Assert.Equal(15, free.Key!.Version);
+        Assert.Equal(16, free.Key!.Version);
         Assert.NotNull(free.Key.FreeMode);
         Assert.NotNull(free.Key.GeneralPenalties?.PauseUsage);
         Assert.NotNull(free.Key.GeneralPenalties?.SimulationRate);
@@ -1351,7 +1355,7 @@ public sealed class OperationalLandingGateTests
             TouchdownIasErrorKts = 0,
             PeakGForce = 1.1,
             TouchdownLateralOffsetM = 1,
-            CrabAngle = new CrabAngleAnalysis(true, 0.5, 1.5, 3, 0.5, 0.5, 20, null),
+            RunwayAlignment = PassingRunwayAlignment(),
             ApproachPathSampleCount = 3,
             ApproachGlideslopeMeanAbsFt = 20,
             ApproachVerticalVariationFtPerSec = 1.5,
@@ -1367,7 +1371,7 @@ public sealed class OperationalLandingGateTests
             RolloutLateralPeakM = 2,
             RolloutWeaveIndex = .01,
             InitialImpact = new ImpactAnalysis(
-                true, false, 10, -100, "PLANE TOUCHDOWN NORMAL VELOCITY",
+                true, false, 10, -100, "VERTICAL SPEED (airborne/contact bracket mean)",
                 1.2, 1.2, 10, 1.0, null),
             FloatAnalysis = new FloatAnalysis(true, false, 0, 0, 0, 0, 0, null),
             ContactStability = new ContactStabilityAnalysis(

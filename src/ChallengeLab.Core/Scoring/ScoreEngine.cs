@@ -387,9 +387,9 @@ public sealed class ScoreEngine
         var robustPeakG = VisualizationFiniteFallback(
             diagnostics.TouchdownRobustPeakG,
             impact?.RobustPeakG ?? snapshot.PeakGForce);
-        var verticalSpeed = VisualizationFiniteFallback(
-            diagnostics.TouchdownVerticalSpeedFpm,
-            snapshot.VerticalSpeedAtTouchdownFpm);
+        var sinkRate = VisualizationFiniteFallback(
+            diagnostics.TouchdownSinkRateFpm,
+            snapshot.TouchdownSinkRateFpm);
 
         return new LandingVisualizationData
         {
@@ -409,9 +409,15 @@ public sealed class ScoreEngine
             AimingMarkerConfidence = challenge.Runway.AimingMarkerConfidence,
             TouchdownLateralOffsetM = snapshot.TouchdownLateralOffsetM,
             TouchdownHeadingErrorDeg = VisualizationFiniteOrZero(snapshot.TouchdownHeadingErrorDeg),
+            TouchdownGroundTrackTrueDeg = snapshot.TouchdownGroundTrackTrueDeg,
+            TouchdownGroundTrackSource = snapshot.TouchdownGroundTrackSource,
+            TouchdownTrackErrorDeg = VisualizationFiniteOrZero(snapshot.TouchdownTrackErrorDeg),
+            TouchdownTrueCrabAngleDeg = VisualizationFiniteOrZero(snapshot.TouchdownTrueCrabAngleDeg),
             TouchdownBankDeg = VisualizationFiniteOrZero(snapshot.BankAtTouchdownDeg),
             TouchdownPitchDeg = VisualizationFiniteOrZero(snapshot.PitchAtTouchdownDeg),
-            TouchdownVerticalSpeedFpm = verticalSpeed,
+            TouchdownSinkRateFpm = sinkRate,
+            TouchdownNormalVelocityFpm = snapshot.TouchdownNormalVelocityFpm,
+            TouchdownVerticalSpeedFpm = sinkRate,
             TouchdownRawPeakG = rawPeakG,
             TouchdownRobustPeakG = robustPeakG,
             TouchdownAirspeedKts = VisualizationFiniteOrZero(snapshot.AirspeedAtTouchdownKts),

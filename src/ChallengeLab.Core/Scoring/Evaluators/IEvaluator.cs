@@ -13,13 +13,14 @@ public static class EvaluatorFactory
     private static readonly HashSet<string> KnownTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "target", "band", "piecewise", "upperboundbands", "centerline", "boolean", "range",
-        "touchdownpoint", "landingimpact", "flareefficiency", "contactstability", "crabangle"
+        "touchdownpoint", "landingimpact", "flareefficiency", "contactstability", "crabangle",
+        "runwayalignment"
     };
 
     public static bool IsKnown(string evaluatorType) => KnownTypes.Contains(Normalize(evaluatorType));
 
     public static bool IsComposite(string evaluatorType) => Normalize(evaluatorType) is
-        "landingimpact" or "flareefficiency" or "contactstability" or "crabangle";
+        "landingimpact" or "flareefficiency" or "contactstability" or "crabangle" or "runwayalignment";
 
     public static IEvaluator Create(string evaluatorType) => evaluatorType.ToLowerInvariant() switch
     {

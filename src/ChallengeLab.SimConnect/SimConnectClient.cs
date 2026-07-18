@@ -157,6 +157,7 @@ public sealed partial class SimConnectClient : ISimBridge
         public double Altitude;
         public double Agl;
         public double Heading;
+        public double GroundTrackTrue;
         public double Pitch;
         public double Bank;
         public double Airspeed;
@@ -1989,6 +1990,9 @@ public sealed partial class SimConnectClient : ISimBridge
                 AltitudeFeet = t.Altitude,
                 AglFeet = t.Agl,
                 HeadingTrueDeg = t.Heading,
+                GroundTrackTrueDeg = double.IsFinite(t.GroundTrackTrue)
+                    ? t.GroundTrackTrue
+                    : null,
                 PitchDeg = t.Pitch,
                 BankDeg = t.Bank,
                 AirspeedKts = t.Airspeed,
@@ -2214,6 +2218,8 @@ public sealed partial class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.Telemetry, "PLANE ALT ABOVE GROUND", "feet",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "PLANE HEADING DEGREES TRUE", "degrees",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "GPS GROUND TRUE TRACK", "degrees",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "PLANE PITCH DEGREES", "degrees",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);

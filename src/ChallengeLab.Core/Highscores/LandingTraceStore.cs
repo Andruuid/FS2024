@@ -85,7 +85,15 @@ public sealed class LandingTraceStore
             {
                 TouchdownLateralOffsetM = snapshot.TouchdownLateralOffsetM,
                 CrabAngle = snapshot.CrabAngle,
+                RunwayAlignment = snapshot.RunwayAlignment,
+                TouchdownSinkRateFpm = snapshot.TouchdownSinkRateFpm,
+                TouchdownNormalVelocityFpm = snapshot.TouchdownNormalVelocityFpm,
                 VerticalSpeedAtTouchdownFpm = snapshot.VerticalSpeedAtTouchdownFpm,
+                TouchdownGroundTrackTrueDeg = snapshot.TouchdownGroundTrackTrueDeg,
+                TouchdownGroundTrackSource = snapshot.TouchdownGroundTrackSource,
+                TouchdownHeadingErrorDeg = snapshot.TouchdownHeadingErrorDeg,
+                TouchdownTrackErrorDeg = snapshot.TouchdownTrackErrorDeg,
+                TouchdownTrueCrabAngleDeg = snapshot.TouchdownTrueCrabAngleDeg,
                 AirspeedAtTouchdownKts = snapshot.AirspeedAtTouchdownKts,
                 ApproachPathRms = snapshot.ApproachPathRms,
                 ApproachPathSampleCount = snapshot.ApproachPathSampleCount,
@@ -179,7 +187,15 @@ public sealed class LandingTraceSnapshot
     public LandingGateObservations OperationalGates { get; set; } = new();
     public double TouchdownLateralOffsetM { get; set; }
     public CrabAngleAnalysis? CrabAngle { get; set; }
+    public RunwayAlignmentAnalysis? RunwayAlignment { get; set; }
+    public double TouchdownSinkRateFpm { get; set; }
+    public double? TouchdownNormalVelocityFpm { get; set; }
     public double VerticalSpeedAtTouchdownFpm { get; set; }
+    public double? TouchdownGroundTrackTrueDeg { get; set; }
+    public string TouchdownGroundTrackSource { get; set; } = "";
+    public double TouchdownHeadingErrorDeg { get; set; }
+    public double TouchdownTrackErrorDeg { get; set; }
+    public double TouchdownTrueCrabAngleDeg { get; set; }
     public double AirspeedAtTouchdownKts { get; set; }
     public double ApproachPathRms { get; set; }
     public int ApproachPathSampleCount { get; set; }
@@ -224,11 +240,13 @@ public sealed class LandingTraceSample
     public double AltFt { get; set; }
     public double AglFt { get; set; }
     public double Hdg { get; set; }
+    public double? Track { get; set; }
     public double Pitch { get; set; }
     public double Bank { get; set; }
     public double Ias { get; set; }
     public double Gs { get; set; }
     public double Vs { get; set; }
+    public double? TouchdownNormalVelocityFps { get; set; }
     public double G { get; set; }
     public bool OnGnd { get; set; }
     public bool? LeftMainOnGnd { get; set; }
@@ -268,11 +286,13 @@ public sealed class LandingTraceSample
         AltFt = s.AltitudeFeet,
         AglFt = s.RadioHeightFeet > 0 ? s.RadioHeightFeet : s.AglFeet,
         Hdg = s.HeadingTrueDeg,
+        Track = s.GroundTrackTrueDeg,
         Pitch = s.PitchDeg,
         Bank = s.BankDeg,
         Ias = s.AirspeedKts,
         Gs = s.GroundSpeedKts,
         Vs = s.VerticalSpeedFpm,
+        TouchdownNormalVelocityFps = s.TouchdownNormalVelocityFps,
         G = s.GForce,
         OnGnd = s.SimOnGround,
         LeftMainOnGnd = s.GearOnGroundByIndex?.TryGetValue(1, out var left) == true ? left : null,

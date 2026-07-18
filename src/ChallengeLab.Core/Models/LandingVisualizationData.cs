@@ -6,7 +6,7 @@ namespace ChallengeLab.Core.Models;
 /// </summary>
 public sealed class LandingVisualizationData
 {
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
 
     public int Version { get; set; } = CurrentVersion;
     public string AirportIcao { get; set; } = "";
@@ -43,8 +43,15 @@ public sealed class LandingVisualizationData
     public double TouchdownLateralOffsetM { get; set; }
 
     public double TouchdownHeadingErrorDeg { get; set; }
+    public double? TouchdownGroundTrackTrueDeg { get; set; }
+    public string TouchdownGroundTrackSource { get; set; } = "";
+    public double TouchdownTrackErrorDeg { get; set; }
+    public double TouchdownTrueCrabAngleDeg { get; set; }
     public double TouchdownBankDeg { get; set; }
     public double TouchdownPitchDeg { get; set; }
+    public double TouchdownSinkRateFpm { get; set; }
+    public double? TouchdownNormalVelocityFpm { get; set; }
+    /// <summary>Legacy alias; v4 writers store the pilot-facing sink rate here too.</summary>
     public double TouchdownVerticalSpeedFpm { get; set; }
     public double TouchdownRawPeakG { get; set; }
     public double TouchdownRobustPeakG { get; set; }

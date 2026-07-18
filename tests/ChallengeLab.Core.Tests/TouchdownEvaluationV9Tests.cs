@@ -39,7 +39,7 @@ public sealed class TouchdownEvaluationV9Tests
         new(time, agl, groundSpeed, verticalSpeed, g, left, right, false, contactsAvailable);
 
     private static ImpactAnalysis Impact(double vs, double g) =>
-        new(true, false, 10, vs, "PLANE TOUCHDOWN NORMAL VELOCITY", g, g, 12, 1, null);
+        new(true, false, 10, vs, "VERTICAL SPEED (airborne/contact bracket mean)", g, g, 12, 1, null);
 
     [Fact]
     public void ShippedKeys_HaveExpectedCompositeWeightsAndNoActiveLegacyMetric()
@@ -49,8 +49,8 @@ public sealed class TouchdownEvaluationV9Tests
         var catalog = loader.LoadCatalog();
         foreach (var (path, version) in new[]
                  {
-                     (catalog.EvaluationKey, 32),
-                     (catalog.FreeFlightEvaluationKey, 15)
+                     (catalog.EvaluationKey, 33),
+                     (catalog.FreeFlightEvaluationKey, 16)
                  })
         {
             var loaded = loader.LoadEvaluationKey(path);
@@ -63,7 +63,7 @@ public sealed class TouchdownEvaluationV9Tests
                 touchdown.Metrics.Single(m => m.Id == "touchdown_impact").ImportancePercent);
             Assert.Equal(22, touchdown.Metrics.Single(m => m.Id == "touchdown_point").ImportancePercent);
             Assert.Equal(8, touchdown.Metrics.Single(m => m.Id == "flare_efficiency").ImportancePercent);
-            Assert.Equal(6, touchdown.Metrics.Single(m => m.Id == "crab_angle").ImportancePercent);
+            Assert.Equal(6, touchdown.Metrics.Single(m => m.Id == "runway_alignment").ImportancePercent);
             Assert.DoesNotContain(
                 loaded.Key.Phases.Single(p => p.Id == "rollout").Metrics,
                 m => m.Id == "post_td_alignment");
@@ -157,26 +157,32 @@ public sealed class TouchdownEvaluationV9Tests
 
     [Theory]
     [InlineData(0, 0, 100)]
-    [InlineData(5, 0, 60)]
-    [InlineData(8, 0, 30)]
-    public void CrabAngle_TouchdownDominatesAndRecoveryCannotEraseIt(
-        double touchdownDeg,
-        double integralDegSeconds,
+    [InlineData(8, 8, 30)]
+    [InlineData(8, 0, 50.502525)]
+    public void RunwayAlignment_CombinesHeadingAndTrackByPenaltyRms(
+        double headingDeg,
+        double trackDeg,
         double expectedScore)
     {
         var (key, _) = Load();
         var metric = key.Phases.SelectMany(p => p.Metrics)
-            .Single(m => m.Id == "crab_angle");
+            .Single(m => m.Id == "runway_alignment");
         var snapshot = new LandingSnapshot
         {
-            CrabAngle = new CrabAngleAnalysis(
+            RunwayAlignment = new RunwayAlignmentAnalysis(
                 true,
-                touchdownDeg,
-                integralDegSeconds,
+                headingDeg,
+                trackDeg,
+                headingDeg - trackDeg,
+                0,
+                0,
                 3,
-                integralDegSeconds / 3,
-                touchdownDeg,
+                0,
+                0,
+                Math.Abs(headingDeg),
+                Math.Abs(trackDeg),
                 30,
+                "GPS GROUND TRUE TRACK",
                 null)
         };
 
@@ -184,27 +190,74 @@ public sealed class TouchdownEvaluationV9Tests
         var result = CompositeMetricEvaluator.Evaluate(metric, key, snapshot, diagnostics);
 
         Assert.True(result.IsAvailable);
-        Assert.Equal(expectedScore, result.ScorePercent, 6);
-        Assert.Equal(touchdownDeg, result.RawValue, 6);
-        Assert.Equal(expectedScore, diagnostics.CrabAngleScore, 6);
+        Assert.Equal(expectedScore, result.ScorePercent, 3);
+        Assert.Equal(Math.Max(Math.Abs(headingDeg), Math.Abs(trackDeg)), result.RawValue, 6);
+        Assert.Equal(expectedScore, diagnostics.RunwayAlignmentScore, 3);
     }
 
     [Fact]
-    public void CrabAngle_LatestLszaShapeScoresAboutEightyNinePercent()
+    public void RunwayAlignment_ReportsHeadingTrackAndTrueCrabSeparately()
     {
         var (key, _) = Load();
         var metric = key.Phases.SelectMany(p => p.Metrics)
-            .Single(m => m.Id == "crab_angle");
+            .Single(m => m.Id == "runway_alignment");
         var snapshot = new LandingSnapshot
         {
-            CrabAngle = new CrabAngleAnalysis(
-                true, 2.0993, 3.758, 3, 1.253, 2.0993, 178, null)
+            TouchdownGroundTrackTrueDeg = 277.37,
+            RunwayAlignment = new RunwayAlignmentAnalysis(
+                true, -0.47, 1.37, -1.84, 1.41, 4.11, 3,
+                0.47, 1.37, 0.47, 1.37, 178, "position-derived track", null)
+        };
+
+        var diagnostics = new LandingResultDiagnostics();
+        var result = CompositeMetricEvaluator.Evaluate(
+            metric, key, snapshot, diagnostics);
+
+        Assert.True(result.IsAvailable);
+        Assert.Equal(-0.47, diagnostics.RunwayAlignmentHeadingTouchdownDeg, 6);
+        Assert.Equal(1.37, diagnostics.RunwayAlignmentTrackTouchdownDeg, 6);
+        Assert.Equal(-1.84, diagnostics.TouchdownTrueCrabAngleDeg, 6);
+    }
+
+    [Fact]
+    public void ZeroTrueCrab_CannotHideAircraftMovingDiagonallyAcrossRunway()
+    {
+        var (key, _) = Load();
+        var metric = key.Phases.SelectMany(p => p.Metrics)
+            .Single(m => m.Id == "runway_alignment");
+        var snapshot = new LandingSnapshot
+        {
+            RunwayAlignment = new RunwayAlignmentAnalysis(
+                true, 8, 8, 0, 0, 0, 3, 0, 0, 8, 8, 20,
+                "GPS GROUND TRUE TRACK", null)
         };
 
         var result = CompositeMetricEvaluator.Evaluate(
             metric, key, snapshot, new LandingResultDiagnostics());
 
-        Assert.InRange(result.ScorePercent, 88.5, 89.5);
+        Assert.Equal(0, snapshot.RunwayAlignment.TouchdownTrueCrabAngleDeg);
+        Assert.Equal(30, result.ScorePercent, 6);
+    }
+
+    [Fact]
+    public void MsfsGroundNormalDiagnostic_DoesNotChangeImpactScore()
+    {
+        var (key, _) = Load();
+        var metric = key.Phases.SelectMany(p => p.Metrics)
+            .Single(m => m.Id == "touchdown_impact");
+        double Evaluate(double normal) => CompositeMetricEvaluator.Evaluate(
+            metric,
+            key,
+            new LandingSnapshot
+            {
+                InitialImpact = new ImpactAnalysis(
+                    true, false, 10, -238.3,
+                    "VERTICAL SPEED (airborne/contact bracket mean)",
+                    1.31, 1.31, 37, 1, null, normal)
+            },
+            new LandingResultDiagnostics()).ScorePercent;
+
+        Assert.Equal(Evaluate(-436.3), Evaluate(-900), 10);
     }
 
     [Fact]
@@ -244,7 +297,7 @@ public sealed class TouchdownEvaluationV9Tests
         var result = new ScoreEngine(profile11.Key, profile11.ProfileHash)
             .EvaluatePreview(challenge, new LandingSnapshot());
         Assert.Equal(profile11.Key.Id, result.EvaluationKeyId);
-        Assert.Equal(32, result.EvaluationKeyVersion);
+        Assert.Equal(33, result.EvaluationKeyVersion);
         Assert.Equal(profile11.ProfileHash, result.ScoringProfileHash);
         Assert.Equal(profile11.BucketId(challenge.Id), result.RankedBucketId);
 
@@ -541,7 +594,7 @@ public sealed class TouchdownEvaluationV9Tests
     }
 
     [Fact]
-    public void LandingSession_UsesMainContactEdgeAndFreezesFirstOfficialTouchdownVelocity()
+    public void LandingSession_SeparatesBracketedSinkRateFromDelayedNormalVelocity()
     {
         var (key, challenge) = Load();
         var settings = key.ToSessionSettings() with
@@ -552,14 +605,20 @@ public sealed class TouchdownEvaluationV9Tests
         };
         var session = new LandingSession(challenge, settings);
         var t0 = DateTimeOffset.UtcNow;
-        TelemetrySample Telemetry(double time, bool left, bool right, double tdVelocity, double g = 1.2) => new()
+        TelemetrySample Telemetry(
+            double time,
+            bool left,
+            bool right,
+            double verticalSpeed,
+            double tdVelocity,
+            double g = 1.2) => new()
         {
             Timestamp = t0.AddSeconds(time),
             SimulationTimeSeconds = time,
             SimOnGround = left || right,
             AglFeet = left || right ? 0 : 100,
             RadioHeightFeet = left || right ? 0 : 100,
-            VerticalSpeedFpm = -999,
+            VerticalSpeedFpm = verticalSpeed,
             TouchdownNormalVelocityFps = tdVelocity,
             GearOnGroundByIndex = new Dictionary<int, bool> { [0] = false, [1] = left, [2] = right },
             IsGearWheels = true,
@@ -570,21 +629,37 @@ public sealed class TouchdownEvaluationV9Tests
             FlapsHandleIndex = 3,
             Latitude = challenge.Runway.ThresholdLatitude,
             Longitude = challenge.Runway.ThresholdLongitude,
-            HeadingTrueDeg = challenge.Runway.HeadingTrueDeg,
+            HeadingTrueDeg = challenge.Runway.HeadingTrueDeg - 0.47,
+            GroundTrackTrueDeg = challenge.Runway.HeadingTrueDeg + 1.37,
+            PitchDeg = -3.2,
         };
 
         session.Arm();
-        session.Ingest(Telemetry(0, false, false, 0));
-        session.Ingest(Telemetry(0.1, false, false, 0));
-        session.Ingest(Telemetry(0.2, true, false, 250.0 / 60.0));
+        session.Ingest(Telemetry(0, false, false, -230, 0));
+        session.Ingest(Telemetry(0.1, false, false, -237.6016, 0));
+        session.Ingest(Telemetry(0.2, true, false, -239.0658, 0));
         for (var i = 1; i <= 12; i++)
-            session.Ingest(Telemetry(0.2 + i * 0.07, true, true, 10, 1.3));
+            session.Ingest(Telemetry(
+                0.2 + i * 0.07,
+                true,
+                true,
+                -240,
+                i == 1 ? 436.336 / 60.0 : 10,
+                1.3));
 
         Assert.NotNull(session.Snapshot.Touchdown);
-        Assert.Equal(-250, session.Snapshot.VerticalSpeedAtTouchdownFpm, 5);
+        Assert.Equal(-238.3337, session.Snapshot.TouchdownSinkRateFpm, 4);
+        Assert.Equal(-238.3337, session.Snapshot.VerticalSpeedAtTouchdownFpm, 4);
+        Assert.Equal(-436.336, session.Snapshot.TouchdownNormalVelocityFpm!.Value, 3);
+        Assert.Equal(-0.47, session.Snapshot.TouchdownHeadingErrorDeg, 6);
+        Assert.Equal(1.37, session.Snapshot.TouchdownTrackErrorDeg, 6);
+        Assert.Equal(-1.84, session.Snapshot.TouchdownTrueCrabAngleDeg, 6);
+        Assert.Equal(3.2, session.Snapshot.PitchAtTouchdownDeg, 6);
         Assert.NotNull(session.Snapshot.InitialImpact);
         Assert.False(session.Snapshot.InitialImpact!.TelemetryDegraded);
-        Assert.Equal("PLANE TOUCHDOWN NORMAL VELOCITY", session.Snapshot.InitialImpact.VerticalSpeedSource);
+        Assert.Equal("VERTICAL SPEED (airborne/contact bracket mean)",
+            session.Snapshot.InitialImpact.VerticalSpeedSource);
+        Assert.Equal(-436.336, session.Snapshot.InitialImpact.TouchdownNormalVelocityFpm!.Value, 3);
     }
 
     [Fact]
@@ -783,12 +858,21 @@ public sealed class TouchdownEvaluationV9Tests
             var profile = EffectiveEvaluationProfileBuilder.Build(key, challenge);
             var result = new ScoreEngine(profile.Key, profile.ProfileHash)
                 .EvaluatePreview(challenge, new LandingSnapshot());
-            var snapshot = new LandingSnapshot();
+            var snapshot = new LandingSnapshot
+            {
+                TouchdownSinkRateFpm = -238.3,
+                TouchdownNormalVelocityFpm = -436.3,
+                TouchdownGroundTrackTrueDeg = 277.37,
+                TouchdownTrackErrorDeg = 1.37,
+                TouchdownTrueCrabAngleDeg = -1.84
+            };
             snapshot.ApproachSamples.Add(new TelemetrySample
             {
                 Timestamp = DateTimeOffset.UtcNow,
                 SimulationTimeSeconds = double.NaN,
                 GForce = 1.3,
+                GroundTrackTrueDeg = 277.37,
+                TouchdownNormalVelocityFps = 436.3 / 60,
                 GearOnGroundByIndex = new Dictionary<int, bool> { [0] = false, [1] = true, [2] = false }
             });
 
@@ -798,6 +882,9 @@ public sealed class TouchdownEvaluationV9Tests
             Assert.Contains("\"Diagnostics\"", json, StringComparison.Ordinal);
             Assert.Contains("\"G\": 1.3", json, StringComparison.Ordinal);
             Assert.Contains("\"GearContacts\"", json, StringComparison.Ordinal);
+            Assert.Contains("\"TouchdownSinkRateFpm\": -238.3", json, StringComparison.Ordinal);
+            Assert.Contains("\"TouchdownNormalVelocityFpm\": -436.3", json, StringComparison.Ordinal);
+            Assert.Contains("\"Track\": 277.37", json, StringComparison.Ordinal);
             Assert.DoesNotContain("NaN", json, StringComparison.Ordinal);
         }
         finally
@@ -814,6 +901,7 @@ public sealed class TouchdownEvaluationV9Tests
         Assert.Contains("\"G FORCE\"", source, StringComparison.Ordinal);
         Assert.DoesNotContain("MAX G FORCE", source, StringComparison.Ordinal);
         Assert.Contains("PLANE TOUCHDOWN NORMAL VELOCITY", source, StringComparison.Ordinal);
+        Assert.Contains("GPS GROUND TRUE TRACK", source, StringComparison.Ordinal);
         Assert.Contains("GEAR IS ON GROUND:", source, StringComparison.Ordinal);
         Assert.Contains("SIMULATION TIME", source, StringComparison.Ordinal);
     }

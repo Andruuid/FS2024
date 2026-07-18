@@ -29,7 +29,8 @@ public sealed record ImpactAnalysis(
     double RobustPeakG,
     int ValidPostContactSamples,
     double? MedianPreContactG,
-    string? DegradedReason);
+    string? DegradedReason,
+    double? TouchdownNormalVelocityFpm = null);
 
 public sealed record FloatAnalysis(
     bool CoverageSufficient,
@@ -71,6 +72,26 @@ public sealed record CrabAngleAnalysis(
     int SampleCount,
     string? DegradedReason);
 
+/// <summary>
+/// Independent fuselage-heading and ground-track alignment with the runway at
+/// main-gear touchdown and throughout the fixed three-second control window.
+/// </summary>
+public sealed record RunwayAlignmentAnalysis(
+    bool CoverageSufficient,
+    double TouchdownHeadingErrorDeg,
+    double TouchdownTrackErrorDeg,
+    double TouchdownTrueCrabAngleDeg,
+    double IntegratedHeadingDeviationDegSeconds,
+    double IntegratedTrackDeviationDegSeconds,
+    double CoverageSeconds,
+    double MeanAbsoluteHeadingDeviationDeg,
+    double MeanAbsoluteTrackDeviationDeg,
+    double PeakHeadingDeviationDeg,
+    double PeakTrackDeviationDeg,
+    int SampleCount,
+    string GroundTrackSource,
+    string? DegradedReason);
+
 /// <summary>Raw values and component scores needed to explain or persist a landing result.</summary>
 public sealed class LandingResultDiagnostics
 {
@@ -78,6 +99,8 @@ public sealed class LandingResultDiagnostics
     public FreeFlightCapabilityContext? FreeFlightCapabilities { get; set; }
 
     public double TouchdownVerticalSpeedFpm { get; set; }
+    public double TouchdownSinkRateFpm { get; set; }
+    public double? TouchdownNormalVelocityFpm { get; set; }
     public double TouchdownVerticalSpeedSubscore { get; set; }
     public string TouchdownVerticalSpeedSource { get; set; } = "";
     public double TouchdownRawPeakG { get; set; }
@@ -116,6 +139,20 @@ public sealed class LandingResultDiagnostics
     public double CrabAngleThreeSecondSubscore { get; set; }
     public double CrabAngleScore { get; set; }
     public bool CrabAngleTelemetryDegraded { get; set; }
+
+    public double RunwayAlignmentHeadingTouchdownDeg { get; set; }
+    public double RunwayAlignmentTrackTouchdownDeg { get; set; }
+    public double TouchdownTrueCrabAngleDeg { get; set; }
+    public double? TouchdownGroundTrackTrueDeg { get; set; }
+    public string TouchdownGroundTrackSource { get; set; } = "";
+    public double RunwayAlignmentHeadingTouchdownSubscore { get; set; }
+    public double RunwayAlignmentTrackTouchdownSubscore { get; set; }
+    public double RunwayAlignmentHeadingThreeSecondIntegralDegSeconds { get; set; }
+    public double RunwayAlignmentTrackThreeSecondIntegralDegSeconds { get; set; }
+    public double RunwayAlignmentHeadingThreeSecondSubscore { get; set; }
+    public double RunwayAlignmentTrackThreeSecondSubscore { get; set; }
+    public double RunwayAlignmentScore { get; set; }
+    public bool RunwayAlignmentTelemetryDegraded { get; set; }
 }
 
 public sealed class ScoredBounceDiagnostic

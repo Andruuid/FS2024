@@ -155,7 +155,10 @@ public sealed class HighscoreEntry
 
     public double? ResolveVerticalSpeedFpm()
     {
-        if (Diagnostics is not null) return Diagnostics.TouchdownVerticalSpeedFpm;
+        if (Diagnostics is not null)
+            return Diagnostics.TouchdownSinkRateFpm != 0
+                ? Diagnostics.TouchdownSinkRateFpm
+                : Diagnostics.TouchdownVerticalSpeedFpm;
         if (VerticalSpeedFpm is not null) return VerticalSpeedFpm;
         var verticalSpeed = Criteria.FirstOrDefault(IsVerticalSpeedCriterion);
         return verticalSpeed?.RawValue;
@@ -267,7 +270,9 @@ public sealed class HighscoreStore
             Used = phase.IsComplete
         }).ToList();
 
-        var verticalSpeed = result.Diagnostics.TouchdownVerticalSpeedFpm;
+        var verticalSpeed = result.Diagnostics.TouchdownSinkRateFpm != 0
+            ? result.Diagnostics.TouchdownSinkRateFpm
+            : result.Diagnostics.TouchdownVerticalSpeedFpm;
         if (Math.Abs(verticalSpeed) < 0.001)
             verticalSpeed = criteria.FirstOrDefault(criterion =>
                 criterion.Id is "touchdown_vs" or "touchdownVerticalSpeedFpm" ||

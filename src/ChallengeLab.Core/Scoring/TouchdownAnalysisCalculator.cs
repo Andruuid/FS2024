@@ -13,7 +13,8 @@ public static class TouchdownAnalysisCalculator
         LandingSessionSettings settings,
         double? endAtSeconds = null,
         bool forceDegraded = false,
-        string? forcedReason = null)
+        string? forcedReason = null,
+        double? touchdownNormalVelocityFpm = null)
     {
         var end = Math.Min(
             contactTimeSeconds + settings.ImpactWindowSeconds,
@@ -70,7 +71,8 @@ public static class TouchdownAnalysisCalculator
             RobustPeakG: double.IsFinite(robustPeak) ? robustPeak : 1.0,
             ValidPostContactSamples: postCount,
             MedianPreContactG: medianPre,
-            DegradedReason: degraded ? reason ?? "Impact telemetry is degraded." : null);
+            DegradedReason: degraded ? reason ?? "Impact telemetry is degraded." : null,
+            TouchdownNormalVelocityFpm: touchdownNormalVelocityFpm);
     }
 
     public static FloatAnalysis AnalyzeFloat(

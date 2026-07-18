@@ -57,10 +57,18 @@ public sealed class LandingVisualizationViewModel
                      ?? entry.Criteria.FirstOrDefault(IsVerticalSpeedCriterion);
         var bank = FindCriterion(entry, "bank");
         var airspeed = FindCriterion(entry, "airspeed", "touchdownIasErrorKts");
+        var isV4 = data.Version >= 4;
+        var sinkRate = isV4 && double.IsFinite(data.TouchdownSinkRateFpm)
+                            && Math.Abs(data.TouchdownSinkRateFpm) > .000_001
+            ? data.TouchdownSinkRateFpm
+            : data.TouchdownVerticalSpeedFpm;
+        var legacyWasNormalRate = !isV4
+                                  && entry.Diagnostics?.TouchdownVerticalSpeedSource.Contains(
+                                      "TOUCHDOWN NORMAL", StringComparison.OrdinalIgnoreCase) == true;
 
         VerticalSpeed = new LandingMetricTileViewModel(
-            "VERTICAL SPEED",
-            $"{data.TouchdownVerticalSpeedFpm:0}",
+            isV4 ? "SINK RATE" : legacyWasNormalRate ? "MSFS NORMAL RATE" : "VERTICAL SPEED",
+            $"{sinkRate:0}",
             "FPM",
             MetricResult(impact));
         PeakG = new LandingMetricTileViewModel(
@@ -85,11 +93,22 @@ public sealed class LandingVisualizationViewModel
                 : $"KT  ·  {(airspeedDelta >= 0 ? "+" : "")}{airspeedDelta:0} VS TARGET",
             MetricResult(airspeed));
 
+        HasRunwayAlignment = isV4;
+        AlignmentHeadline = "RUNWAY ALIGNMENT AT TOUCHDOWN";
+        AlignmentDetail = isV4
+            ? $"Heading error {Signed(data.TouchdownHeadingErrorDeg)}°  ·  " +
+              $"track error {Signed(data.TouchdownTrackErrorDeg)}°  ·  " +
+              $"true crab {Signed(data.TouchdownTrueCrabAngleDeg)}° (heading − track)"
+            : "Heading/track separation was not stored for this historical landing.";
+        AlignmentSource = isV4 && !string.IsNullOrWhiteSpace(data.TouchdownGroundTrackSource)
+            ? $"Track source: {data.TouchdownGroundTrackSource}"
+            : "";
+
         VerdictHeadline = $"{entry.Grade}  ·  {VerdictFor(entry.ScorePercent)}";
         VerdictSummary =
             $"Touchdown was {longitudinalResult.ToLowerInvariant()} and " +
             $"{FormatLateral(data.TouchdownLateralOffsetM).ToLowerInvariant()}. " +
-            $"The main-gear impact was {data.TouchdownVerticalSpeedFpm:0} fpm at " +
+            $"The main-gear sink rate was {sinkRate:0} fpm at " +
             $"{data.TouchdownRobustPeakG:0.00} g, contributing to a {entry.ScorePercent:0.0}% final score.";
 
         var relevant = entry.Criteria
@@ -133,6 +152,10 @@ public sealed class LandingVisualizationViewModel
     public LandingMetricTileViewModel PeakG { get; }
     public LandingMetricTileViewModel Bank { get; }
     public LandingMetricTileViewModel Airspeed { get; }
+    public bool HasRunwayAlignment { get; }
+    public string AlignmentHeadline { get; }
+    public string AlignmentDetail { get; }
+    public string AlignmentSource { get; }
     public string VerdictHeadline { get; }
     public string VerdictSummary { get; }
     public string StrengthTitle { get; }
@@ -240,6 +263,8 @@ public sealed class LandingVisualizationViewModel
         heading %= 360;
         return heading < 0 ? heading + 360 : heading;
     }
+
+    private static string Signed(double value) => value >= 0 ? $"+{value:0.00}" : $"{value:0.00}";
 }
 
 public sealed class LandingMetricTileViewModel

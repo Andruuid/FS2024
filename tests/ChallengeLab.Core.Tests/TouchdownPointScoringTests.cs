@@ -210,7 +210,7 @@ public sealed class TouchdownPointScoringTests
     }
 
     [Fact]
-    public void ScoreResult_CapturesSelfContainedVersionThreeLandingVisualization()
+    public void ScoreResult_CapturesSelfContainedVersionFourLandingVisualization()
     {
         var (key, challenge) = LoadProfile();
         challenge.Runway = Runway(73, 8_000 * MetersPerFoot);
@@ -228,20 +228,26 @@ public sealed class TouchdownPointScoringTests
             Touchdown = new TelemetrySample { Latitude = latitude, Longitude = longitude },
             TouchdownLateralOffsetM = 12.5,
             TouchdownHeadingErrorDeg = -2.25,
+            TouchdownGroundTrackTrueDeg = 74.37,
+            TouchdownGroundTrackSource = "GPS GROUND TRUE TRACK",
+            TouchdownTrackErrorDeg = 1.37,
+            TouchdownTrueCrabAngleDeg = -3.62,
             BankAtTouchdownDeg = 3.5,
             PitchAtTouchdownDeg = 5.75,
+            TouchdownSinkRateFpm = -236,
+            TouchdownNormalVelocityFpm = -436,
             VerticalSpeedAtTouchdownFpm = -236,
             AirspeedAtTouchdownKts = 139,
             TargetTouchdownIasKts = 138,
             PeakGForce = 1.41,
             InitialImpact = new ImpactAnalysis(
-                true, false, 10, -236, "test", 1.47, 1.36, 6, 1.0, null)
+                true, false, 10, -236, "test", 1.47, 1.36, 6, 1.0, null, -436)
         };
 
         var result = new ScoreEngine(key).EvaluatePreview(challenge, snapshot);
         var visual = Assert.IsType<LandingVisualizationData>(result.LandingVisualization);
 
-        Assert.Equal(3, visual.Version);
+        Assert.Equal(4, visual.Version);
         Assert.Equal("KTVS", visual.AirportIcao);
         Assert.Equal("09L", visual.RunwayId);
         Assert.Equal(1_400 * MetersPerFoot, visual.TouchdownDistanceFromThresholdM, 3);
@@ -255,6 +261,10 @@ public sealed class TouchdownPointScoringTests
         Assert.Equal("Dataset", visual.AimingMarkerConfidence);
         Assert.Equal(12.5, visual.TouchdownLateralOffsetM);
         Assert.Equal(-2.25, visual.TouchdownHeadingErrorDeg);
+        Assert.Equal(1.37, visual.TouchdownTrackErrorDeg);
+        Assert.Equal(-3.62, visual.TouchdownTrueCrabAngleDeg);
+        Assert.Equal(-236, visual.TouchdownSinkRateFpm);
+        Assert.Equal(-436, visual.TouchdownNormalVelocityFpm!.Value);
         Assert.Equal(1_400, result.Criteria.Single(c => c.Id == "touchdown_point").RawValue!.Value, 3);
     }
 

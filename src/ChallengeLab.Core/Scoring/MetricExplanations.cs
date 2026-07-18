@@ -32,7 +32,7 @@ public static class MetricExplanations
             "Vertical speed at main-gear touchdown. A330 ideal is about −150 fpm (−100…−180). " +
             "A firm plant is preferred; ultra-soft “butter” floats and hard landings both score poorly.",
         "touchdown_impact" =>
-            "Initial touchdown impact combines official touchdown vertical speed and robust filtered peak G. Later bounce impacts are excluded.",
+            "Initial touchdown impact combines contact-edge sink rate and robust filtered peak G. The MSFS ground-normal rate is diagnostic only; later bounce impacts are excluded.",
         "touchdown_point" =>
             "Longitudinal position of the first accepted main-gear touchdown, measured from the selected landing threshold.",
         "flare_efficiency" =>
@@ -58,6 +58,8 @@ public static class MetricExplanations
             "Wing bank angle at touchdown. Keep wings level to protect engine pods in crosswind.",
         "crab_angle" =>
             "Crab angle measures fuselage alignment with the runway at main-gear touchdown and integrates absolute heading deviation through TD+3 seconds.",
+        "runway_alignment" =>
+            "Runway alignment independently measures aircraft heading and true ground track versus the runway. True crab is heading minus track and is shown separately.",
         "gear" =>
             "Safety gate: gear-down is required baseline and awards no points. " +
             "Gear-up applies a heavy overall score cut (~90%) unless the challenge allows gear-up landings.",
@@ -138,6 +140,10 @@ public static class MetricExplanations
             "crab_angle" when snap.CrabAngle is { } crab =>
                 $"Measured: {crab.TouchdownErrorDeg:0.0}° at touchdown and " +
                 $"{crab.IntegratedDeviationDegSeconds:0.00} °·s through TD+3 s.",
+            "runway_alignment" when snap.RunwayAlignment is { } alignment =>
+                $"Measured at touchdown: heading {Signed(alignment.TouchdownHeadingErrorDeg)}°, " +
+                $"track {Signed(alignment.TouchdownTrackErrorDeg)}°, true crab " +
+                $"{Signed(alignment.TouchdownTrueCrabAngleDeg)}° ({alignment.GroundTrackSource}).",
             "gear" =>
                 snap.GearDownAtTouchdown ? "Measured: gear down." : "Measured: gear up.",
             "flaps" =>

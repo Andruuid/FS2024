@@ -69,7 +69,7 @@ public sealed class LandingReportViewModel : ViewModelBase
         VerticalSpeedScorePercent = entry.Diagnostics?.TouchdownImpactScore ?? firmness?.ScorePercent;
         VerticalSpeedExplanation = EnrichNote(firmness)
             ?? (VerticalSpeedRaw is null
-                ? "Vertical speed at main-gear touchdown was not recorded for this attempt."
+                ? "Sink rate at main-gear touchdown was not recorded for this attempt."
                 : MetricExplanations.DefaultCatalog("touchdown_vs", "Touchdown firmness") +
                   $" Measured: {FormatVerticalSpeedDisplay(VerticalSpeedRaw)}. Historical score unavailable.");
 
@@ -147,10 +147,10 @@ public sealed class LandingReportViewModel : ViewModelBase
     public double? VerticalSpeedScorePercent { get; }
     public string VerticalSpeedExplanation { get; }
     public string VerticalSpeedHeadline => VerticalSpeedRaw is null
-        ? "Vertical speed at touchdown: not recorded"
+        ? "Sink rate at touchdown: not recorded"
         : Entry.Diagnostics is { } d
-            ? $"Impact: {VerticalSpeedRaw:0} fpm  ·  robust peak {d.TouchdownRobustPeakG:0.00} g"
-            : $"Vertical speed: {VerticalSpeedRaw:0} fpm  ·  absolute sink {Math.Abs(VerticalSpeedRaw.Value):0} fpm";
+            ? $"Sink rate {VerticalSpeedRaw:0} fpm  ·  robust peak {d.TouchdownRobustPeakG:0.00} g"
+            : $"Sink rate: {VerticalSpeedRaw:0} fpm  ·  absolute sink {Math.Abs(VerticalSpeedRaw.Value):0} fpm";
     public string VerticalSpeedScoreLabel => VerticalSpeedScorePercent is null
         ? "Score: N/A"
         : $"Impact score: {VerticalSpeedScorePercent:0}%";
@@ -459,6 +459,7 @@ public sealed class SummaryMetricViewModel
         "approach_lateral_steady" => "Lateral stability",
         "approach_bank_stability" => "Bank stability",
         "crab_angle" => "Crab angle",
+        "runway_alignment" => "Runway alignment",
         "post_td_alignment" => "Heading alignment",
         "rollout_path" => "Centerline",
         "rollout_weave" => "Weave",

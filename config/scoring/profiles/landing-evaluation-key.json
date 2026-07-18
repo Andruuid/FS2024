@@ -1,6 +1,6 @@
 {
   "id": "landing-evaluation-key",
-  "version": 32,
+  "version": 33,
   "description": "Single authoritative Challenge/Career landing score. Phase scores are pure metric quality; every penalty multiplies the combined ranked score.",
   "formula": "subtotal = sum(phaseScore * phaseWeightPercent / 100); final = round(subtotal * product(general penalty multipliers), 1)",
   "settle": {
@@ -132,7 +132,7 @@
           "importancePercent": 40,
           "unit": "%",
           "evaluator": "landingImpact",
-          "note": "Initial main-gear impact only. Combines challenge-specific touchdown vertical-speed and robust filtered peak-G subscores using weighted RMS penalties.",
+          "note": "Initial main-gear impact only. Combines the contact-edge VERTICAL SPEED bracket mean (pilot-facing sink rate) and robust filtered peak-G using weighted RMS penalties. MSFS ground-normal velocity is retained only as a diagnostic.",
           "params": {
             "verticalSpeedWeight": 0.40,
             "peakGWeight": 0.60
@@ -242,12 +242,12 @@
           "params": { "ideal": 0, "tolerance": 1.5, "maxError": 8 }
         },
         {
-          "id": "crab_angle",
-          "displayName": "Crab angle",
+          "id": "runway_alignment",
+          "displayName": "Runway alignment",
           "importancePercent": 6,
           "unit": "deg",
-          "evaluator": "crabangle",
-          "note": "Fuselage alignment with the runway at main-gear touchdown and through the next three seconds. Touchdown alignment carries 70% so later recovery cannot erase a crooked touchdown; the time-integrated deviation carries 30%.",
+          "evaluator": "runwayalignment",
+          "note": "Heading and ground track are scored independently against the runway, then combined 50/50 by penalty RMS. True crab (heading minus track) is shown separately as a diagnostic. Touchdown carries 70%; time-integrated TD+3-second control carries 30%.",
           "params": {
             "touchdownWeight": 0.7,
             "threeSecondWeight": 0.3
@@ -319,7 +319,7 @@
       "id": "rollout",
       "displayName": "Rollout",
       "weightPercent": 10,
-      "note": "Centerline path, weave, and peak lateral deviation share the phase. Crab angle is scored in Touchdown.",
+      "note": "Centerline path, weave, and peak lateral deviation share the phase. Combined runway alignment is scored in Touchdown.",
       "metrics": [
         {
           "id": "rollout_path",

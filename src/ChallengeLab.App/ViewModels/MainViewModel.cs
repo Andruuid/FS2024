@@ -100,6 +100,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private readonly SnapshotStore _snapshotStore;
     private ObservableCollection<SnapshotListItem> _snapshots = new();
     private SnapshotListItem? _selectedSnapshot;
+    private SnapshotDetailViewModel? _selectedSnapshotDetail;
     private string _snapshotNameInput = "";
     private string _storeStatus = "Save the current flight state, or load a stored one.";
     private bool _isCapturingSnapshot;
@@ -534,11 +535,26 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             if (ReferenceEquals(_selectedSnapshot, value)) return;
             SetProperty(ref _selectedSnapshot, value);
             IsRenamingSnapshot = false;
+            LoadSelectedSnapshotDetail();
             (LoadSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (RenameSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (DeleteSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
     }
+
+    /// <summary>Formatted key state fields for the STORE detail column.</summary>
+    public SnapshotDetailViewModel? SelectedSnapshotDetail
+    {
+        get => _selectedSnapshotDetail;
+        private set
+        {
+            if (ReferenceEquals(_selectedSnapshotDetail, value)) return;
+            SetProperty(ref _selectedSnapshotDetail, value);
+            RaisePropertyChanged(nameof(HasSelectedSnapshotDetail));
+        }
+    }
+
+    public bool HasSelectedSnapshotDetail => SelectedSnapshotDetail is not null;
 
     public string SnapshotNameInput
     {
@@ -2468,8 +2484,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         if (peakG <= 0 && _session?.Snapshot is { } snap)
             peakG = snap.InitialImpact?.RobustPeakG ?? snap.PeakGForce;
 
-        var vs = d.TouchdownVerticalSpeedFpm;
-        if (vs == 0 && _session?.Snapshot is { VerticalSpeedAtTouchdownFpm: var snapVs } && snapVs != 0)
+        var vs = d.TouchdownSinkRateFpm != 0
+            ? d.TouchdownSinkRateFpm
+            : d.TouchdownVerticalSpeedFpm;
+        if (vs == 0 && _session?.Snapshot is { TouchdownSinkRateFpm: var snapVs } && snapVs != 0)
             vs = snapVs;
 
         HudPeakGDisplay = double.IsFinite(peakG) && peakG > 0
@@ -3081,9 +3099,34 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             SelectedSnapshot = Snapshots.FirstOrDefault(s =>
                 string.Equals(s.Path, selectedPath, StringComparison.OrdinalIgnoreCase));
         }
+        else
+        {
+            SelectedSnapshot = null;
+            SelectedSnapshotDetail = null;
+        }
 
         if (Snapshots.Count == 0)
             StoreStatus = "No stored flights yet. Save one while flying (or parked).";
+    }
+
+    private void LoadSelectedSnapshotDetail()
+    {
+        if (SelectedSnapshot is null)
+        {
+            SelectedSnapshotDetail = null;
+            return;
+        }
+
+        try
+        {
+            var snapshot = _snapshotStore.Load(SelectedSnapshot.Path);
+            SelectedSnapshotDetail = new SnapshotDetailViewModel(snapshot);
+        }
+        catch (Exception ex)
+        {
+            SelectedSnapshotDetail = null;
+            AppendLog($"Snapshot detail load failed: {ex.Message}");
+        }
     }
 
     private void OpenSnapshotsFolder()
@@ -3269,7 +3312,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             GearUpPenaltyApplied = result.GearUpPenaltyApplied,
             FlapsPenaltyApplied = result.FlapsPenaltyApplied,
             Phases = phases,
-            VerticalSpeedFpm = result.Diagnostics.TouchdownVerticalSpeedFpm,
+            VerticalSpeedFpm = result.Diagnostics.TouchdownSinkRateFpm != 0
+                ? result.Diagnostics.TouchdownSinkRateFpm
+                : result.Diagnostics.TouchdownVerticalSpeedFpm,
             Criteria = criteria,
             EvaluationKeyId = result.EvaluationKeyId,
             EvaluationKeyVersion = result.EvaluationKeyVersion,

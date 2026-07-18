@@ -8,16 +8,20 @@ namespace ChallengeLab.Core.Tests;
 
 public sealed class FreeModeScoringParityTests
 {
+    private static RunwayAlignmentAnalysis PassingRunwayAlignment() =>
+        new(true, 0.5, 0.5, 0, 1.5, 1.5, 3, 0.5, 0.5, 0.5, 0.5, 20,
+            "GPS GROUND TRUE TRACK", null);
+
     [Fact]
-    public void FreeV15_IsAStructuralOverlayOfLandingV30()
+    public void FreeV16_IsAStructuralOverlayOfLandingV33()
     {
         var loader = new ConfigLoader(FindConfig());
         var catalog = loader.LoadCatalog();
         var normal = loader.LoadEvaluationKey(catalog.EvaluationKey).Key!;
         var free = loader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey).Key!;
 
-        Assert.Equal(32, normal.Version);
-        Assert.Equal(15, free.Version);
+        Assert.Equal(33, normal.Version);
+        Assert.Equal(16, free.Version);
         Assert.NotNull(free.FreeMode);
         Assert.Equal(50, free.FreeMode!.UnavailableMetricScorePercent);
         Assert.Equal(0.5, free.FreeMode.MissingGatePenaltyFraction);
@@ -466,7 +470,7 @@ public sealed class FreeModeScoringParityTests
             TouchdownIasErrorKts = 0,
             PeakGForce = 1.15,
             TouchdownLateralOffsetM = 1,
-            CrabAngle = new CrabAngleAnalysis(true, 0.5, 1.5, 3, 0.5, 0.5, 20, null),
+            RunwayAlignment = PassingRunwayAlignment(),
             BankAtTouchdownDeg = 0.5,
             ApproachPathSampleCount = 5,
             ApproachGlideslopeMeanAbsFt = 20,
@@ -484,7 +488,7 @@ public sealed class FreeModeScoringParityTests
             RolloutWeaveIndex = 0.01,
             RolloutLateralPeakM = 3,
             InitialImpact = new ImpactAnalysis(
-                true, false, 10, -100, "PLANE TOUCHDOWN NORMAL VELOCITY",
+                true, false, 10, -100, "VERTICAL SPEED (airborne/contact bracket mean)",
                 1.15, 1.15, 12, 1, null),
             FloatAnalysis = new FloatAnalysis(true, false, 9, 0, 0, 0, 0, null),
             ContactStability = new ContactStabilityAnalysis(

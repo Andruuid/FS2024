@@ -250,6 +250,7 @@ public static class LiveApproachIssueBuilder
             "centerline" => new Issue("off centerline @ TD", 0),
             "bank" => new Issue("bank @ TD", 0),
             "crab_angle" => new Issue("crab angle", 0),
+            "runway_alignment" => new Issue("runway alignment", 0),
             "alignment" => new Issue("heading misaligned", 0),
             "post_td_alignment" => new Issue("late de-crab", 0),
             "rollout_centerline" or "rollout_lateral_mean" => new Issue("rollout offset", 0),

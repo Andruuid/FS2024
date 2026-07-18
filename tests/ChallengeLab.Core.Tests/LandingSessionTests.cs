@@ -38,7 +38,9 @@ public sealed class LandingSessionTests
         double ias = 145,
         bool stallWarning = false,
         bool overspeedWarning = false,
-        double heading = 313)
+        double heading = 313,
+        double? groundTrack = null,
+        bool groundTrackUnavailable = false)
         => new()
         {
             Timestamp = t,
@@ -52,6 +54,7 @@ public sealed class LandingSessionTests
             GroundSpeedKts = gs,
             AirspeedKts = ias,
             HeadingTrueDeg = heading,
+            GroundTrackTrueDeg = groundTrackUnavailable ? null : groundTrack ?? heading,
             PitchDeg = 2,
             BankDeg = 0,
             GearHandlePosition = 1,
@@ -62,6 +65,98 @@ public sealed class LandingSessionTests
             OverspeedWarningActive = overspeedWarning,
             OverspeedWarningAvailable = true
         };
+
+    [Fact]
+    public void OldTapePositionFallback_DerivesTouchdownTrackFromFiveMetreBaseline()
+    {
+        var (challenge, settings) = Load();
+        settings = settings with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false,
+            OperationalGates = new OperationalGateSessionSettings()
+        };
+        var runway = challenge.Runway.HeadingTrueDeg;
+        var desiredTrack = runway + 1.37;
+        var touchdownLat = challenge.Runway.ThresholdLatitude;
+        var touchdownLon = challenge.Runway.ThresholdLongitude;
+        const double baselineM = 20;
+        var radians = desiredTrack * Math.PI / 180.0;
+        var previousLat = touchdownLat - Math.Cos(radians) * baselineM / 111_320.0;
+        var previousLon = touchdownLon - Math.Sin(radians) * baselineM
+            / (111_320.0 * Math.Cos(touchdownLat * Math.PI / 180.0));
+        var t0 = DateTimeOffset.UtcNow;
+        var session = new LandingSession(challenge, settings);
+        session.Arm();
+
+        session.Ingest(Sample(
+            t0, false, lat: previousLat, lon: previousLon,
+            heading: runway - 0.47, groundTrackUnavailable: true));
+        session.Ingest(Sample(
+            t0.AddSeconds(0.2), true, agl: 0, lat: touchdownLat, lon: touchdownLon,
+            heading: runway - 0.47, groundTrackUnavailable: true));
+
+        Assert.NotNull(session.Snapshot.TouchdownGroundTrackTrueDeg);
+        Assert.Contains("position-derived", session.Snapshot.TouchdownGroundTrackSource,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1.37, session.Snapshot.TouchdownTrackErrorDeg, 2);
+        Assert.Equal(-1.84, session.Snapshot.TouchdownTrueCrabAngleDeg, 2);
+    }
+
+    [Fact]
+    public void TouchdownSinkRate_IrregularOrInvalidBracketUsesClosestValidSample()
+    {
+        var (challenge, settings) = Load();
+        settings = settings with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false,
+            OperationalGates = new OperationalGateSessionSettings()
+        };
+        var t0 = DateTimeOffset.UtcNow;
+
+        var missingFrame = new LandingSession(challenge, settings);
+        missingFrame.Arm();
+        missingFrame.Ingest(Sample(t0, false, vs: -200));
+        missingFrame.Ingest(Sample(t0.AddSeconds(0.5), true, agl: 0, vs: -300));
+        for (var i = 1; i <= 12; i++)
+            missingFrame.Ingest(Sample(t0.AddSeconds(0.5 + i * 0.07), true, agl: 0, vs: -310));
+        Assert.Equal(-300, missingFrame.Snapshot.TouchdownSinkRateFpm, 6);
+        Assert.Equal("VERTICAL SPEED (contact sample)",
+            missingFrame.Snapshot.InitialImpact?.VerticalSpeedSource);
+
+        var invalidContact = new LandingSession(challenge, settings);
+        invalidContact.Arm();
+        invalidContact.Ingest(Sample(t0, false, vs: -200));
+        invalidContact.Ingest(Sample(t0.AddSeconds(0.1), true, agl: 0, vs: double.NaN));
+        for (var i = 1; i <= 12; i++)
+            invalidContact.Ingest(Sample(t0.AddSeconds(0.1 + i * 0.07), true, agl: 0, vs: -210));
+        Assert.Equal(-200, invalidContact.Snapshot.TouchdownSinkRateFpm, 6);
+        Assert.Equal("VERTICAL SPEED (nearest airborne sample)",
+            invalidContact.Snapshot.InitialImpact?.VerticalSpeedSource);
+    }
+
+    [Fact]
+    public void TouchdownAlignment_NormalizesHeadingWraparound()
+    {
+        var (challenge, settings) = Load();
+        challenge.Runway.HeadingTrueDeg = 1;
+        settings = settings with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false,
+            OperationalGates = new OperationalGateSessionSettings()
+        };
+        var session = new LandingSession(challenge, settings);
+        var t0 = DateTimeOffset.UtcNow;
+        session.Arm();
+        session.Ingest(Sample(t0, false, heading: 359, groundTrack: 1));
+        session.Ingest(Sample(t0.AddSeconds(0.1), true, agl: 0, heading: 359, groundTrack: 1));
+
+        Assert.Equal(-2, session.Snapshot.TouchdownHeadingErrorDeg, 6);
+        Assert.Equal(0, session.Snapshot.TouchdownTrackErrorDeg, 6);
+        Assert.Equal(-2, session.Snapshot.TouchdownTrueCrabAngleDeg, 6);
+    }
 
     [Fact]
     public void RunwayLength_IsLatchedFromChallengeAtConstructionAndSurvivesArm()
@@ -195,16 +290,19 @@ public sealed class LandingSessionTests
                 heading: runwayHeading));
         }
 
-        var crab = Assert.IsType<CrabAngleAnalysis>(session.Snapshot.CrabAngle);
-        Assert.True(crab.CoverageSufficient, crab.DegradedReason);
-        Assert.Equal(10, crab.TouchdownErrorDeg, 6);
-        Assert.Equal(2.5, crab.IntegratedDeviationDegSeconds, 3);
-        Assert.Equal(3, crab.CoverageSeconds, 3);
-        Assert.Equal(10, crab.PeakDeviationDeg, 6);
+        var alignment = Assert.IsType<RunwayAlignmentAnalysis>(session.Snapshot.RunwayAlignment);
+        Assert.True(alignment.CoverageSufficient, alignment.DegradedReason);
+        Assert.Equal(10, alignment.TouchdownHeadingErrorDeg, 6);
+        Assert.Equal(10, alignment.TouchdownTrackErrorDeg, 6);
+        Assert.Equal(0, alignment.TouchdownTrueCrabAngleDeg, 6);
+        Assert.Equal(2.5, alignment.IntegratedHeadingDeviationDegSeconds, 3);
+        Assert.Equal(2.5, alignment.IntegratedTrackDeviationDegSeconds, 3);
+        Assert.Equal(3, alignment.CoverageSeconds, 3);
+        Assert.Equal(10, alignment.PeakHeadingDeviationDeg, 6);
     }
 
     [Fact]
-    public void SettlingEarly_WaitsForCompleteThreeSecondCrabWindow()
+    public void SettlingEarly_WaitsForCompleteThreeSecondAlignmentWindow()
     {
         var (challenge, settings) = Load();
         settings = settings with
@@ -239,7 +337,7 @@ public sealed class LandingSessionTests
             heading: runwayHeading));
 
         Assert.True(session.IsComplete);
-        Assert.True(session.Snapshot.CrabAngle?.CoverageSufficient);
+        Assert.True(session.Snapshot.RunwayAlignment?.CoverageSufficient);
     }
 
     [Fact]
