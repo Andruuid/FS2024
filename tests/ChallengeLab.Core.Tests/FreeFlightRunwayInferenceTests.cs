@@ -2,6 +2,7 @@ using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Facilities;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scoring;
+using System.IO;
 
 namespace ChallengeLab.Core.Tests;
 
@@ -326,6 +327,102 @@ public sealed class FreeFlightRunwayInferenceTests
             new TelemetrySample { TotalWeightLbs = 400_000 });
         Assert.Equal(70, result.VappKts);
         Assert.Contains("VS0 unavailable", result.Source);
+    }
+
+    [Fact]
+    public void GenericSpeedTarget_PrefersAircraftDbOverVs0WhenTitleKnown()
+    {
+        var catalog = AircraftVappCatalog.Load(
+            Path.Combine(FindRepoConfigRoot(), "scoring", "aircraft-vapp-db.json"));
+        var challenge = new ChallengeConfig { Mode = "free_flight" };
+        var settings = Settings(defaultVapp: 70) with { AircraftVappCatalog = catalog };
+        var sample = new TelemetrySample
+        {
+            AircraftTitle = "Airbus A320 neo Asobo",
+            DesignSpeedVs0Kts = 45
+        };
+
+        var result = SpeedTargetCalculator.Resolve(challenge, settings, sample);
+
+        Assert.Equal(136, result.VappKts, 1);
+        Assert.Equal(131, result.TargetTouchdownIasKts, 1);
+        Assert.Contains("aircraft DB", result.Source);
+        Assert.Contains("A320", result.Source);
+    }
+
+    [Fact]
+    public void GenericSpeedTarget_UsesAircraftDbForHeavyJetWithoutVs0()
+    {
+        var catalog = AircraftVappCatalog.Load(
+            Path.Combine(FindRepoConfigRoot(), "scoring", "aircraft-vapp-db.json"));
+        var challenge = new ChallengeConfig { Mode = "free_flight" };
+        var settings = Settings(defaultVapp: 70) with { AircraftVappCatalog = catalog };
+        var sample = new TelemetrySample
+        {
+            AircraftTitle = "Boeing 777-300ER",
+            TotalWeightLbs = 500_000
+        };
+
+        var result = SpeedTargetCalculator.Resolve(challenge, settings, sample);
+
+        Assert.Equal(145, result.VappKts, 1);
+        Assert.Contains("aircraft DB", result.Source);
+        Assert.Contains("777", result.Source);
+    }
+
+    [Fact]
+    public void AuthoredSpeedTarget_DoesNotUseAircraftDb()
+    {
+        var catalog = AircraftVappCatalog.Load(
+            Path.Combine(FindRepoConfigRoot(), "scoring", "aircraft-vapp-db.json"));
+        var challenge = new ChallengeConfig { Mode = "normal" };
+        var settings = Settings(defaultVapp: 143) with { AircraftVappCatalog = catalog };
+        var sample = new TelemetrySample
+        {
+            AircraftTitle = "Airbus A320 neo Asobo",
+            DesignSpeedVs0Kts = 100
+        };
+
+        var result = SpeedTargetCalculator.Resolve(challenge, settings, sample);
+
+        Assert.Equal(130, result.VappKts, 1);
+        Assert.Contains("Vs0", result.Source);
+        Assert.DoesNotContain("aircraft DB", result.Source);
+    }
+
+    [Fact]
+    public void AuthoredSpeedTarget_PrefersChallengeOverride()
+    {
+        var challenge = new ChallengeConfig
+        {
+            Mode = "normal",
+            AircraftSetup = new AircraftSetupConfig { VappKts = 151 }
+        };
+        var sample = new TelemetrySample
+        {
+            AircraftTitle = "Airbus A320 neo Asobo",
+            DesignSpeedVs0Kts = 100
+        };
+
+        var result = SpeedTargetCalculator.Resolve(challenge, Settings(defaultVapp: 143), sample);
+
+        Assert.Equal(151, result.VappKts, 1);
+        Assert.Equal(146, result.TargetTouchdownIasKts, 1);
+        Assert.Equal("challenge config", result.Source);
+    }
+
+    private static string FindRepoConfigRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "config");
+            if (File.Exists(Path.Combine(candidate, "catalog.json")))
+                return candidate;
+            dir = dir.Parent;
+        }
+
+        throw new DirectoryNotFoundException("config/ not found from test base directory.");
     }
 
     private static AirportRunwayFacility Detail(IReadOnlyList<RunwayStartFacility>? starts = null)

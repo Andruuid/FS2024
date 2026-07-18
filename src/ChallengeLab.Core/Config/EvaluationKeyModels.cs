@@ -104,6 +104,11 @@ public sealed record LandingSessionSettings(
 {
     public OperationalGateSessionSettings OperationalGates { get; init; } = new();
 
+    /// <summary>
+    /// Optional TITLE→VAPP table. When null, <see cref="AircraftVappCatalog.Default"/> is used.
+    /// </summary>
+    public AircraftVappCatalog? AircraftVappCatalog { get; init; }
+
     /// <summary>Compatibility constructor for existing callers that use the pre-v9 settings shape.</summary>
     public LandingSessionSettings(
         double SettledGroundSpeedKts,

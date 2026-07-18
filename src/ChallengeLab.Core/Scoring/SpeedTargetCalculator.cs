@@ -11,7 +11,9 @@ public static class SpeedTargetCalculator
 {
     /// <summary>
     /// Resolve VAPP and target touchdown IAS for this landing.
-    /// Priority: challenge override → profile default → Vs0 estimate → A330 normal default.
+    /// Priority: challenge override → aircraft TITLE DB → Vs0 estimate → profile default
+    /// for Free Flight. Authored challenges retain their Vs0, weight-band, and
+    /// evaluation-key fallback sequence.
     /// </summary>
     public static (double VappKts, double TargetTouchdownIasKts, string Source) Resolve(
         ChallengeConfig challenge,
@@ -30,7 +32,12 @@ public static class SpeedTargetCalculator
         }
         else if (challenge.ModeEnum == ChallengeMode.FreeFlight)
         {
-            if (sample?.DesignSpeedVs0Kts is > 20 and < 200)
+            if (TryMatchAircraftDb(settings, sample, out var dbVapp, out var dbSource))
+            {
+                vapp = dbVapp;
+                source = dbSource;
+            }
+            else if (sample?.DesignSpeedVs0Kts is > 20 and < 200)
             {
                 var factor = settings.Vs0Factor;
                 vapp = sample.DesignSpeedVs0Kts * factor;
@@ -39,7 +46,9 @@ public static class SpeedTargetCalculator
             else
             {
                 vapp = settings.DefaultVappKts;
-                source = "free profile fallback (VS0 unavailable)";
+                source = string.IsNullOrWhiteSpace(sample?.AircraftTitle)
+                    ? "free profile fallback (TITLE + VS0 unavailable)"
+                    : "free profile fallback (TITLE unmatched, VS0 unavailable)";
             }
         }
         else if (sample?.DesignSpeedVs0Kts is > 40 and < 200)
@@ -63,6 +72,28 @@ public static class SpeedTargetCalculator
 
         var targetTd = vapp - offset;
         return (Math.Round(vapp, 1), Math.Round(targetTd, 1), source);
+    }
+
+    private static bool TryMatchAircraftDb(
+        LandingSessionSettings settings,
+        TelemetrySample? sample,
+        out double vappKts,
+        out string source)
+    {
+        vappKts = 0;
+        source = "";
+        var title = sample?.AircraftTitle;
+        if (string.IsNullOrWhiteSpace(title))
+            return false;
+
+        var catalog = settings.AircraftVappCatalog ?? AircraftVappCatalog.Default;
+        var match = catalog.TryMatch(title);
+        if (match is null)
+            return false;
+
+        vappKts = match.Entry.VappKts;
+        source = $"aircraft DB · {match.Entry.Label} (TITLE '{match.AircraftTitle}')";
+        return true;
     }
 
     /// <summary>

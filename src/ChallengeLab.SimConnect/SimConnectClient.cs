@@ -22,6 +22,7 @@ public sealed class SimConnectClient : ISimBridge
     private SimConnectionState _state = SimConnectionState.Disconnected;
     private string? _statusMessage = "Not connected";
     private TaskCompletionSource<string?>? _titleTcs;
+    private string? _cachedAircraftTitle;
     private TaskCompletionSource<TelemetryStruct>? _spawnVerifyTcs;
     private TaskCompletionSource<IReadOnlyList<AirportFacility>>? _airportCatalogTcs;
     private readonly SortedDictionary<uint, List<AirportFacility>> _airportCatalogPackets = new();
@@ -58,6 +59,8 @@ public sealed class SimConnectClient : ISimBridge
         AircraftTitle = 2,
         SpawnVerify = 3,
         ContactPoints = 4,
+        /// <summary>Low-rate continuous TITLE stream so Free Flight always knows the live type.</summary>
+        AircraftTitleStream = 5,
         Airports = 100
     }
 
@@ -1797,23 +1800,34 @@ public sealed class SimConnectClient : ISimBridge
 
     private void OnRecvSimobjectData(Microsoft.FlightSimulator.SimConnect.SimConnect sender, SIMCONNECT_RECV_SIMOBJECT_DATA data)
     {
-        if (data.dwRequestID == (uint)Requests.AircraftTitle)
+        if (data.dwRequestID is (uint)Requests.AircraftTitle or (uint)Requests.AircraftTitleStream)
         {
             try
             {
                 var title = data.dwData[0] is AircraftTitleStruct s
                     ? s.Title
                     : data.dwData[0]?.ToString();
-                _titleTcs?.TrySetResult(string.IsNullOrWhiteSpace(title) ? null : title.Trim());
+                var normalized = string.IsNullOrWhiteSpace(title) ? null : title.Trim();
+                if (!string.Equals(_cachedAircraftTitle, normalized, StringComparison.Ordinal))
+                {
+                    _cachedAircraftTitle = normalized;
+                    if (normalized is not null)
+                        Log($"Aircraft TITLE: '{normalized}'");
+                }
+
+                if (data.dwRequestID == (uint)Requests.AircraftTitle)
+                    _titleTcs?.TrySetResult(normalized);
             }
             catch (Exception ex)
             {
                 Log($"Title parse: {ex.Message}");
-                _titleTcs?.TrySetResult(null);
+                if (data.dwRequestID == (uint)Requests.AircraftTitle)
+                    _titleTcs?.TrySetResult(null);
             }
             finally
             {
-                _titleTcs = null;
+                if (data.dwRequestID == (uint)Requests.AircraftTitle)
+                    _titleTcs = null;
             }
             return;
         }
@@ -2009,6 +2023,7 @@ public sealed class SimConnectClient : ISimBridge
                 NormalPauseActive = normalPauseActive,
                 ActivePauseActive = activePauseActive,
                 PauseGeneration = pauseGeneration,
+                AircraftTitle = _cachedAircraftTitle,
                 DesignSpeedVs0Kts = t.DesignSpeedVs0,
                 StallWarningActive = t.StallWarning > 0.5,
                 TotalWeightLbs = t.TotalWeight > 0 ? t.TotalWeight : null
@@ -2364,6 +2379,16 @@ public sealed class SimConnectClient : ISimBridge
             SIMCONNECT_PERIOD.VISUAL_FRAME,
             SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT,
             0, 0, 0);
+
+        // Keep live TITLE available on every telemetry sample for Free Flight VAPP lookup.
+        // SECOND is enough — aircraft type does not change frame-to-frame.
+        _sim.RequestDataOnSimObject(
+            Requests.AircraftTitleStream,
+            Definitions.AircraftTitle,
+            MsfsSc.SIMCONNECT_OBJECT_ID_USER,
+            SIMCONNECT_PERIOD.SECOND,
+            SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT,
+            0, 0, 0);
     }
 
     public void SetNoseGearImpactTelemetryEnabled(bool enabled)
@@ -2431,6 +2456,9 @@ public sealed class SimConnectClient : ISimBridge
             _latestContactPointAvailable = false;
             _latestContactPointData = default;
         }
+        _cachedAircraftTitle = null;
+        _titleTcs?.TrySetResult(null);
+        _titleTcs = null;
         _airportCatalogTcs?.TrySetException(new InvalidOperationException("SimConnect disconnected."));
         _airportCatalogTcs = null;
         _airportCatalogPackets.Clear();

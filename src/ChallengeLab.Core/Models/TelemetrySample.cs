@@ -139,6 +139,12 @@ public sealed class TelemetrySample
     /// </summary>
     public long PauseGeneration { get; init; }
 
+    /// <summary>
+    /// Live SimConnect TITLE string for the user aircraft (e.g. "Airbus A320 neo").
+    /// Used by Free Flight to look up typical approach speed from the aircraft VAPP DB.
+    /// </summary>
+    public string? AircraftTitle { get; init; }
+
     /// <summary>Stall speed landing config (DESIGN SPEED VS0), if available.</summary>
     public double DesignSpeedVs0Kts { get; init; }
 

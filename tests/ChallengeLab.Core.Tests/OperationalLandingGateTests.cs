@@ -33,7 +33,7 @@ public sealed class OperationalLandingGateTests
         Assert.Equal(0.8, rollout.Rollout!.MultiplierOnFail, 6);
 
         Assert.True(free.IsValid, string.Join("; ", free.Errors));
-        Assert.Equal(13, free.Key!.Version);
+        Assert.Equal(14, free.Key!.Version);
         Assert.NotNull(free.Key.FreeMode);
         Assert.NotNull(free.Key.GeneralPenalties?.PauseUsage);
         Assert.NotNull(free.Key.GeneralPenalties?.SimulationRate);

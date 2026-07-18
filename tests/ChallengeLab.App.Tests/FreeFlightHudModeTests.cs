@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Diagnostics;
+using System.Reflection;
 using System.Text;
 using ChallengeLab.App.Controls;
 using ChallengeLab.App.ViewModels;
@@ -12,6 +13,7 @@ using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Facilities;
 using ChallengeLab.Core.Highscores;
 using ChallengeLab.Core.Models;
+using ChallengeLab.Core.Scoring;
 using ChallengeLab.SimConnect;
 
 namespace ChallengeLab.App.Tests;
@@ -58,6 +60,28 @@ public sealed class FreeFlightHudModeTests
                 Assert.False(vm.RestartCommand.CanExecute(null));
                 Assert.True(vm.CleanMetricsCommand.CanExecute(null));
                 Assert.True(sim.AirportCatalogRequested);
+                AssertNoSimulatorMutation(sim);
+
+                InvokeArmFreeFlightSession(vm, ApproachSample());
+                Assert.Equal("Detecting", vm.PhaseLabel);
+                Assert.Contains("waiting for", vm.HudTip, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("aircraft TITLE", vm.SpeedTargetInfo, StringComparison.Ordinal);
+
+                InvokeArmFreeFlightSession(vm, ApproachSample("Airbus A320 neo Asobo"));
+                Assert.Contains("Armed", vm.PhaseLabel, StringComparison.Ordinal);
+                Assert.Contains("VAPP 136", vm.SpeedTargetInfo, StringComparison.Ordinal);
+
+                sim.EmitTelemetry(ApproachSample());
+                Assert.NotEqual("Detecting", vm.PhaseLabel);
+
+                sim.EmitTelemetry(ApproachSample("  airbus a320 NEO asobo  "));
+                Assert.NotEqual("Detecting", vm.PhaseLabel);
+
+                sim.EmitTelemetry(ApproachSample("Cessna 172 Skyhawk Asobo"));
+                Assert.Equal("Detecting", vm.PhaseLabel);
+                Assert.Contains("Aircraft changed", vm.HudTip, StringComparison.Ordinal);
+                Assert.Contains("Cessna 172 Skyhawk Asobo", vm.HudTip, StringComparison.Ordinal);
+                Assert.StartsWith("Optimal landing speed:", vm.SpeedTargetInfo, StringComparison.Ordinal);
                 AssertNoSimulatorMutation(sim);
 
                 hud = new CompanionHudWindow(vm);
@@ -205,7 +229,18 @@ public sealed class FreeFlightHudModeTests
         Assert.Equal(0, sim.ResumeCalls);
     }
 
-    private static TelemetrySample ApproachSample() => new()
+    private static void InvokeArmFreeFlightSession(MainViewModel vm, TelemetrySample sample)
+    {
+        var method = typeof(MainViewModel).GetMethod(
+            "ArmFreeFlightSession",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(MainViewModel), "ArmFreeFlightSession");
+        var airport = new AirportFacility("TEST", "ZZ", 0, 0, 10);
+        var runway = new RunwayEndFacility(airport, "09", 0, 0, 10, 90, 2000, 45, 4, false);
+        method.Invoke(vm, [new FreeFlightTarget(runway, 2, 0, 0), sample, CancellationToken.None]);
+    }
+
+    private static TelemetrySample ApproachSample(string? aircraftTitle = null) => new()
     {
         Latitude = 0,
         Longitude = -.04,
@@ -217,6 +252,7 @@ public sealed class FreeFlightHudModeTests
         HeadingTrueDeg = 110,
         SimOnGround = false,
         DesignSpeedVs0Kts = 45,
+        AircraftTitle = aircraftTitle,
         IsGearWheels = true,
         IsGearRetractable = true
     };

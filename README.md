@@ -211,7 +211,8 @@ Every attempt freezes and hashes its complete effective scoring key (including c
 | `config/catalog.json` | Points at the Normal/Free evaluation keys and defines the Career ladder/pools |
 | `config/challenges/*.json` | **Full scenario** (spawn, IAS, aircraft, weather, gear/flaps, runway) — no parallel .FLT |
 | `config/scoring/profiles/landing-evaluation-key.json` | Authoritative scoring, timing, gear, and speed-target settings |
-| `config/scoring/profiles/free-flight-evaluation-key.json` | Aircraft-generic Free scoring; 70-knot VAPP fallback when DESIGN SPEED VS0 is unavailable |
+| `config/scoring/profiles/free-flight-evaluation-key.json` | Free scoring overlay; last-resort 70 kt VAPP when TITLE DB and VS0 both fail |
+| `config/scoring/aircraft-vapp-db.json` | Live TITLE → typical VAPP table for Free Flight (edit without recompiling) |
 
 ### Metric fields in the evaluation key
 

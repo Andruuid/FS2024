@@ -1165,6 +1165,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         if (!IsFreeMode || _session is not null)
             return;
 
+        if (string.IsNullOrWhiteSpace(sample.AircraftTitle))
+        {
+            PhaseLabel = "Detecting";
+            HudTip = "Runway locked · waiting for the simulator to identify the aircraft.";
+            SpeedTargetInfo = "Optimal landing speed: — · waiting for aircraft TITLE";
+            return;
+        }
+
         var challenge = FreeFlightChallengeFactory.Create(target, sample, _runwayReferenceResolver);
         var aimingStartFeet = TouchdownPointCalculator.ResolveAimingMarkerFeet(challenge.Runway);
         var idealNearFeet = aimingStartFeet + TouchdownPointCalculator.DefaultIdealNearOffsetFeet;
@@ -2006,6 +2014,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 $"Wind {sample.WindDirectionDeg:000}/{sample.WindVelocityKts:0}kt  ·  " +
                 $"{(sample.SimOnGround ? "GND" : "AIR")}";
 
+            if (TryHandleFreeFlightAircraftChange(sample))
+                return;
+
             double? targetTouchdownIas = null;
             var sessionSettings = CurrentSessionSettings;
             if (_activeChallenge is not null && sessionSettings is not null)
@@ -2030,6 +2041,52 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 _session?.Phase ?? LandingPhase.Idle,
                 _sim.IsConnected);
         });
+    }
+
+    private bool TryHandleFreeFlightAircraftChange(TelemetrySample sample)
+    {
+        if (!IsFreeMode
+            || _activeChallenge is null
+            || _session is null
+            || _session.Phase is LandingPhase.Idle or LandingPhase.Scored)
+        {
+            return false;
+        }
+
+        var expectedTitle = _activeChallenge.AircraftTitles
+            .FirstOrDefault(title => !string.IsNullOrWhiteSpace(title))
+            ?.Trim();
+        var actualTitle = sample.AircraftTitle?.Trim();
+        if (string.IsNullOrWhiteSpace(expectedTitle)
+            || string.IsNullOrWhiteSpace(actualTitle)
+            || string.Equals(expectedTitle, actualTitle, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        RestartFreeDetection(
+            $"Aircraft changed from '{expectedTitle}' to '{actualTitle}' · previous attempt cancelled.",
+            $"Free aircraft change: '{expectedTitle}' → '{actualTitle}'; attempt cancelled and detection restarted.");
+        return true;
+    }
+
+    private void RestartFreeDetection(string hudTip, string logMessage)
+    {
+        SecondaryHud.ResetAttempt();
+        DetachSession();
+        _activeChallenge = null;
+        LastScore = null;
+        ResultVisible = false;
+        StopFreeInference(resetTarget: true);
+        PhaseLabel = "Detecting";
+        HudTip = hudTip;
+        FreeAirportStatus = "Detecting airport and runway...";
+        SpeedTargetInfo = "Optimal landing speed: —";
+        _freeFlightCts = new CancellationTokenSource();
+        _freeInferenceTimer.Start();
+        _ = RunFreeInferenceAsync();
+        AppendLog(logMessage);
+        (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     private void SetPreviewPerfect(string? caption = null)
