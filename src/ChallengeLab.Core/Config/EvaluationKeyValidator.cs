@@ -66,8 +66,8 @@ public static class EvaluationKeyValidator
 
         const string path = "generalPenalties";
         ValidateContactStabilityGate(penalties.ContactStability, $"{path}.contactStability", errors);
-        ValidateStallWarningGate(penalties.StallWarning, $"{path}.stallWarning", errors);
-        ValidateOverspeedWarningGate(penalties.OverspeedWarning, $"{path}.overspeedWarning", errors);
+        ValidateAircraftWarningGate(penalties.StallWarning, $"{path}.stallWarning", errors);
+        ValidateAircraftWarningGate(penalties.OverspeedWarning, $"{path}.overspeedWarning", errors);
         ValidateGear(penalties.Gear, $"{path}.gear", errors);
         ValidateFlapsGate(penalties.Flaps, $"{path}.flaps", errors);
         ValidateSpoilerDeploymentGate(penalties.SpoilerDeployment, $"{path}.spoilerDeployment", errors);
@@ -124,20 +124,8 @@ public static class EvaluationKeyValidator
             errors.Add($"{path}.twoOrMoreBouncesMultiplier must not exceed oneBounceMultiplier.");
     }
 
-    private static void ValidateStallWarningGate(
-        StallWarningGateConfig? gate,
-        string path,
-        List<string> errors)
-    {
-        if (gate is null) return;
-
-        if (!double.IsFinite(gate.MultiplierOnWarning)
-            || gate.MultiplierOnWarning is < 0 or > 1)
-            errors.Add($"{path}.multiplierOnWarning must be between 0 and 1.");
-    }
-
-    private static void ValidateOverspeedWarningGate(
-        OverspeedWarningGateConfig? gate,
+    private static void ValidateAircraftWarningGate(
+        AircraftWarningGateConfig? gate,
         string path,
         List<string> errors)
     {

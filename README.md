@@ -153,17 +153,17 @@ Within each phase, metrics use the same literal formula: `metric score × import
 
 The touchdown phase keeps its 60% overall weight and separates the initial impact from flare/float; later recontacts are handled by a penalty-only gate:
 
-- `touchdown_impact` (68% of touchdown) combines the first main-gear contact's official touchdown-normal velocity with a filtered 99th-percentile peak G. The raw G peak is diagnostic only.
-- `flare_efficiency` (10%) measures sustained float distance/time and positive-VS duration below flare height. It never reuses IAS inputs.
-- `airspeed` (13%) scores IAS versus the touchdown target (VAPP − 5 kt by default). Fast is punished more than slow; there is no separate excess-over-VAPP metric.
+- `touchdown_impact` (40% of touchdown) combines the first main-gear contact's official touchdown-normal velocity with a filtered 99th-percentile peak G. The raw G peak is diagnostic only.
+- `flare_efficiency` (8%) measures sustained float distance/time and positive-VS duration below flare height. It never reuses IAS inputs.
+- `airspeed` (10%) scores IAS versus the touchdown target (VAPP − 5 kt by default). Fast is punished more than slow; there is no separate excess-over-VAPP metric.
 - `contact_stability` is a general penalty. The initial landing is the baseline; one valid airborne/recontact cycle (second touchdown) applies ×0.9 to the combined score, while two or more cycles (third touchdown or later) apply ×0.8. One-main-first touchdown and contact chatter are not bounces.
 - `stall_warning` and `overspeed_warning` are aircraft-native general penalties. Any MSFS `STALL WARNING` or `OVERSPEED WARNING` activation during the armed attempt applies ×0.9 to the combined score; both warnings stack to ×0.81. Challenge Lab's calculated fast/slow HUD guidance never activates these gates.
 - Ground spoilers must deploy on both sides by main TD+2 s (×0.9 to the combined score on failure).
-- Manual brake pedals must remain released while the nose gear is airborne; by nose TD+4 s either both pedals must be applied or autobrake must be active (×0.9 to the combined score on failure).
+- Manual brake pedals must remain released while the nose gear is airborne; by nose TD+3 s either both pedals must be applied or autobrake must be active (×0.9 to the combined score on failure).
 - Heading/altitude hold must be off at or below 2,000 ft RA. AP master/AP1/AP2 and active/armed autothrust must be off at or below 1,000 ft RA; flight directors may remain on (×0.9 to the combined score on failure).
 - Normal pause or Active Pause after the controlled start hold and before touchdown applies the general ×0.95 factor.
 - Reducing simulation rate below 0.99× before touchdown applies the general ×0.8 factor.
-- Each switch from cockpit view (`CAMERA STATE` 2) to exterior or any other non-cockpit camera multiplies the combined score by ×0.95 (stacking) until main-gear touchdown.
+- Each switch from cockpit view (`CAMERA STATE` 2) to exterior or any other non-cockpit camera multiplies the combined score by ×0.97 (stacking) until main-gear touchdown.
 
 Composite components use weighted penalty RMS:
 

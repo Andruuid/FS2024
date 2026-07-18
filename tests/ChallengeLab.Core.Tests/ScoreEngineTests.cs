@@ -363,7 +363,7 @@ public sealed class ScoreEngineTests
     {
         var (key, challenge) = Load();
         var engine = new ScoreEngine(key);
-        var gate = Assert.IsType<StallWarningGateConfig>(key.GeneralPenalties!.StallWarning);
+        var gate = Assert.IsType<AircraftWarningGateConfig>(key.GeneralPenalties!.StallWarning);
 
         var clean = engine.Evaluate(challenge, CompleteSnapshot(challenge));
         var warnedSnapshot = CompleteSnapshot(challenge);

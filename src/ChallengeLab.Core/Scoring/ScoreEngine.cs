@@ -271,63 +271,12 @@ public sealed class ScoreEngine
             });
         }
 
-        var gearPenaltyApplied = false;
-        var flapsPenaltyApplied = false;
-        var generalPenaltyMultiplier = 1.0;
-        var penalties = _key.GeneralPenalties;
-
-        if (penalties?.ContactStability is { } contactStability)
-        {
-            generalPenaltyMultiplier *= preview
-                ? AppendContactStabilityGatePreview(contactStability, snapshot, criteria, diagnostics, freeGateContext)
-                : AppendContactStabilityGate(
-                    contactStability, snapshot, criteria, incompleteReasons, diagnostics, freeGateContext);
-        }
-
-        if (penalties?.StallWarning is { } stallWarning)
-            generalPenaltyMultiplier *= AppendAircraftWarningGate(
-                FreeFlightGateIds.StallWarning,
-                "Aircraft stall warning",
-                snapshot.StallWarningCoverageAvailable,
-                snapshot.StallWarningOccurred,
-                stallWarning.MultiplierOnWarning,
-                stallWarning.PenaltyDescription,
-                criteria, incompleteReasons, preview, freeGateContext);
-
-        if (penalties?.OverspeedWarning is { } overspeedWarning)
-            generalPenaltyMultiplier *= AppendAircraftWarningGate(
-                FreeFlightGateIds.OverspeedWarning,
-                "Aircraft overspeed warning",
-                snapshot.OverspeedWarningCoverageAvailable,
-                snapshot.OverspeedWarningOccurred,
-                overspeedWarning.MultiplierOnWarning,
-                overspeedWarning.PenaltyDescription,
-                criteria, incompleteReasons, preview, freeGateContext);
-
-        if (penalties?.Gear is { } gear)
-        {
-            var gateMultiplier = preview
-                ? AppendGearGatePreview(gear, challenge, snapshot, criteria, freeGateContext)
-                : AppendGearGate(gear, challenge, snapshot, criteria, incompleteReasons, freeGateContext);
-            generalPenaltyMultiplier *= gateMultiplier;
-            if (gateMultiplier < 1 && criteria.Any(item =>
-                    item.Id == FreeFlightGateIds.Gear && item.Status == MetricStatus.GateFailed))
-                gearPenaltyApplied = true;
-        }
-
-        if (penalties?.Flaps is { } flaps)
-        {
-            var gateMultiplier = preview
-                ? AppendFlapsGatePreview(flaps, snapshot, criteria, freeGateContext)
-                : AppendFlapsGate(flaps, snapshot, criteria, incompleteReasons, freeGateContext);
-            generalPenaltyMultiplier *= gateMultiplier;
-            if (gateMultiplier < 1 && criteria.Any(item =>
-                    item.Id == FreeFlightGateIds.Flaps && item.Status == MetricStatus.GateFailed))
-                flapsPenaltyApplied = true;
-        }
-
-        generalPenaltyMultiplier *= OperationalGateEvaluator.AppendGeneral(
-            penalties, snapshot, criteria, incompleteReasons, preview, freeGateContext);
+        var generalPenaltyMultiplier = ApplyGeneralPenaltyChain(
+            challenge, snapshot, criteria, incompleteReasons, diagnostics, preview, freeGateContext);
+        var gearPenaltyApplied = criteria.Any(c =>
+            c.Id == FreeFlightGateIds.Gear && c.Status == MetricStatus.GateFailed && c.AppliedMultiplier is < 1);
+        var flapsPenaltyApplied = criteria.Any(c =>
+            c.Id == FreeFlightGateIds.Flaps && c.Status == MetricStatus.GateFailed && c.AppliedMultiplier is < 1);
         diagnostics.OperationalGates = snapshot.GateObservations;
         // Free-flight lock (and catalog challenges) already know LengthM from facilities/config.
         // Always latch it on the result so highscores do not depend on rollout-gate evaluation.
@@ -481,6 +430,68 @@ public sealed class ScoreEngine
             : VisualizationFiniteOrZero(fallback);
 
     private static double VisualizationFiniteOrZero(double value) => double.IsFinite(value) ? value : 0;
+
+    /// <summary>
+    /// The single ordered chain of every general penalty gate: contact stability,
+    /// stall warning, overspeed warning, gear, flaps, then the operational gates
+    /// (spoilers, manual braking, automation, nose-gear impact, rollout distance,
+    /// reverse thrust, pause usage, simulation rate, cockpit view). All gates
+    /// multiply the combined ranked score; phase scores stay pure metric quality.
+    /// </summary>
+    private double ApplyGeneralPenaltyChain(
+        ChallengeConfig challenge,
+        LandingSnapshot snapshot,
+        List<CriterionScore> criteria,
+        List<string> incompleteReasons,
+        LandingResultDiagnostics diagnostics,
+        bool preview,
+        FreeGateEvaluationContext freeGateContext)
+    {
+        var penalties = _key.GeneralPenalties;
+        var multiplier = 1.0;
+
+        if (penalties?.ContactStability is { } contactStability)
+        {
+            multiplier *= preview
+                ? AppendContactStabilityGatePreview(contactStability, snapshot, criteria, diagnostics, freeGateContext)
+                : AppendContactStabilityGate(
+                    contactStability, snapshot, criteria, incompleteReasons, diagnostics, freeGateContext);
+        }
+
+        if (penalties?.StallWarning is { } stallWarning)
+            multiplier *= AppendAircraftWarningGate(
+                FreeFlightGateIds.StallWarning,
+                "Aircraft stall warning",
+                snapshot.StallWarningCoverageAvailable,
+                snapshot.StallWarningOccurred,
+                stallWarning.MultiplierOnWarning,
+                stallWarning.PenaltyDescription,
+                criteria, incompleteReasons, preview, freeGateContext);
+
+        if (penalties?.OverspeedWarning is { } overspeedWarning)
+            multiplier *= AppendAircraftWarningGate(
+                FreeFlightGateIds.OverspeedWarning,
+                "Aircraft overspeed warning",
+                snapshot.OverspeedWarningCoverageAvailable,
+                snapshot.OverspeedWarningOccurred,
+                overspeedWarning.MultiplierOnWarning,
+                overspeedWarning.PenaltyDescription,
+                criteria, incompleteReasons, preview, freeGateContext);
+
+        if (penalties?.Gear is { } gear)
+            multiplier *= preview
+                ? AppendGearGatePreview(gear, challenge, snapshot, criteria, freeGateContext)
+                : AppendGearGate(gear, challenge, snapshot, criteria, incompleteReasons, freeGateContext);
+
+        if (penalties?.Flaps is { } flaps)
+            multiplier *= preview
+                ? AppendFlapsGatePreview(flaps, snapshot, criteria, freeGateContext)
+                : AppendFlapsGate(flaps, snapshot, criteria, incompleteReasons, freeGateContext);
+
+        multiplier *= OperationalGateEvaluator.AppendGeneral(
+            penalties, snapshot, criteria, incompleteReasons, preview, freeGateContext);
+        return multiplier;
+    }
 
     /// <summary>Before bounce analysis completes, preview assumes no bounce penalty.</summary>
     private double AppendContactStabilityGatePreview(

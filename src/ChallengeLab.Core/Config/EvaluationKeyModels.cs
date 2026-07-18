@@ -274,8 +274,8 @@ public sealed class EvaluationMetric
 public sealed class GeneralPenaltyConfig
 {
     public ContactStabilityGateConfig? ContactStability { get; set; }
-    public StallWarningGateConfig? StallWarning { get; set; }
-    public OverspeedWarningGateConfig? OverspeedWarning { get; set; }
+    public AircraftWarningGateConfig? StallWarning { get; set; }
+    public AircraftWarningGateConfig? OverspeedWarning { get; set; }
     public GearGateConfig? Gear { get; set; }
     public FlapsGateConfig? Flaps { get; set; }
     public SpoilerDeploymentGateConfig? SpoilerDeployment { get; set; }
@@ -417,15 +417,11 @@ public static class CameraStates
     public static bool IsCockpit(int cameraState) => cameraState == Cockpit;
 }
 
-/// <summary>Penalty-only gate latched by any stall warning during an armed attempt.</summary>
-public sealed class StallWarningGateConfig
-{
-    public double MultiplierOnWarning { get; set; } = 0.9;
-    public string? PenaltyDescription { get; set; }
-}
-
-/// <summary>Penalty-only gate latched by any aircraft overspeed warning while armed.</summary>
-public sealed class OverspeedWarningGateConfig
+/// <summary>
+/// Penalty-only gate latched by an aircraft-native warning (stall or overspeed)
+/// at any time during an armed attempt.
+/// </summary>
+public sealed class AircraftWarningGateConfig
 {
     public double MultiplierOnWarning { get; set; } = 0.9;
     public string? PenaltyDescription { get; set; }
