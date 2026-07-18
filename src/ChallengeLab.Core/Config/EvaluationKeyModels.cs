@@ -322,7 +322,8 @@ public static class ReverseThrustPolicies
 
 /// <summary>
 /// Penalty-only reverse-thrust procedure gate. Reverse must normally be selected by the
-/// touchdown deadline and completely stowed by the configured low-speed threshold.
+/// touchdown deadline, reduced to idle by the configured idle threshold, and completely
+/// stowed by the configured low-speed threshold.
 /// </summary>
 public sealed class ReverseThrustGateConfig
 {
@@ -331,7 +332,8 @@ public sealed class ReverseThrustGateConfig
     public double DeadlineSecondsAfterTouchdown { get; set; } = 4.0;
     public double MinimumNozzlePosition { get; set; } = 0.01;
     public double PoweredReverseThrottleThresholdPercent { get; set; } = -1.0;
-    public double StowGroundSpeedKts { get; set; } = 60.0;
+    public double IdleGroundSpeedKts { get; set; } = 60.0;
+    public double StowGroundSpeedKts { get; set; } = 30.0;
     public double MultiplierOnFail { get; set; } = 0.9;
     public string? PenaltyDescription { get; set; }
 }

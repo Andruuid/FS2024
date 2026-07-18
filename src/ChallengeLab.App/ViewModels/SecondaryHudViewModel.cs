@@ -90,14 +90,16 @@ public sealed class SecondaryHudViewModel : ViewModelBase
         double? targetAirspeedKts,
         double? projectedScorePercent,
         LandingPhase phase,
-        bool isConnected)
+        bool isConnected,
+        LandingMonitorReading? sharedGuidance = null,
+        bool evaluationArmed = true)
     {
         PhaseLabel = phase.ToString().ToUpperInvariant();
         TargetLabel = challenge is null
             ? "No runway target"
             : $"{challenge.Runway.AirportIcao}  ·  RWY {challenge.Runway.RunwayId}";
 
-        var reading = LandingMonitorCalculator.Calculate(
+        var reading = sharedGuidance ?? LandingMonitorCalculator.Calculate(
             sample,
             challenge?.Runway,
             targetAirspeedKts,
@@ -115,6 +117,13 @@ public sealed class SecondaryHudViewModel : ViewModelBase
         if (challenge is null || settings is null)
         {
             MonitorStatus = "Waiting for an armed runway";
+            return;
+        }
+
+        if (!evaluationArmed)
+        {
+            EtaDisplay = "--:--";
+            MonitorStatus = "Runway locked · evaluation waiting";
             return;
         }
 
@@ -157,6 +166,13 @@ public sealed class SecondaryHudViewModel : ViewModelBase
     {
         TargetLabel = $"{airportIcao}  ·  RWY {runwayId}";
         PhaseLabel = "TARGETING";
+        MonitorStatus = status;
+    }
+
+    public void ShowLockedFreeTarget(string airportIcao, string runwayId, string status)
+    {
+        TargetLabel = $"{airportIcao}  ·  RWY {runwayId}";
+        PhaseLabel = "LOCKED";
         MonitorStatus = status;
     }
 

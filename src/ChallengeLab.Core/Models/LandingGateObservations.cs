@@ -80,6 +80,11 @@ public sealed class LandingGateObservations
     public bool PoweredReverseViolation { get; set; }
     public double? FirstPoweredReverseTimeSeconds { get; set; }
     public double? FirstPoweredReverseThrottlePercent { get; set; }
+    public bool PoweredReverseReductionEvaluated { get; set; }
+    public bool PoweredReverseReductionCoverageAvailable { get; set; }
+    public double? GroundSpeedKtsAtPoweredReverseCheck { get; set; }
+    public bool PoweredReverseReducedAtThreshold { get; set; }
+    public List<int> EnginesAboveReverseIdleAtThreshold { get; set; } = new();
     public bool ReverseThrustStowEvaluated { get; set; }
     public bool ReverseThrustStowCoverageAvailable { get; set; }
     public double? GroundSpeedKtsAtReverseStowCheck { get; set; }
@@ -136,6 +141,11 @@ public sealed class LandingGateObservations
         PoweredReverseViolation = false;
         FirstPoweredReverseTimeSeconds = null;
         FirstPoweredReverseThrottlePercent = null;
+        PoweredReverseReductionEvaluated = false;
+        PoweredReverseReductionCoverageAvailable = false;
+        GroundSpeedKtsAtPoweredReverseCheck = null;
+        PoweredReverseReducedAtThreshold = false;
+        EnginesAboveReverseIdleAtThreshold.Clear();
         ReverseThrustStowEvaluated = false;
         ReverseThrustStowCoverageAvailable = false;
         GroundSpeedKtsAtReverseStowCheck = null;

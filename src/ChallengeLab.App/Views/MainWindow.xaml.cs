@@ -22,6 +22,8 @@ public partial class MainWindow : Window
     private CompanionHudWindow? _hud;
     private SecondaryHudWindow? _secondaryHud;
     private HudWindow? _fighterHud;
+    private double _fighterHudScale = 0.78;
+    private double _fighterHudOpacity = 0.95;
 
     public MainWindow()
     {
@@ -689,6 +691,10 @@ public partial class MainWindow : Window
         {
             // Unowned overlay so it stays up when the menu is hidden.
             _fighterHud = new HudWindow();
+            _fighterHud.ApplyScale(_fighterHudScale);
+            _fighterHud.ApplyOpacity(_fighterHudOpacity);
+            _fighterHud.ScaleChanged += scale => _fighterHudScale = scale;
+            _fighterHud.OpacityChanged += opacity => _fighterHudOpacity = opacity;
             _fighterHud.Closed += (_, _) =>
             {
                 _fighterHud = null;

@@ -439,7 +439,18 @@ internal static class OperationalGateEvaluator
             return 1;
         }
 
-        if (!obs.ReverseThrustStowEvaluated || !obs.ReverseThrustStowCoverageAvailable)
+        if (policy == ReverseThrustPolicies.Required
+            && (!obs.PoweredReverseReductionEvaluated
+                || !obs.PoweredReverseReductionCoverageAvailable))
+            return PendingOrUnavailable(id, name,
+                $"Complete per-engine reverse power was not observed at or below {cfg.IdleGroundSpeedKts:0.##} kt groundspeed.",
+                criteria, incomplete, preview, cfg.MultiplierOnFail, context);
+
+        var requiresStowCheck = policy == ReverseThrustPolicies.Required
+                                || (policy == ReverseThrustPolicies.OptionalIdleOnly
+                                    && obs.FirstReverseSelectionTimeSecondsByEngine.Count > 0);
+        if (requiresStowCheck
+            && (!obs.ReverseThrustStowEvaluated || !obs.ReverseThrustStowCoverageAvailable))
             return PendingOrUnavailable(id, name,
                 $"Complete per-engine reverse state was not observed at or below {cfg.StowGroundSpeedKts:0.##} kt groundspeed.",
                 criteria, incomplete, preview, cfg.MultiplierOnFail, context);
@@ -461,6 +472,9 @@ internal static class OperationalGateEvaluator
                         failures.Add(
                             $"engine(s) {string.Join(", ", missingOrLate)} did not select reverse inside the inclusive TD+{cfg.DeadlineSecondsAfterTouchdown:0.##} s window");
                 }
+                if (!obs.PoweredReverseReducedAtThreshold)
+                    failures.Add(
+                        $"engine(s) {string.Join(", ", obs.EnginesAboveReverseIdleAtThreshold)} remained above reverse idle at {cfg.IdleGroundSpeedKts:0.##} kt");
                 if (!obs.ReverseThrustStowedAtThreshold)
                     failures.Add(
                         $"engine(s) {string.Join(", ", obs.EnginesNotStowedAtThreshold)} were not completely stowed by {cfg.StowGroundSpeedKts:0.##} kt");
@@ -486,7 +500,7 @@ internal static class OperationalGateEvaluator
         var policyNote = policy switch
         {
             ReverseThrustPolicies.Required =>
-                $"All engines operating at touchdown [{operatingLabel}] must select at least idle reverse by TD+{cfg.DeadlineSecondsAfterTouchdown:0.##} s and every reverser must be stowed by {cfg.StowGroundSpeedKts:0.##} kt.",
+                $"All engines operating at touchdown [{operatingLabel}] must select at least idle reverse by TD+{cfg.DeadlineSecondsAfterTouchdown:0.##} s, reduce powered reverse to idle or stowed by {cfg.IdleGroundSpeedKts:0.##} kt, and stow every reverser by {cfg.StowGroundSpeedKts:0.##} kt.",
             ReverseThrustPolicies.OptionalIdleOnly =>
                 $"Reverse is optional but may not use throttle below {cfg.PoweredReverseThrottleThresholdPercent:0.##}%; selected reversers must be stowed by {cfg.StowGroundSpeedKts:0.##} kt.",
             _ => "Reverse selection is prohibited after touchdown."
@@ -507,7 +521,9 @@ internal static class OperationalGateEvaluator
         if (!string.IsNullOrWhiteSpace(cfg.ExceptionReason))
             policyNote += $" Exception: {cfg.ExceptionReason}";
         if (obs.ReverseApplicationWaivedByLowSpeed)
-            policyNote += $" The application deadline was waived because groundspeed reached {cfg.StowGroundSpeedKts:0.##} kt first.";
+            policyNote += $" The application deadline was waived because groundspeed reached {cfg.IdleGroundSpeedKts:0.##} kt first.";
+        if (obs.GroundSpeedKtsAtPoweredReverseCheck is { } idleSpeed)
+            policyNote += $" Reverse idle was checked at {idleSpeed:0.##} kt.";
         if (obs.GroundSpeedKtsAtReverseStowCheck is { } stowSpeed)
             policyNote += $" Stow was checked at {stowSpeed:0.##} kt.";
 

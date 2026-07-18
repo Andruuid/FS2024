@@ -15,7 +15,7 @@ internal sealed class SimulatorWindowTracker
         "FlightSimulator",
     ];
 
-    public bool TryGetActiveClientBounds(out WindowClientBounds bounds)
+    public bool TryGetClientBounds(out WindowClientBounds bounds)
     {
         bounds = default;
         foreach (var name in ProcessNames)
@@ -37,8 +37,7 @@ internal sealed class SimulatorWindowTracker
                     var handle = process.MainWindowHandle;
                     if (handle == IntPtr.Zero
                         || !IsWindowVisible(handle)
-                        || IsIconic(handle)
-                        || GetForegroundWindow() != handle)
+                        || IsIconic(handle))
                         continue;
 
                     if (!GetClientRect(handle, out var client))
@@ -101,6 +100,4 @@ internal sealed class SimulatorWindowTracker
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool IsIconic(IntPtr window);
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
 }

@@ -13,15 +13,15 @@ public sealed class FreeModeScoringParityTests
             "GPS GROUND TRUE TRACK", null);
 
     [Fact]
-    public void FreeV16_IsAStructuralOverlayOfLandingV33()
+    public void FreeV17_IsAStructuralOverlayOfLandingV34()
     {
         var loader = new ConfigLoader(FindConfig());
         var catalog = loader.LoadCatalog();
         var normal = loader.LoadEvaluationKey(catalog.EvaluationKey).Key!;
         var free = loader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey).Key!;
 
-        Assert.Equal(33, normal.Version);
-        Assert.Equal(16, free.Version);
+        Assert.Equal(34, normal.Version);
+        Assert.Equal(17, free.Version);
         Assert.NotNull(free.FreeMode);
         Assert.Equal(50, free.FreeMode!.UnavailableMetricScorePercent);
         Assert.Equal(0.5, free.FreeMode.MissingGatePenaltyFraction);
@@ -528,10 +528,14 @@ public sealed class FreeModeScoringParityTests
         observations.OperatingEngineIndicesAtTouchdown.AddRange([1, 2]);
         observations.FirstReverseSelectionTimeSecondsByEngine[1] = 12;
         observations.FirstReverseSelectionTimeSecondsByEngine[2] = 12;
+        observations.PoweredReverseReductionEvaluated = true;
+        observations.PoweredReverseReductionCoverageAvailable = true;
+        observations.PoweredReverseReducedAtThreshold = true;
+        observations.GroundSpeedKtsAtPoweredReverseCheck = 60;
         observations.ReverseThrustStowEvaluated = true;
         observations.ReverseThrustStowCoverageAvailable = true;
         observations.ReverseThrustStowedAtThreshold = true;
-        observations.GroundSpeedKtsAtReverseStowCheck = 59;
+        observations.GroundSpeedKtsAtReverseStowCheck = 30;
         return snapshot;
     }
 

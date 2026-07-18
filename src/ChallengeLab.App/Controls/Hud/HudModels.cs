@@ -40,6 +40,16 @@ internal sealed record HudPresentationFrame(
             targetAirspeedKts,
             approachPathMinDistNm,
             approachPathMaxDistNm);
+        return FromGuidance(sample, isConnected, sequence, runway, guidance);
+    }
+
+    public static HudPresentationFrame FromGuidance(
+        TelemetrySample sample,
+        bool isConnected,
+        long sequence,
+        RunwayConfig? runway,
+        LandingMonitorReading guidance)
+    {
         var flightActive = isConnected && (
             !string.IsNullOrWhiteSpace(sample.AircraftTitle)
             || sample.AirspeedKts > 1
@@ -117,6 +127,7 @@ internal sealed class HudViewGate
     internal const double ExitHorizontalDegrees = 45;
     internal const double EnterVerticalDegrees = 25;
     internal const double ExitVerticalDegrees = 35;
+    internal const double NearRunwayDistanceMeters = 1_852;
 
     private const int CockpitCameraState = 2;
     private const int InstrumentViewType = 2;
@@ -149,17 +160,41 @@ internal sealed class HudViewGate
         if (!view.HasRunwayTarget
             || view.CameraPitchRadians is not { } cameraPitch
             || view.CameraYawRadians is not { } cameraYaw
-            || !TryGetTargetDirection(view, out var targetBearing, out var targetElevation))
+            || !TryGetTargetDirection(
+                view,
+                out var targetBearing,
+                out var targetElevation,
+                out var targetDistanceMeters))
         {
             _wasDirectionVisible = false;
             return true;
         }
 
+        var cameraYawDegrees = LandingMonitorCalculator.NormalizeSignedDegrees(
+            cameraYaw * 180.0 / Math.PI);
+        var cameraPitchDegrees = cameraPitch * 180.0 / Math.PI;
+
+        // Once close to the runway, its threshold rapidly moves below and then behind the
+        // aircraft during the flare. Keep a normal forward cockpit view visible there, while
+        // still rejecting deliberate side/downward looks such as looking at the flaps.
+        var nearHorizontalLimit = _wasDirectionVisible
+            ? ExitHorizontalDegrees
+            : EnterHorizontalDegrees;
+        var nearVerticalLimit = _wasDirectionVisible
+            ? ExitVerticalDegrees
+            : EnterVerticalDegrees;
+        if (targetDistanceMeters <= NearRunwayDistanceMeters)
+        {
+            _wasDirectionVisible = Math.Abs(cameraYawDegrees) <= nearHorizontalLimit
+                                   && Math.Abs(cameraPitchDegrees) <= nearVerticalLimit;
+            return _wasDirectionVisible;
+        }
+
         // MSFS reports gameplay camera offsets in radians. Treat positive yaw as right and
         // positive pitch as up, then combine them with aircraft attitude to get world look direction.
         var lookHeading = NormalizeDirection(
-            view.AircraftHeadingDeg + cameraYaw * 180.0 / Math.PI);
-        var lookPitch = view.AircraftPitchDeg + cameraPitch * 180.0 / Math.PI;
+            view.AircraftHeadingDeg + cameraYawDegrees);
+        var lookPitch = view.AircraftPitchDeg + cameraPitchDegrees;
         var horizontalError = Math.Abs(LandingMonitorCalculator.NormalizeSignedDegrees(
             targetBearing - lookHeading));
         var verticalError = Math.Abs(targetElevation - lookPitch);
@@ -178,10 +213,12 @@ internal sealed class HudViewGate
     private static bool TryGetTargetDirection(
         HudViewContext view,
         out double bearingDegrees,
-        out double elevationDegrees)
+        out double elevationDegrees,
+        out double distanceMeters)
     {
         bearingDegrees = 0;
         elevationDegrees = 0;
+        distanceMeters = 0;
         if (!double.IsFinite(view.AircraftLatitude)
             || !double.IsFinite(view.AircraftLongitude)
             || !double.IsFinite(view.AircraftAltitudeFeet)
@@ -203,10 +240,16 @@ internal sealed class HudViewGate
         var haversine = sinHalfLatitude * sinHalfLatitude
                         + Math.Cos(latitude1) * Math.Cos(latitude2)
                         * sinHalfLongitude * sinHalfLongitude;
-        var distanceMeters = 2.0 * EarthRadiusMeters
-                             * Math.Asin(Math.Sqrt(Math.Clamp(haversine, 0, 1)));
-        if (!double.IsFinite(distanceMeters) || distanceMeters < 1)
+        distanceMeters = 2.0 * EarthRadiusMeters
+                         * Math.Asin(Math.Sqrt(Math.Clamp(haversine, 0, 1)));
+        if (!double.IsFinite(distanceMeters))
             return false;
+        if (distanceMeters < 1)
+        {
+            bearingDegrees = NormalizeDirection(view.AircraftHeadingDeg);
+            elevationDegrees = 0;
+            return true;
+        }
 
         var y = Math.Sin(deltaLongitude) * Math.Cos(latitude2);
         var x = Math.Cos(latitude1) * Math.Sin(latitude2)

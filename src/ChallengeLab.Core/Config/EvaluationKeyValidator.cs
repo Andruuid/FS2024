@@ -593,8 +593,14 @@ public static class EvaluationKeyValidator
         if (!double.IsFinite(gate.PoweredReverseThrottleThresholdPercent)
             || gate.PoweredReverseThrottleThresholdPercent is < -100 or > 0)
             errors.Add($"{path}.poweredReverseThrottleThresholdPercent must be between -100 and zero.");
+        if (!IsPositiveFinite(gate.IdleGroundSpeedKts))
+            errors.Add($"{path}.idleGroundSpeedKts must be greater than zero.");
         if (!IsPositiveFinite(gate.StowGroundSpeedKts))
             errors.Add($"{path}.stowGroundSpeedKts must be greater than zero.");
+        if (double.IsFinite(gate.IdleGroundSpeedKts)
+            && double.IsFinite(gate.StowGroundSpeedKts)
+            && gate.IdleGroundSpeedKts <= gate.StowGroundSpeedKts)
+            errors.Add($"{path}.idleGroundSpeedKts must be greater than stowGroundSpeedKts.");
         ValidateOptionalMultiplier(gate.MultiplierOnFail, $"{path}.multiplierOnFail", errors);
     }
 

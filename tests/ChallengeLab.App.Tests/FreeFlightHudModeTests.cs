@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text;
 using ChallengeLab.App.Controls;
+using ChallengeLab.App.Controls.Hud;
 using ChallengeLab.App.ViewModels;
 using ChallengeLab.App.Views;
 using ChallengeLab.Core.Career;
@@ -84,6 +85,97 @@ public sealed class FreeFlightHudModeTests
             }
     }
 
+    private static void VerifyStickyTargetRetention()
+    {
+        var scorePath = Path.Combine(Path.GetTempPath(), $"challenge-lab-{Guid.NewGuid():N}.json");
+        var careerPath = Path.Combine(Path.GetTempPath(), $"challenge-lab-career-{Guid.NewGuid():N}.json");
+        var airport = new AirportFacility("TEST", "ZZ", 0, 0, 10);
+        var sim = new FakeSimBridge
+        {
+            Airports = [airport],
+            AirportDetails = new Dictionary<string, AirportRunwayFacility>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["TEST"] = Detail(airport),
+            },
+        };
+        var vm = new MainViewModel(
+            sim,
+            new ConfigLoader(FindConfig()),
+            new HighscoreStore(scorePath),
+            new CareerProgressStore(careerPath));
+
+        try
+        {
+            sim.SetState(SimConnectionState.Connected);
+            var approach = ApproachSample(
+                "A320neo V2",
+                longitude: -.15,
+                heading: 90,
+                gearHandlePosition: 1);
+            sim.EmitTelemetry(approach);
+            WaitUntil(
+                () => vm.FreeTargetLockForDiagnostics is not null,
+                TimeSpan.FromSeconds(5));
+            var locked = Assert.IsType<FreeFlightTargetLock>(vm.FreeTargetLockForDiagnostics);
+
+            InvokeAcquireFreeTargetLock(
+                vm,
+                approach,
+                airportIcao: "OTHER",
+                runwayId: "27",
+                runwayHeading: 270);
+            Assert.Equal(locked.Key, vm.FreeTargetLockForDiagnostics?.Key);
+
+            HudPresentationFrame? frame = null;
+            vm.FighterHudPresentation += value => frame = value;
+            vm.SetFighterHudVisible(true);
+            Assert.True(frame?.View.HasRunwayTarget);
+            Assert.NotNull(frame?.Guidance.GlideslopeDeg);
+            Assert.Equal("TEST  ·  RWY 09", vm.SecondaryHud.TargetLabel);
+
+            sim.EmitTelemetry(ApproachSample(
+                "A320neo V2",
+                longitude: -.14,
+                heading: 90,
+                gearHandlePosition: 0,
+                airspeedKts: 220,
+                groundSpeedKts: 210,
+                altitudeFeet: 5_000));
+            Assert.Equal(locked.Key, vm.FreeTargetLockForDiagnostics?.Key);
+
+            sim.SetState(SimConnectionState.Disconnected);
+            Assert.Equal(locked.Key, vm.FreeTargetLockForDiagnostics?.Key);
+            sim.SetState(SimConnectionState.Connected);
+            Assert.Equal(locked.Key, vm.FreeTargetLockForDiagnostics?.Key);
+
+            vm.CleanMetricsCommand.Execute(null);
+            Assert.Null(vm.FreeTargetLockForDiagnostics);
+
+            var reacquiredAt = ApproachSample(
+                "A320neo V2",
+                longitude: -.15,
+                heading: 90,
+                gearHandlePosition: 1);
+            sim.EmitTelemetry(reacquiredAt);
+            InvokeAcquireFreeTargetLock(vm, reacquiredAt);
+            Assert.NotNull(vm.FreeTargetLockForDiagnostics);
+            sim.EmitTelemetry(ApproachSample(
+                "A320neo V2",
+                longitude: 1,
+                heading: 90,
+                gearHandlePosition: 1));
+            Assert.Null(vm.FreeTargetLockForDiagnostics);
+            Assert.Contains("position jump", vm.LogText, StringComparison.OrdinalIgnoreCase);
+            AssertNoSimulatorMutation(sim);
+        }
+        finally
+        {
+            vm.Dispose();
+            if (File.Exists(scorePath)) File.Delete(scorePath);
+            if (File.Exists(careerPath)) File.Delete(careerPath);
+        }
+    }
+
     [Fact]
     public void ModeTransitions_CancelDetectionAndNeverMutateSimulator()
     {
@@ -92,6 +184,7 @@ public sealed class FreeFlightHudModeTests
             var app = new ChallengeLab.App.App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             app.InitializeComponent();
             VerifyIncrementalFacilityLoadingAndReacquire();
+            VerifyStickyTargetRetention();
             var bindingErrors = new BindingErrorListener();
             PresentationTraceSources.DataBindingSource.Listeners.Add(bindingErrors);
             var scorePath = Path.Combine(Path.GetTempPath(), $"challenge-lab-{Guid.NewGuid():N}.json");
@@ -142,7 +235,19 @@ public sealed class FreeFlightHudModeTests
                 sim.EmitTelemetry(ApproachSample("  airbus a320 NEO asobo  "));
                 Assert.NotEqual("Detecting", vm.PhaseLabel);
 
-                sim.EmitTelemetry(ApproachSample("Cessna 172 Skyhawk Asobo"));
+                var mismatchStarted = DateTimeOffset.Parse("2026-07-19T00:00:00Z");
+                sim.EmitTelemetry(ApproachSample(
+                    "Cessna 172 Skyhawk Asobo",
+                    timestamp: mismatchStarted));
+                Assert.NotEqual("Targeting", vm.PhaseLabel);
+                Assert.NotNull(vm.FreeTargetLockForDiagnostics);
+                sim.EmitTelemetry(ApproachSample(
+                    "Cessna 172 Skyhawk Asobo",
+                    timestamp: mismatchStarted.AddSeconds(1)));
+                Assert.NotEqual("Targeting", vm.PhaseLabel);
+                sim.EmitTelemetry(ApproachSample(
+                    "Cessna 172 Skyhawk Asobo",
+                    timestamp: mismatchStarted.AddSeconds(2.1)));
                 Assert.Equal("Targeting", vm.PhaseLabel);
                 Assert.Contains("Aircraft changed", vm.HudTip, StringComparison.Ordinal);
                 Assert.Contains("Cessna 172 Skyhawk Asobo", vm.HudTip, StringComparison.Ordinal);
@@ -313,6 +418,32 @@ public sealed class FreeFlightHudModeTests
         method.Invoke(vm, [new FreeFlightTarget(runway, 2, 0, 0), sample, CancellationToken.None, false]);
     }
 
+    private static void InvokeAcquireFreeTargetLock(
+        MainViewModel vm,
+        TelemetrySample sample,
+        string airportIcao = "TEST",
+        string runwayId = "09",
+        double runwayHeading = 90)
+    {
+        var method = typeof(MainViewModel).GetMethod(
+            "AcquireFreeTargetLock",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(MainViewModel), "AcquireFreeTargetLock");
+        var airport = new AirportFacility(airportIcao, "ZZ", 0, 0, 10);
+        var runway = new RunwayEndFacility(
+            airport,
+            runwayId,
+            0,
+            0,
+            10,
+            runwayHeading,
+            2_000,
+            45,
+            4,
+            false);
+        method.Invoke(vm, [new FreeFlightTarget(runway, 9, 0, 0), sample, false]);
+    }
+
     private static void WaitUntil(Func<bool> condition, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;
@@ -330,15 +461,20 @@ public sealed class FreeFlightHudModeTests
         string? aircraftTitle = null,
         double longitude = -.04,
         double heading = 110,
-        double gearHandlePosition = 1) => new()
+        double gearHandlePosition = 1,
+        DateTimeOffset? timestamp = null,
+        double airspeedKts = 90,
+        double groundSpeedKts = 90,
+        double altitudeFeet = 1_000) => new()
     {
+        Timestamp = timestamp ?? DateTimeOffset.UtcNow,
         Latitude = 0,
         Longitude = longitude,
-        AltitudeFeet = 1000,
-        AglFeet = 1000,
-        RadioHeightFeet = 1000,
-        AirspeedKts = 90,
-        GroundSpeedKts = 90,
+        AltitudeFeet = altitudeFeet,
+        AglFeet = altitudeFeet,
+        RadioHeightFeet = altitudeFeet,
+        AirspeedKts = airspeedKts,
+        GroundSpeedKts = groundSpeedKts,
         HeadingTrueDeg = heading,
         SimOnGround = false,
         DesignSpeedVs0Kts = 45,

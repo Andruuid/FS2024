@@ -157,10 +157,10 @@ Spawn verified: horiz=… m · altErr=… ft · ias=… kt
 
 `config/scoring/profiles/free-flight-evaluation-key.json` (Free, generic VS0-based VAPP and no flap-index gate)
 
-Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, phase/general penalties, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v32 and the Free key is v15. Session log confirms load:
+Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, phase/general penalties, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v34 and the Free key is v17. Session log confirms load:
 
 ```
-Evaluation key loaded: landing-evaluation-key v32 · N metrics · Approach 30% + Touchdown 60% + Rollout 10%
+Evaluation key loaded: landing-evaluation-key v34 · N metrics · Approach 30% + Touchdown 60% + Rollout 10%
   path: ...\config\scoring\profiles\landing-evaluation-key.json
 ```
 

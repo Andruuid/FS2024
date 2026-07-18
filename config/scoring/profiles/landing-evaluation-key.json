@@ -1,6 +1,6 @@
 {
   "id": "landing-evaluation-key",
-  "version": 33,
+  "version": 34,
   "description": "Single authoritative Challenge/Career landing score. Phase scores are pure metric quality; every penalty multiplies the combined ranked score.",
   "formula": "subtotal = sum(phaseScore * phaseWeightPercent / 100); final = round(subtotal * product(general penalty multipliers), 1)",
   "settle": {
@@ -101,9 +101,10 @@
       "deadlineSecondsAfterTouchdown": 5.0,
       "minimumNozzlePosition": 0.01,
       "poweredReverseThrottleThresholdPercent": -1.0,
-      "stowGroundSpeedKts": 60.0,
+      "idleGroundSpeedKts": 60.0,
+      "stowGroundSpeedKts": 30.0,
       "multiplierOnFail": 0.9,
-      "penaltyDescription": "Every engine operating at main-gear touchdown must select at least idle reverse no later than TD+5 seconds, and all reversers must be completely stowed by 60 kt groundspeed. Failure multiplies the combined score once."
+      "penaltyDescription": "Every engine operating at main-gear touchdown must select at least idle reverse no later than TD+5 seconds. Powered reverse must be reduced to reverse idle or stowed by 60 kt, and reverse idle may remain selected until all reversers must be completely stowed by 30 kt. Failure multiplies the combined score once."
     },
     "pauseUsage": {
       "multiplierOnFail": 0.95,

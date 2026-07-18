@@ -20,7 +20,7 @@ public sealed class OperationalLandingGateTests
         var free = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey);
 
         Assert.True(challenge.IsValid, string.Join("; ", challenge.Errors));
-        Assert.Equal(33, challenge.Key!.Version);
+        Assert.Equal(34, challenge.Key!.Version);
         var general = challenge.Key.GeneralPenalties!;
         Assert.NotNull(general.SpoilerDeployment);
         Assert.NotNull(general.NoseGearImpact);
@@ -35,7 +35,7 @@ public sealed class OperationalLandingGateTests
         Assert.Equal(0.85, general.Rollout!.MultiplierOnFail, 6);
 
         Assert.True(free.IsValid, string.Join("; ", free.Errors));
-        Assert.Equal(16, free.Key!.Version);
+        Assert.Equal(17, free.Key!.Version);
         Assert.NotNull(free.Key.FreeMode);
         Assert.NotNull(free.Key.GeneralPenalties?.PauseUsage);
         Assert.NotNull(free.Key.GeneralPenalties?.SimulationRate);
@@ -91,6 +91,8 @@ public sealed class OperationalLandingGateTests
             ("minimumNozzlePosition", gate => gate.MinimumNozzlePosition = 1.001),
             ("poweredReverseThrottleThresholdPercent", gate => gate.PoweredReverseThrottleThresholdPercent = -100.001),
             ("poweredReverseThrottleThresholdPercent", gate => gate.PoweredReverseThrottleThresholdPercent = 0.001),
+            ("idleGroundSpeedKts", gate => gate.IdleGroundSpeedKts = 0),
+            ("idleGroundSpeedKts", gate => gate.IdleGroundSpeedKts = gate.StowGroundSpeedKts),
             ("stowGroundSpeedKts", gate => gate.StowGroundSpeedKts = 0),
             ("multiplierOnFail", gate => gate.MultiplierOnFail = 0),
             ("multiplierOnFail", gate => gate.MultiplierOnFail = 1.001)
@@ -563,11 +565,11 @@ public sealed class OperationalLandingGateTests
         session.Arm();
         session.Ingest(AirSample(0, 100));
         session.Ingest(GroundSample(1, 100, spoilers: 0, brakes: 0));
-        session.Ingest(GroundSample(2, 40, spoilers: 0.2, brakes: 0.1));
-        session.Ingest(GroundSample(3.1, 40, spoilers: 0.2, brakes: 0.1));
+        session.Ingest(GroundSample(2, 25, spoilers: 0.2, brakes: 0.1));
+        session.Ingest(GroundSample(3.1, 25, spoilers: 0.2, brakes: 0.1));
         Assert.False(session.IsComplete);
 
-        session.Ingest(GroundSample(5, 40, spoilers: 0.2, brakes: 0.1));
+        session.Ingest(GroundSample(5, 25, spoilers: 0.2, brakes: 0.1));
         Assert.True(session.IsComplete);
     }
 
@@ -601,7 +603,7 @@ public sealed class OperationalLandingGateTests
     }
 
     [Fact]
-    public void ReverseThrustSession_LatchesBothOperatingEnginesAndExactSixtyKnotStow()
+    public void ReverseThrustSession_AllowsIdleFromExactSixtyUntilExactThirtyKnotStow()
     {
         var (key, challenge) = LoadChallengeProfile();
         var session = new LandingSession(challenge, key.ToSessionSettings() with
@@ -612,16 +614,63 @@ public sealed class OperationalLandingGateTests
         session.Arm();
         session.Ingest(ReverseSample(9, airborne: true, groundSpeed: 130));
         session.Ingest(ReverseSample(10, airborne: false, groundSpeed: 120));
-        session.Ingest(ReverseSample(14, airborne: false, groundSpeed: 90, reverse1: true, reverse2: true));
-        session.Ingest(ReverseSample(20, airborne: false, groundSpeed: 60));
+        session.Ingest(ReverseSample(
+            14, airborne: false, groundSpeed: 90,
+            reverse1: true, reverse2: true, throttle1: -20, throttle2: -20));
+        session.Ingest(ReverseSample(
+            20, airborne: false, groundSpeed: 60,
+            reverse1: true, reverse2: true));
 
         var obs = session.Snapshot.GateObservations;
         Assert.Equal(new[] { 1, 2 }, obs.OperatingEngineIndicesAtTouchdown);
         Assert.Equal(14, obs.FirstReverseSelectionTimeSecondsByEngine[1]);
         Assert.Equal(14, obs.FirstReverseSelectionTimeSecondsByEngine[2]);
+        Assert.True(obs.PoweredReverseReductionEvaluated);
+        Assert.True(obs.PoweredReverseReducedAtThreshold);
+        Assert.Equal(60, obs.GroundSpeedKtsAtPoweredReverseCheck);
+        Assert.False(obs.ReverseThrustStowEvaluated);
+
+        session.Ingest(ReverseSample(
+            21, airborne: false, groundSpeed: 30.001,
+            reverse1: true, reverse2: true));
+        Assert.False(obs.ReverseThrustStowEvaluated);
+
+        session.Ingest(ReverseSample(22, airborne: false, groundSpeed: 30));
         Assert.True(obs.ReverseThrustStowEvaluated);
         Assert.True(obs.ReverseThrustStowedAtThreshold);
-        Assert.Equal(60, obs.GroundSpeedKtsAtReverseStowCheck);
+        Assert.Equal(30, obs.GroundSpeedKtsAtReverseStowCheck);
+    }
+
+    [Fact]
+    public void ReverseThrust_PenalizesPoweredReverseAtExactSixtyEvenWhenStowedByThirty()
+    {
+        var (key, challenge) = LoadChallengeProfile();
+        var session = new LandingSession(challenge, key.ToSessionSettings() with
+        {
+            PostArmIgnoreSeconds = 0,
+            RequireAirborneBeforeTouchdown = false
+        });
+        session.Arm();
+        session.Ingest(ReverseSample(9, airborne: true, groundSpeed: 130));
+        session.Ingest(ReverseSample(
+            10, airborne: false, groundSpeed: 120,
+            reverse1: true, reverse2: true));
+        session.Ingest(ReverseSample(
+            15, airborne: false, groundSpeed: 60,
+            reverse1: true, reverse2: true, throttle1: -20));
+        session.Ingest(ReverseSample(16, airborne: false, groundSpeed: 30));
+
+        var obs = session.Snapshot.GateObservations;
+        Assert.False(obs.PoweredReverseReducedAtThreshold);
+        Assert.Equal(new[] { 1 }, obs.EnginesAboveReverseIdleAtThreshold);
+        Assert.True(obs.ReverseThrustStowedAtThreshold);
+
+        var criterion = new ScoreEngine(key).Evaluate(challenge, session.Snapshot).Criteria
+            .Single(item => item.Id == "reverse_thrust");
+
+        Assert.Equal(MetricStatus.GateFailed, criterion.Status);
+        Assert.Contains("above reverse idle at 60 kt", criterion.Note);
+        Assert.Contains("Stow was checked at 30 kt", criterion.Note);
     }
 
     [Fact]
@@ -645,6 +694,7 @@ public sealed class OperationalLandingGateTests
         lowSpeed.Ingest(ReverseSample(9, true, 80));
         lowSpeed.Ingest(ReverseSample(10, false, 70));
         lowSpeed.Ingest(ReverseSample(12, false, 60));
+        lowSpeed.Ingest(ReverseSample(13, false, 30));
         Assert.True(lowSpeed.Snapshot.GateObservations.ReverseApplicationWaivedByLowSpeed);
         Assert.True(lowSpeed.Snapshot.GateObservations.ReverseThrustStowedAtThreshold);
     }
@@ -700,9 +750,17 @@ public sealed class OperationalLandingGateTests
             throttle1: throttle,
             reverseEngaged1: engaged,
             reverseNozzle1: nozzle));
+        session.Ingest(ReverseSample(
+            16,
+            false,
+            30,
+            throttle1: throttle,
+            reverseEngaged1: engaged,
+            reverseNozzle1: nozzle));
 
         var obs = session.Snapshot.GateObservations;
         Assert.Equal(10, obs.FirstReverseSelectionTimeSecondsByEngine[1]);
+        Assert.Equal(throttle >= -1, obs.PoweredReverseReducedAtThreshold);
         Assert.False(obs.ReverseThrustStowedAtThreshold);
         Assert.Contains(1, obs.EnginesNotStowedAtThreshold);
     }
@@ -749,7 +807,8 @@ public sealed class OperationalLandingGateTests
         redeployed.Ingest(ReverseSample(9, true, 130));
         redeployed.Ingest(ReverseSample(10, false, 120, reverse1: true, reverse2: true));
         redeployed.Ingest(ReverseSample(15, false, 60));
-        redeployed.Ingest(ReverseSample(16, false, 50, reverse1: true));
+        redeployed.Ingest(ReverseSample(16, false, 30));
+        redeployed.Ingest(ReverseSample(17, false, 20, reverse1: true));
 
         var obs = redeployed.Snapshot.GateObservations;
         Assert.False(obs.ReverseThrustStowedAtThreshold);
@@ -1077,6 +1136,8 @@ public sealed class OperationalLandingGateTests
             Assert.Equal(2, root.GetProperty("Snapshot").GetProperty("OperationalGates")
                 .GetProperty("OperatingEngineIndicesAtTouchdown").GetArrayLength());
             Assert.Equal(60, root.GetProperty("Snapshot").GetProperty("OperationalGates")
+                .GetProperty("GroundSpeedKtsAtPoweredReverseCheck").GetDouble());
+            Assert.Equal(30, root.GetProperty("Snapshot").GetProperty("OperationalGates")
                 .GetProperty("GroundSpeedKtsAtReverseStowCheck").GetDouble());
             Assert.Contains(root.GetProperty("Metrics").EnumerateArray(), metric =>
                 metric.GetProperty("Id").GetString() == "pause_usage"
@@ -1419,9 +1480,13 @@ public sealed class OperationalLandingGateTests
             [1] = 11,
             [2] = 11.5
         };
+        obs.PoweredReverseReductionEvaluated = true;
+        obs.PoweredReverseReductionCoverageAvailable = true;
+        obs.GroundSpeedKtsAtPoweredReverseCheck = 60;
+        obs.PoweredReverseReducedAtThreshold = true;
         obs.ReverseThrustStowEvaluated = true;
         obs.ReverseThrustStowCoverageAvailable = true;
-        obs.GroundSpeedKtsAtReverseStowCheck = 60;
+        obs.GroundSpeedKtsAtReverseStowCheck = 30;
         obs.ReverseThrustStowedAtThreshold = true;
         return snapshot;
     }

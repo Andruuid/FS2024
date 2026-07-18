@@ -67,6 +67,21 @@ public sealed class ApproachHudTests
     }
 
     [Fact]
+    public void ViewGate_StaysVisibleThroughThresholdCrossingInAForwardCockpitView()
+    {
+        var gate = new HudViewGate();
+        var thresholdJustBehindAircraft = Runway(latitude: -0.0001, longitude: 0);
+        var aircraftAtThreshold = Runway(latitude: 0, longitude: 0);
+
+        Assert.True(gate.ShouldShow(Frame(Sample(), thresholdJustBehindAircraft)));
+        Assert.True(gate.ShouldShow(Frame(Sample(), aircraftAtThreshold)));
+        Assert.False(gate.ShouldShow(Frame(
+            Sample(cameraYawRadians: Degrees(90)), thresholdJustBehindAircraft)));
+        Assert.False(gate.ShouldShow(Frame(
+            Sample(cameraPitchRadians: Degrees(-60)), aircraftAtThreshold)));
+    }
+
+    [Fact]
     public void ViewGate_HidesDisconnectedOrInactiveFlightFrames()
     {
         var gate = new HudViewGate();
@@ -95,6 +110,7 @@ public sealed class ApproachHudTests
         {
             var visual = new HudVisual();
             visual.UpdatePresentation(Frame(Sample(), Runway()));
+            visual.UpdateScale(1);
             visual.Measure(new Size(HudVisual.DesignWidth, HudVisual.DesignHeight));
             visual.Arrange(new Rect(0, 0, HudVisual.DesignWidth, HudVisual.DesignHeight));
             visual.UpdateLayout();
@@ -107,12 +123,61 @@ public sealed class ApproachHudTests
                 PixelFormats.Pbgra32);
             bitmap.Render(visual);
 
-            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(550, 28, 500, 116)));
-            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(76, 244, 330, 154)));
-            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(76, 425, 330, 154)));
-            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(1194, 319, 330, 176)));
-            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(625, 747, 350, 122)));
-            Assert.False(HasVisiblePixel(bitmap, new Int32Rect(500, 200, 600, 500)));
+            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(670, 80, 320, 90)));
+            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(445, 300, 220, 90)));
+            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(445, 420, 220, 90)));
+            Assert.False(HasVisiblePixel(bitmap, new Int32Rect(995, 360, 190, 30)));
+            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(995, 395, 190, 50)));
+            Assert.False(HasVisiblePixel(bitmap, new Int32Rect(995, 447, 190, 25)));
+            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(710, 640, 180, 80)));
+            Assert.False(HasVisiblePixel(bitmap, new Int32Rect(680, 220, 280, 360)));
+        });
+    }
+
+    [Fact]
+    public void RendererScale_ClampsToSliderRange()
+    {
+        RunSta(() =>
+        {
+            var visual = new HudVisual();
+
+            visual.UpdateScale(0.1);
+            Assert.Equal(0.55, visual.HudScale);
+            visual.UpdateScale(2);
+            Assert.Equal(1.25, visual.HudScale);
+            visual.UpdateOpacity(0.05);
+            Assert.Equal(0.2, visual.HudOpacity);
+            visual.UpdateOpacity(2);
+            Assert.Equal(1.0, visual.HudOpacity);
+        });
+    }
+
+    [Fact]
+    public void Renderer_HidesRunwayGuidanceUntilAnAirportIsDetected()
+    {
+        RunSta(() =>
+        {
+            var bitmap = Render(Frame(Sample(), runway: null));
+
+            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(670, 80, 320, 90)));
+            Assert.False(HasVisiblePixel(bitmap, new Int32Rect(445, 300, 220, 210)));
+            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(995, 390, 190, 60)));
+            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(710, 640, 180, 80)));
+        });
+    }
+
+    [Fact]
+    public void Renderer_ShowsDirectionArrowAndNumericSpeedForCalmWind()
+    {
+        RunSta(() =>
+        {
+            var sample = Sample(windSpeedKts: 0.1, windDirectionDeg: 90);
+            var wind = RelativeWindCalculator.Calculate(sample);
+            var bitmap = Render(Frame(sample, Runway()));
+
+            Assert.False(wind.HasWind);
+            Assert.Equal("0.1 KT", HudVisual.FormatWindSpeed(wind));
+            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(724, 115, 8, 10)));
         });
     }
 
@@ -123,7 +188,9 @@ public sealed class ApproachHudTests
         double? cameraPitchRadians = 0,
         double? cameraYawRadians = 0,
         int? cameraState = 2,
-        int? cameraViewType = 1) => new()
+        int? cameraViewType = 1,
+        double windSpeedKts = 20,
+        double windDirectionDeg = 90) => new()
         {
             Timestamp = DateTimeOffset.Parse("2026-07-18T12:00:00Z"),
             Latitude = 0,
@@ -135,8 +202,8 @@ public sealed class ApproachHudTests
             AirspeedKts = 135,
             GroundSpeedKts = 130,
             VerticalSpeedFpm = -700,
-            WindDirectionDeg = 90,
-            WindVelocityKts = 20,
+            WindDirectionDeg = windDirectionDeg,
+            WindVelocityKts = windSpeedKts,
             SimOnGround = false,
             AircraftTitle = "Test Aircraft",
             CameraState = cameraState,
@@ -172,6 +239,25 @@ public sealed class ApproachHudTests
                 return true;
         }
         return false;
+    }
+
+    private static BitmapSource Render(HudPresentationFrame frame)
+    {
+        var visual = new HudVisual();
+        visual.UpdatePresentation(frame);
+        visual.UpdateScale(1);
+        visual.Measure(new Size(HudVisual.DesignWidth, HudVisual.DesignHeight));
+        visual.Arrange(new Rect(0, 0, HudVisual.DesignWidth, HudVisual.DesignHeight));
+        visual.UpdateLayout();
+
+        var bitmap = new RenderTargetBitmap(
+            (int)HudVisual.DesignWidth,
+            (int)HudVisual.DesignHeight,
+            96,
+            96,
+            PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        return bitmap;
     }
 
     private static void RunSta(Action action)

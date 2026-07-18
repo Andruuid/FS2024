@@ -124,9 +124,13 @@ public sealed class ScoreEngineTests
                 [1] = 11,
                 [2] = 11.5
             },
+            PoweredReverseReductionEvaluated = true,
+            PoweredReverseReductionCoverageAvailable = true,
+            GroundSpeedKtsAtPoweredReverseCheck = 60,
+            PoweredReverseReducedAtThreshold = true,
             ReverseThrustStowEvaluated = true,
             ReverseThrustStowCoverageAvailable = true,
-            GroundSpeedKtsAtReverseStowCheck = 60,
+            GroundSpeedKtsAtReverseStowCheck = 30,
             ReverseThrustStowedAtThreshold = true
         }
         };
@@ -438,7 +442,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(33, loaded.Key.Version);
+        Assert.Equal(34, loaded.Key.Version);
         Assert.Equal(0, loaded.Key.Timing!.PostTouchdownAlignmentDelaySeconds);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
@@ -452,7 +456,7 @@ public sealed class ScoreEngineTests
 
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("free-flight-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(16, loaded.Key.Version);
+        Assert.Equal(17, loaded.Key.Version);
         Assert.Equal(70, loaded.Key.SpeedTarget!.DefaultVappKts);
         Assert.NotNull(loaded.Key.FreeMode);
         Assert.NotNull(loaded.Key.GeneralPenalties!.Flaps);

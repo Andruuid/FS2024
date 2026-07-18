@@ -34,16 +34,17 @@ public sealed class HudVisual : FrameworkElement
         FontWeights.SemiBold,
         FontStretches.Normal);
 
-    private static readonly Brush GreenBrush = FrozenBrush("#3DDC97");
-    private static readonly Brush OrangeBrush = FrozenBrush("#FFB020");
-    private static readonly Brush RedBrush = FrozenBrush("#FF4D6A");
-    private static readonly Brush NeutralBrush = FrozenBrush("#A8B4C7");
-    private static readonly Brush LabelBrush = FrozenBrush("#B9C7D9");
-    private static readonly Brush PanelBrush = FrozenBrush("#A6121A28");
-    private static readonly Brush PanelBorderBrush = FrozenBrush("#7A61758A");
-    private static readonly Brush WindBrush = FrozenBrush("#64E8FF");
+    private static readonly Brush GreenBrush = FrozenBrush("#42FF9B");
+    private static readonly Brush OrangeBrush = FrozenBrush("#FFC24A");
+    private static readonly Brush RedBrush = FrozenBrush("#FF6685");
+    private static readonly Brush NeutralBrush = FrozenBrush("#E8F7FF");
+    private static readonly Brush LabelBrush = FrozenBrush("#74CFF2");
+    private static readonly Brush WindBrush = FrozenBrush("#42E3FF");
+    private static readonly Brush ShadowBrush = FrozenBrush("#C0000000");
 
     private HudPresentationFrame? _frame;
+    private double _hudScale = 0.78;
+    private double _hudOpacity = 0.95;
 
     public HudVisual()
     {
@@ -57,6 +58,22 @@ public sealed class HudVisual : FrameworkElement
         InvalidateVisual();
     }
 
+    internal double HudScale => _hudScale;
+
+    internal void UpdateScale(double scale)
+    {
+        _hudScale = Math.Clamp(scale, 0.55, 1.25);
+        InvalidateVisual();
+    }
+
+    internal double HudOpacity => _hudOpacity;
+
+    internal void UpdateOpacity(double opacity)
+    {
+        _hudOpacity = Math.Clamp(opacity, 0.2, 1.0);
+        InvalidateVisual();
+    }
+
     protected override void OnRender(DrawingContext drawingContext)
     {
         base.OnRender(drawingContext);
@@ -64,15 +81,19 @@ public sealed class HudVisual : FrameworkElement
             return;
 
         var fit = Math.Min(ActualWidth / DesignWidth, ActualHeight / DesignHeight);
-        var offsetX = (ActualWidth - DesignWidth * fit) / 2.0;
-        var offsetY = (ActualHeight - DesignHeight * fit) / 2.0;
+        var scale = fit * _hudScale;
+        var offsetX = (ActualWidth - DesignWidth * scale) / 2.0;
+        var offsetY = (ActualHeight - DesignHeight * scale) / 2.0;
         drawingContext.PushTransform(new TranslateTransform(offsetX, offsetY));
-        drawingContext.PushTransform(new ScaleTransform(fit, fit));
-        drawingContext.PushOpacity(0.9);
+        drawingContext.PushTransform(new ScaleTransform(scale, scale));
+        drawingContext.PushOpacity(_hudOpacity);
 
         DrawWind(drawingContext, _frame.Wind);
-        DrawPathPosition(drawingContext, _frame);
-        DrawDescentAngle(drawingContext, _frame);
+        if (_frame.View.HasRunwayTarget && _frame.TargetGlideslopeDeg is not null)
+        {
+            DrawPathPosition(drawingContext, _frame);
+            DrawDescentAngle(drawingContext, _frame);
+        }
         DrawVerticalSpeed(drawingContext, _frame.Guidance);
         DrawAirspeed(drawingContext, _frame.Guidance);
 
@@ -83,133 +104,104 @@ public sealed class HudVisual : FrameworkElement
 
     private static void DrawWind(DrawingContext dc, RelativeWindReading wind)
     {
-        var panel = new Rect(550, 28, 500, 116);
-        DrawPanel(dc, panel);
-        DrawText(dc, "WIND FROM", 11, LabelBrush, 584, 47, TextAlignment.Left, semibold: true);
+        var center = new Point(706, 120);
 
-        var center = new Point(678, 94);
-        dc.DrawEllipse(null, new Pen(WithOpacity(WindBrush, 0.45), 1.5), center, 35, 35);
-        DrawAircraftReference(dc, center);
-
-        if (wind.IsAvailable && wind.HasWind)
+        if (wind.IsAvailable)
             DrawWindArrow(dc, center, wind.RelativeFromAngleDeg);
         else
-            DrawText(dc, "—", 24, NeutralBrush, center.X, center.Y - 15, TextAlignment.Center, mono: true);
+            DrawText(dc, "—", 22, NeutralBrush, center.X, center.Y - 14, TextAlignment.Center, mono: true);
 
         var crosswind = !wind.IsAvailable
             ? "XWIND —"
             : Math.Abs(wind.CrosswindKts) < 0.05
                 ? "XWIND 0.0 KT"
                 : $"XWIND {(wind.CrosswindKts > 0 ? "R" : "L")} {Math.Abs(wind.CrosswindKts):0.0} KT";
-        var total = !wind.IsAvailable
-            ? "WIND —"
-            : wind.HasWind
-                ? $"WIND {wind.WindSpeedKts:0.0} KT"
-                : "CALM";
-        DrawText(dc, crosswind, 25, wind.IsAvailable ? WindBrush : NeutralBrush,
-            758, 58, TextAlignment.Left, mono: true);
-        DrawText(dc, total, 12, LabelBrush, 760, 103, TextAlignment.Left, semibold: true);
+        var speed = FormatWindSpeed(wind);
+        DrawText(dc, speed, 22, wind.IsAvailable ? WindBrush : NeutralBrush,
+            760, 94, TextAlignment.Left, mono: true);
+        DrawText(dc, crosswind, 18, wind.IsAvailable ? WindBrush : NeutralBrush,
+            760, 128, TextAlignment.Left, mono: true);
     }
+
+    internal static string FormatWindSpeed(RelativeWindReading wind) =>
+        wind.IsAvailable ? $"{wind.WindSpeedKts:0.0} KT" : "— KT";
 
     private static void DrawPathPosition(DrawingContext dc, HudPresentationFrame frame)
     {
-        var panel = new Rect(76, 244, 330, 154);
-        DrawPanel(dc, panel);
         var guidance = frame.Guidance;
         var value = guidance.GlideslopeDeg is { } angle ? $"{angle:0.0}°" : "—";
         var status = PathPositionLabel(guidance.GlideslopeDeg, frame.TargetGlideslopeDeg);
         var color = StatusBrush(guidance.GlideslopeStatus);
-        DrawText(dc, "PATH POSITION", 12, LabelBrush, 104, 269, TextAlignment.Left, semibold: true);
-        DrawText(dc, value, 43, color, 104, 298, TextAlignment.Left, mono: true);
-        DrawText(dc, status, 13, color, 376, 315, TextAlignment.Right, semibold: true);
-        DrawText(dc, TargetText(frame.TargetGlideslopeDeg), 11, LabelBrush,
-            104, 367, TextAlignment.Left, mono: true);
+        DrawText(dc, "PATH", 10, LabelBrush, 458, 310, TextAlignment.Left, semibold: true);
+        DrawText(dc, value, 34, color, 458, 330, TextAlignment.Left, mono: true);
+        DrawText(dc, status, 11, color, 650, 347, TextAlignment.Right, semibold: true);
+        DrawText(dc, TargetText(frame.TargetGlideslopeDeg), 10, LabelBrush,
+            458, 378, TextAlignment.Left, mono: true);
     }
 
     private static void DrawDescentAngle(DrawingContext dc, HudPresentationFrame frame)
     {
-        var panel = new Rect(76, 425, 330, 154);
-        DrawPanel(dc, panel);
         var guidance = frame.Guidance;
         var value = guidance.DescentAngleDeg is { } angle ? $"{angle:0.0}°" : "—";
         var status = DescentAngleLabel(guidance.DescentAngleDeg, frame.TargetGlideslopeDeg);
         var color = StatusBrush(guidance.DescentAngleStatus);
-        DrawText(dc, "DESCENT ANGLE", 12, LabelBrush, 104, 450, TextAlignment.Left, semibold: true);
-        DrawText(dc, value, 43, color, 104, 479, TextAlignment.Left, mono: true);
-        DrawText(dc, status, 13, color, 376, 496, TextAlignment.Right, semibold: true);
-        DrawText(dc, TargetText(frame.TargetGlideslopeDeg), 11, LabelBrush,
-            104, 548, TextAlignment.Left, mono: true);
+        DrawText(dc, "DESCENT", 10, LabelBrush, 458, 430, TextAlignment.Left, semibold: true);
+        DrawText(dc, value, 34, color, 458, 450, TextAlignment.Left, mono: true);
+        DrawText(dc, status, 11, color, 650, 467, TextAlignment.Right, semibold: true);
+        DrawText(dc, TargetText(frame.TargetGlideslopeDeg), 10, LabelBrush,
+            458, 498, TextAlignment.Left, mono: true);
     }
 
     private static void DrawVerticalSpeed(DrawingContext dc, LandingMonitorReading guidance)
     {
-        var panel = new Rect(1194, 319, 330, 176);
-        DrawPanel(dc, panel);
         var verticalSpeed = guidance.VerticalSpeedFpm;
         var value = verticalSpeed is { } fpm
             ? $"{(Math.Abs(fpm) < 0.5 ? 0 : fpm):0}"
             : "—";
         var color = StatusBrush(guidance.DescentAngleStatus);
-        DrawText(dc, "VERTICAL SPEED", 12, LabelBrush, 1222, 348, TextAlignment.Left, semibold: true);
-        DrawText(dc, value, 45, color, 1222, 382, TextAlignment.Left, mono: true);
-        DrawText(dc, "FPM", 13, LabelBrush, 1495, 405, TextAlignment.Right, semibold: true);
-        var target = guidance.TargetVerticalSpeedFpm is { } targetFpm
-            ? $"TARGET {targetFpm:0} FPM"
-            : "TARGET —";
-        DrawText(dc, target, 11, LabelBrush, 1222, 458, TextAlignment.Left, mono: true);
+        DrawText(dc, value, 37, color, 1100, 393, TextAlignment.Right, mono: true);
+        DrawText(dc, "VSpeed", 11, LabelBrush, 1118, 415, TextAlignment.Left, semibold: true);
     }
 
     private static void DrawAirspeed(DrawingContext dc, LandingMonitorReading guidance)
     {
-        var panel = new Rect(625, 747, 350, 122);
-        DrawPanel(dc, panel);
         var value = guidance.AirspeedKts is { } airspeed ? $"{airspeed:0}" : "—";
         var color = StatusBrush(guidance.AirspeedStatus);
-        DrawText(dc, "IAS", 12, LabelBrush, 657, 773, TextAlignment.Left, semibold: true);
-        DrawText(dc, value, 48, color, 800, 785, TextAlignment.Center, mono: true);
-        DrawText(dc, "KT", 13, LabelBrush, 944, 809, TextAlignment.Right, semibold: true);
-    }
-
-    private static void DrawPanel(DrawingContext dc, Rect rectangle) =>
-        dc.DrawRoundedRectangle(PanelBrush, new Pen(PanelBorderBrush, 1.2), rectangle, 14, 14);
-
-    private static void DrawAircraftReference(DrawingContext dc, Point center)
-    {
-        var pen = new Pen(WithOpacity(WindBrush, 0.85), 2);
-        dc.DrawLine(pen, new Point(center.X, center.Y - 14), new Point(center.X, center.Y + 16));
-        dc.DrawLine(pen, new Point(center.X - 11, center.Y + 5), new Point(center.X + 11, center.Y + 5));
-        dc.DrawLine(pen, new Point(center.X, center.Y - 14), new Point(center.X - 5, center.Y - 6));
-        dc.DrawLine(pen, new Point(center.X, center.Y - 14), new Point(center.X + 5, center.Y - 6));
+        DrawText(dc, "IAS", 10, LabelBrush, 724, 650, TextAlignment.Left, semibold: true);
+        DrawText(dc, value, 37, color, 800, 658, TextAlignment.Center, mono: true);
+        DrawText(dc, "KT", 10, LabelBrush, 874, 677, TextAlignment.Right, semibold: true);
     }
 
     private static void DrawWindArrow(DrawingContext dc, Point center, double relativeFromDegrees)
     {
-        var radians = (relativeFromDegrees - 90) * Math.PI / 180.0;
-        var source = new Point(
-            center.X + Math.Cos(radians) * 31,
-            center.Y + Math.Sin(radians) * 31);
-        var target = new Point(
-            center.X + Math.Cos(radians) * 17,
-            center.Y + Math.Sin(radians) * 17);
-        var pen = new Pen(WindBrush, 3);
-        dc.DrawLine(pen, source, target);
+        dc.PushTransform(new RotateTransform(relativeFromDegrees, center.X, center.Y));
 
-        var direction = Math.Atan2(target.Y - source.Y, target.X - source.X);
-        var left = new Point(
-            target.X - Math.Cos(direction - 0.55) * 9,
-            target.Y - Math.Sin(direction - 0.55) * 9);
-        var right = new Point(
-            target.X - Math.Cos(direction + 0.55) * 9,
-            target.Y - Math.Sin(direction + 0.55) * 9);
+        var shadowPen = new Pen(ShadowBrush, 4)
+        {
+            StartLineCap = PenLineCap.Round,
+            EndLineCap = PenLineCap.Round,
+        };
+        var arrowPen = new Pen(WindBrush, 2.25)
+        {
+            StartLineCap = PenLineCap.Round,
+            EndLineCap = PenLineCap.Round,
+        };
+        var tail = new Point(center.X, center.Y + 12);
+        var shoulder = new Point(center.X, center.Y - 9);
+        dc.DrawLine(shadowPen, tail, shoulder);
+        dc.DrawLine(arrowPen, tail, shoulder);
+
         var geometry = new StreamGeometry();
         using (var context = geometry.Open())
         {
-            context.BeginFigure(target, true, true);
-            context.LineTo(left, true, false);
-            context.LineTo(right, true, false);
+            context.BeginFigure(new Point(center.X, center.Y - 23), true, true);
+            context.LineTo(new Point(center.X - 7, center.Y - 8), true, false);
+            context.LineTo(new Point(center.X + 7, center.Y - 8), true, false);
         }
         geometry.Freeze();
+        dc.DrawGeometry(ShadowBrush, new Pen(ShadowBrush, 2), geometry);
         dc.DrawGeometry(WindBrush, null, geometry);
+        dc.Pop();
     }
 
     private static string PathPositionLabel(double? measuredDeg, double? targetDeg)
@@ -270,6 +262,18 @@ public sealed class HudVisual : FrameworkElement
         {
             TextAlignment = alignment,
         };
+        var shadow = new FormattedText(
+            text,
+            CultureInfo.InvariantCulture,
+            WpfFlowDirection.LeftToRight,
+            typeface,
+            fontSize,
+            ShadowBrush,
+            1.0)
+        {
+            TextAlignment = alignment,
+        };
+        dc.DrawText(shadow, new Point(x + 1.4, y + 1.4));
         dc.DrawText(formatted, new Point(x, y));
     }
 
@@ -280,11 +284,4 @@ public sealed class HudVisual : FrameworkElement
         return brush;
     }
 
-    private static Brush WithOpacity(Brush source, double opacity)
-    {
-        var clone = source.Clone();
-        clone.Opacity = opacity;
-        clone.Freeze();
-        return clone;
-    }
 }

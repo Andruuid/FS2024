@@ -97,7 +97,8 @@ public static class MetricExplanations
         "rollout" =>
             "Heading stability during rollout (legacy variance metric).",
         "reverse_thrust" =>
-            "Operational gate for timely reverse selection, challenge-specific reverse restrictions, and complete low-speed stow.",
+            "Operational gate for timely reverse selection, challenge-specific reverse restrictions, " +
+            "powered-reverse reduction to idle, and complete low-speed stow.",
         "crab" =>
             "Legacy crab-at-flare metric (replaced by rollout alignment).",
         _ => $"{displayName}: part of the configurable landing evaluation."

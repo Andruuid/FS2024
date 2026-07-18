@@ -265,7 +265,7 @@ public sealed class LandingSession
                     _settledSince ??= timeSeconds;
                     if (timeSeconds - _settledSince.Value >= _settings.SettledHoldSeconds)
                     {
-                        if (OperationalGateWindowsComplete(timeSeconds))
+                        if (OperationalGateWindowsComplete(timeSeconds, sample.GroundSpeedKts))
                         {
                             FinalizeSnapshot();
                             SetPhase(LandingPhase.Settled);
@@ -474,7 +474,7 @@ public sealed class LandingSession
                     observations.FirstReverseSelectionTimeSecondsByEngine.TryAdd(engineIndex, timeSeconds);
 
                 var throttle = sample.ThrottleLeverPositionPercentByIndex![engineIndex];
-                if (throttle < gate.PoweredReverseThrottleThresholdPercent)
+                if (IsPoweredReverse(sample, engineIndex, gate))
                 {
                     observations.PoweredReverseViolation = true;
                     if (observations.FirstPoweredReverseTimeSeconds is null)
@@ -486,8 +486,73 @@ public sealed class LandingSession
             }
         }
 
-        if (!double.IsFinite(sample.GroundSpeedKts)
-            || sample.GroundSpeedKts > gate.StowGroundSpeedKts + 1e-9)
+        if (!double.IsFinite(sample.GroundSpeedKts))
+            return;
+
+        UpdatePoweredReverseReductionObservation(
+            sample, timeSeconds, hasCoverage, engineCount, gate, observations);
+        UpdateReverseStowObservation(sample, hasCoverage, engineCount, gate, observations);
+    }
+
+    private void UpdatePoweredReverseReductionObservation(
+        TelemetrySample sample,
+        double timeSeconds,
+        bool hasCoverage,
+        int engineCount,
+        ReverseThrustGateConfig gate,
+        LandingGateObservations observations)
+    {
+        if (sample.GroundSpeedKts > gate.IdleGroundSpeedKts + 1e-9)
+            return;
+
+        var firstIdleSample = !observations.PoweredReverseReductionEvaluated;
+        if (firstIdleSample)
+        {
+            observations.PoweredReverseReductionEvaluated = true;
+            observations.GroundSpeedKtsAtPoweredReverseCheck = sample.GroundSpeedKts;
+
+            if (gate.Policy.Equals(ReverseThrustPolicies.Required, StringComparison.OrdinalIgnoreCase)
+                && timeSeconds + 1e-9 < _touchdownTimeSeconds + gate.DeadlineSecondsAfterTouchdown
+                && !AllOperatingEnginesSelected(observations))
+                observations.ReverseApplicationWaivedByLowSpeed = true;
+        }
+
+        if (!hasCoverage)
+        {
+            observations.PoweredReverseReductionCoverageAvailable = false;
+            return;
+        }
+        if (!firstIdleSample && !observations.PoweredReverseReductionCoverageAvailable)
+            return;
+
+        if (firstIdleSample)
+            observations.PoweredReverseReductionCoverageAvailable = true;
+        var aboveIdle = Enumerable.Range(1, engineCount)
+            .Where(index => IsPoweredReverse(sample, index, gate))
+            .ToList();
+        if (aboveIdle.Count == 0)
+        {
+            if (firstIdleSample)
+                observations.PoweredReverseReducedAtThreshold = true;
+            return;
+        }
+
+        observations.PoweredReverseReducedAtThreshold = false;
+        observations.EnginesAboveReverseIdleAtThreshold = observations.EnginesAboveReverseIdleAtThreshold
+            .Concat(aboveIdle)
+            .Distinct()
+            .Order()
+            .ToList();
+    }
+
+    private static void UpdateReverseStowObservation(
+        TelemetrySample sample,
+        bool hasCoverage,
+        int engineCount,
+        ReverseThrustGateConfig gate,
+        LandingGateObservations observations)
+    {
+        if (sample.GroundSpeedKts > gate.StowGroundSpeedKts + 1e-9)
             return;
 
         var firstStowSample = !observations.ReverseThrustStowEvaluated;
@@ -495,11 +560,6 @@ public sealed class LandingSession
         {
             observations.ReverseThrustStowEvaluated = true;
             observations.GroundSpeedKtsAtReverseStowCheck = sample.GroundSpeedKts;
-
-            if (gate.Policy.Equals(ReverseThrustPolicies.Required, StringComparison.OrdinalIgnoreCase)
-                && timeSeconds + 1e-9 < _touchdownTimeSeconds + gate.DeadlineSecondsAfterTouchdown
-                && !AllOperatingEnginesSelected(observations))
-                observations.ReverseApplicationWaivedByLowSpeed = true;
         }
 
         if (!hasCoverage)
@@ -570,6 +630,13 @@ public sealed class LandingSession
         && sample.ReverseNozzlePositionByIndex![engineIndex] < gate.MinimumNozzlePosition
         && sample.ThrottleLeverPositionPercentByIndex![engineIndex]
         >= gate.PoweredReverseThrottleThresholdPercent;
+
+    private static bool IsPoweredReverse(
+        TelemetrySample sample,
+        int engineIndex,
+        ReverseThrustGateConfig gate) =>
+        sample.ThrottleLeverPositionPercentByIndex![engineIndex]
+        < gate.PoweredReverseThrottleThresholdPercent;
 
     private static bool AllOperatingEnginesSelected(LandingGateObservations observations) =>
         observations.OperatingEnginesCapturedAtTouchdown
@@ -829,7 +896,7 @@ public sealed class LandingSession
         _noseImpactAirborneSince = null;
     }
 
-    private bool OperationalGateWindowsComplete(double timeSeconds)
+    private bool OperationalGateWindowsComplete(double timeSeconds, double groundSpeedKts)
     {
         var gates = _settings.OperationalGates;
         if (!_touchdownCaptured)
@@ -864,12 +931,28 @@ public sealed class LandingSession
         }
 
         if (ShouldMonitorGate(FreeFlightGateIds.ReverseThrust)
-            && gates.ReverseThrust is { } reverse
-            && reverse.Policy.Equals(ReverseThrustPolicies.Required, StringComparison.OrdinalIgnoreCase)
-            && !observations.ReverseApplicationWaivedByLowSpeed
-            && !AllOperatingEnginesSelected(observations)
-            && timeSeconds < _touchdownTimeSeconds + reverse.DeadlineSecondsAfterTouchdown)
-            return false;
+            && gates.ReverseThrust is { } reverse)
+        {
+            var policy = ReverseThrustPolicies.Normalize(reverse.Policy);
+            if (policy == ReverseThrustPolicies.Required
+                && !observations.ReverseApplicationWaivedByLowSpeed
+                && !AllOperatingEnginesSelected(observations)
+                && timeSeconds < _touchdownTimeSeconds + reverse.DeadlineSecondsAfterTouchdown)
+                return false;
+
+            if (policy == ReverseThrustPolicies.Required
+                && ((!observations.PoweredReverseReductionEvaluated
+                     && groundSpeedKts > reverse.IdleGroundSpeedKts + 1e-9)
+                    || (!observations.ReverseThrustStowEvaluated
+                        && groundSpeedKts > reverse.StowGroundSpeedKts + 1e-9)))
+                return false;
+
+            if (policy == ReverseThrustPolicies.OptionalIdleOnly
+                && observations.FirstReverseSelectionTimeSecondsByEngine.Count > 0
+                && !observations.ReverseThrustStowEvaluated
+                && groundSpeedKts > reverse.StowGroundSpeedKts + 1e-9)
+                return false;
+        }
 
         return true;
     }
