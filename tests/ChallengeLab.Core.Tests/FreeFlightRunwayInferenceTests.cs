@@ -89,13 +89,46 @@ public sealed class FreeFlightRunwayInferenceTests
     {
         var inference = new FreeFlightRunwayInference();
         var sample = Sample(longitude: 0, heading: 90);
-        var far = new AirportFacility("FAR", "ZZ", 0, 1, 0);
+        var far = new AirportFacility("FAR", "ZZ", 0, .2, 0);
         var near = new AirportFacility("NEAR", "ZZ", 0, .1, 0);
 
         var ranked = inference.RankNearbyAirports(sample, [far, near]);
 
         Assert.Equal("NEAR", ranked[0].Airport.Icao);
         Assert.True(ranked[0].DistanceNm < ranked[1].DistanceNm);
+    }
+
+    [Fact]
+    public void RankNearbyAirports_IncludesForwardAirportBeyondFiveCloserAirports()
+    {
+        var inference = new FreeFlightRunwayInference();
+        var sample = Sample(longitude: 0, heading: 90);
+        var airports = Enumerable.Range(1, 8)
+            .Select(i => new AirportFacility($"BACK{i}", "ZZ", 0, -0.01 * i, 0))
+            .Append(new AirportFacility("AHEAD", "ZZ", 0, 0.2, 0))
+            .ToList();
+
+        var ranked = inference.RankNearbyAirports(sample, airports);
+
+        Assert.Contains(ranked, item => item.Airport.Icao == "AHEAD");
+        Assert.True(ranked.Count <= inference.Settings.NearbyAirportCount);
+    }
+
+    [Fact]
+    public void Update_ShowsRelaxedTargetBeforeItEntersConfirmationEnvelope()
+    {
+        var inference = new FreeFlightRunwayInference();
+        var detail = Detail(starts: [new RunwayStartFacility(0, 0, 0, 90, 9, 1, 1)]);
+        var intercepting = Sample(longitude: -0.15, heading: 135, latitude: 0.033);
+        var nearby = inference.RankNearbyAirports(intercepting, [Airport]);
+
+        var first = inference.Update(intercepting, nearby, [detail]);
+        var third = inference.Update(intercepting, nearby, [detail]);
+        third = inference.Update(intercepting, nearby, [detail]);
+
+        Assert.NotNull(first.ProvisionalTarget);
+        Assert.Null(third.StableTarget);
+        Assert.Equal(0, third.StableSamples);
     }
 
     [Fact]
@@ -110,10 +143,10 @@ public sealed class FreeFlightRunwayInferenceTests
         var second = inference.Update(sample, nearby, [detail]);
         var third = inference.Update(sample, nearby, [detail]);
 
-        Assert.NotNull(first.Candidate);
-        Assert.Null(first.LockedTarget);
-        Assert.Null(second.LockedTarget);
-        var locked = Assert.IsType<FreeFlightTarget>(third.LockedTarget);
+        Assert.NotNull(first.ProvisionalTarget);
+        Assert.Null(first.StableTarget);
+        Assert.Null(second.StableTarget);
+        var locked = Assert.IsType<FreeFlightTarget>(third.StableTarget);
         Assert.Equal("09L", locked.Runway.RunwayId);
         Assert.Equal(30, locked.HeadingErrorDeg, 6);
 
@@ -122,7 +155,8 @@ public sealed class FreeFlightRunwayInferenceTests
             moved,
             inference.RankNearbyAirports(moved, [Airport]),
             []);
-        Assert.Same(locked, immutable.LockedTarget);
+        Assert.Null(immutable.StableTarget);
+        Assert.Null(immutable.ProvisionalTarget);
     }
 
     [Fact]
@@ -145,7 +179,7 @@ public sealed class FreeFlightRunwayInferenceTests
         var result = inference.Update(sample, nearby, [nearDetail, bestDetail]);
 
         Assert.Equal("NEAR", result.NearestAirport!.Airport.Icao);
-        Assert.Equal("BEST", result.Candidate!.Runway.Airport.Icao);
+        Assert.Equal("BEST", result.ProvisionalTarget!.Runway.Airport.Icao);
     }
 
     [Fact]
@@ -172,7 +206,7 @@ public sealed class FreeFlightRunwayInferenceTests
             inference.RankNearbyAirports(sample, [Airport]),
             [detail]);
 
-        Assert.Equal("09L", result.Candidate!.Runway.RunwayId);
+        Assert.Equal("09L", result.ProvisionalTarget!.Runway.RunwayId);
     }
 
     [Fact]
@@ -186,30 +220,41 @@ public sealed class FreeFlightRunwayInferenceTests
         Assert.Null(inference.Update(
             behind,
             inference.RankNearbyAirports(behind, [Airport]),
-            [detail]).Candidate);
+            [detail]).ProvisionalTarget);
         Assert.Null(inference.Update(
             trackingAway,
             inference.RankNearbyAirports(trackingAway, [Airport]),
-            [detail]).Candidate);
+            [detail]).ProvisionalTarget);
     }
 
     [Fact]
-    public void Update_RejectsExcessHeadingErrorAndCrossTrack()
+    public void Update_ProvisionalEnvelopeIsWiderThanConfirmationEnvelope()
     {
         var detail = Detail(starts: [new RunwayStartFacility(0, 0, 0, 90, 9, 1, 1)]);
         var badHeading = Sample(longitude: -.04, heading: 121);
         var badCrossTrack = Sample(longitude: -.04, heading: 90, latitude: .03);
 
         var first = new FreeFlightRunwayInference();
-        Assert.Null(first.Update(
+        var headingResult = first.Update(
             badHeading,
             first.RankNearbyAirports(badHeading, [Airport]),
-            [detail]).Candidate);
+            [detail]);
+        Assert.NotNull(headingResult.ProvisionalTarget);
+        Assert.Null(headingResult.StableTarget);
         var second = new FreeFlightRunwayInference();
-        Assert.Null(second.Update(
+        var crossTrackResult = second.Update(
             badCrossTrack,
             second.RankNearbyAirports(badCrossTrack, [Airport]),
-            [detail]).Candidate);
+            [detail]);
+        Assert.NotNull(crossTrackResult.ProvisionalTarget);
+        Assert.Null(crossTrackResult.StableTarget);
+
+        var outside = Sample(longitude: -.04, heading: 151, latitude: .06);
+        var third = new FreeFlightRunwayInference();
+        Assert.Null(third.Update(
+            outside,
+            third.RankNearbyAirports(outside, [Airport]),
+            [detail]).ProvisionalTarget);
     }
 
     [Fact]
@@ -223,12 +268,12 @@ public sealed class FreeFlightRunwayInferenceTests
         Assert.Null(first.Update(
             onGround,
             first.RankNearbyAirports(onGround, [Airport]),
-            [detail]).Candidate);
+            [detail]).ProvisionalTarget);
         var second = new FreeFlightRunwayInference();
         Assert.Null(second.Update(
             slow,
             second.RankNearbyAirports(slow, [Airport]),
-            [detail]).Candidate);
+            [detail]).ProvisionalTarget);
     }
 
     [Fact]
@@ -239,7 +284,7 @@ public sealed class FreeFlightRunwayInferenceTests
         var sample = Sample(longitude: -0.03, heading: 90);
         var nearby = inference.RankNearbyAirports(sample, [Airport]);
         for (var i = 0; i < 3; i++) inference.Update(sample, nearby, [detail]);
-        Assert.NotNull(inference.LockedTarget);
+        Assert.NotNull(inference.StableTarget);
 
         inference.Reset();
         var otherAirport = new AirportFacility("OTHER", "ZZ", 0, 0, 10);
@@ -247,11 +292,11 @@ public sealed class FreeFlightRunwayInferenceTests
         var otherNearby = inference.RankNearbyAirports(sample, [otherAirport]);
         var afterReset = inference.Update(sample, otherNearby, [otherDetail]);
 
-        Assert.Null(afterReset.LockedTarget);
+        Assert.Null(afterReset.StableTarget);
         Assert.Equal(1, afterReset.StableSamples);
         inference.Update(sample, otherNearby, [otherDetail]);
         var reacquired = inference.Update(sample, otherNearby, [otherDetail]);
-        Assert.Equal("OTHER", reacquired.LockedTarget!.Runway.Airport.Icao);
+        Assert.Equal("OTHER", reacquired.StableTarget!.Runway.Airport.Icao);
     }
 
     [Theory]

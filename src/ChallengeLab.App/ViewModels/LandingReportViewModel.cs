@@ -541,7 +541,7 @@ public sealed class SummaryPenaltyViewModel
         "spoiler_deployment" => "SPOILERS",
         "nose_gear_impact" => "NOSE IMPACT",
         "automation" => "AUTOMATION",
-        "manual_braking" => "MANUAL BRAKES",
+        "manual_braking" => "BRAKES",
         "rollout_distance" => "RUNWAY REMAINING",
         "reverse_thrust" => "REVERSE THRUST",
         "pause_usage" => "PAUSE",

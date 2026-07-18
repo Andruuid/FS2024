@@ -165,6 +165,9 @@ public sealed class SimConnectClient : ISimBridge
         public double BrakeLeft;
         public double BrakeRight;
         public double AutoBrakesActive;
+        public double A32nxAutobrakesActive;
+        public double IniAutobrakeBraking;
+        public double IniAutobrakeEngaged;
         public double SimulationRate;
         public double CameraState;
         public double AutopilotHeadingLock;
@@ -179,6 +182,12 @@ public sealed class SimConnectClient : ISimBridge
         public double IniAutothrottleArmed;
         public double IniBrakePedalLeft;
         public double IniBrakePedalRight;
+        public double A32nxBrakePedalLeft;
+        public double A32nxBrakePedalRight;
+        public double GenericBrakePedalLeft;
+        public double GenericBrakePedalRight;
+        public double IniBrakeAxisLeft;
+        public double IniBrakeAxisRight;
         public double EngineCount;
         public double EngineCombustion1;
         public double EngineCombustion2;
@@ -1911,6 +1920,7 @@ public sealed class SimConnectClient : ISimBridge
                 contactPointOnGround = ContactPointOnGround(contactPointData);
                 contactPointCompression = ContactPointCompression(contactPointData);
             }
+            var autoBrakesActive = ResolveAutoBrakesActive(in t);
             var sample = new TelemetrySample
             {
                 Timestamp = DateTimeOffset.UtcNow,
@@ -1970,12 +1980,18 @@ public sealed class SimConnectClient : ISimBridge
                 SpoilersLeftPosition = t.SpoilersLeft,
                 SpoilersRightPosition = t.SpoilersRight,
                 ManualBrakeLeftPosition = ResolveManualBrakePosition(
-                    t.BrakeLeft, t.IniBrakePedalLeft, t.AutoBrakesActive > 0.5),
+                    t.BrakeLeft,
+                    MaxNormalizedPedal(
+                        t.IniBrakePedalLeft, t.A32nxBrakePedalLeft,
+                        t.GenericBrakePedalLeft, t.IniBrakeAxisLeft),
+                    autoBrakesActive),
                 ManualBrakeRightPosition = ResolveManualBrakePosition(
-                    t.BrakeRight, t.IniBrakePedalRight, t.AutoBrakesActive > 0.5),
-                AutoBrakesActive = double.IsFinite(t.AutoBrakesActive)
-                    ? t.AutoBrakesActive > 0.5
-                    : null,
+                    t.BrakeRight,
+                    MaxNormalizedPedal(
+                        t.IniBrakePedalRight, t.A32nxBrakePedalRight,
+                        t.GenericBrakePedalRight, t.IniBrakeAxisRight),
+                    autoBrakesActive),
+                AutoBrakesActive = autoBrakesActive,
                 EngineCount = t.EngineCount is >= 1 and <= 4 && double.IsFinite(t.EngineCount)
                     ? (int)Math.Round(t.EngineCount)
                     : null,
@@ -2036,15 +2052,46 @@ public sealed class SimConnectClient : ISimBridge
         }
     }
 
+    /// <summary>
+    /// True when stock MSFS or known airliner L-vars report autobrakes applying pressure.
+    /// Stock <c>AUTOBRAKES ACTIVE</c> is false on FBW A32NX and iniBuilds A330, so those
+    /// aircraft expose dedicated local vars that must be OR'd in.
+    /// </summary>
+    private static bool ResolveAutoBrakesActive(in TelemetryStruct t) =>
+        IsTruthy(t.AutoBrakesActive)
+        || IsTruthy(t.A32nxAutobrakesActive)
+        || IsTruthy(t.IniAutobrakeBraking)
+        || IsTruthy(t.IniAutobrakeEngaged);
+
+    private static bool IsTruthy(double value) =>
+        double.IsFinite(value) && value > 0.5;
+
+    /// <summary>
+    /// Manual toe-brake position (0-1). When autobrake is active, stock
+    /// <c>BRAKE LEFT/RIGHT POSITION</c> and some airliner pedal L-vars also move
+    /// (animated pedals), so only pure pilot inputs would be ambiguous — return 0
+    /// so the braking gate attributes the application to autobrake instead.
+    /// </summary>
     private static double ResolveManualBrakePosition(
         double standardPosition,
-        double a330PedalPosition,
+        double pedalPosition,
         bool autobrakeActive)
     {
-        var pedal = NormalizeUnitPosition(a330PedalPosition);
         if (autobrakeActive)
-            return pedal;
+            return 0;
+        var pedal = NormalizeUnitPosition(pedalPosition);
         return Math.Max(pedal, Math.Clamp(standardPosition / 32768.0, 0, 1));
+    }
+
+    private static double MaxNormalizedPedal(params double[] sources)
+    {
+        var max = 0.0;
+        foreach (var source in sources)
+        {
+            var n = NormalizeUnitPosition(source);
+            if (n > max) max = n;
+        }
+        return max;
     }
 
     private static double NormalizeUnitPosition(double raw)
@@ -2173,6 +2220,13 @@ public sealed class SimConnectClient : ISimBridge
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "AUTOBRAKES ACTIVE", "bool",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        // Airliner-specific autobrake "actually braking" flags (stock simvar is often stuck off).
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:A32NX_AUTOBRAKES_ACTIVE", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_AUTOBRAKE_BRAKING", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_AUTOBRAKE_ENGAGED", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "SIMULATION RATE", "number",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "CAMERA STATE", "Enum",
@@ -2200,6 +2254,19 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_BRAKE_PEDAL_LEFT", "number",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_BRAKE_PEDAL_RIGHT", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:A32NX_LEFT_BRAKE_PEDAL_INPUT", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:A32NX_RIGHT_BRAKE_PEDAL_INPUT", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        // iniBuilds / generic pedal-input aliases used when stock BRAKE POSITION stays at 0.
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:LEFT_BRAKE_PEDAL_INPUT", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:RIGHT_BRAKE_PEDAL_INPUT", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_BRAKE_AXIS_LEFT", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "L:INI_BRAKE_AXIS_RIGHT", "number",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "NUMBER OF ENGINES", "number",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);

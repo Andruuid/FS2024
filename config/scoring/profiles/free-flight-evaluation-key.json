@@ -1,13 +1,18 @@
 {
   "id": "free-flight-evaluation-key",
-  "version": 14,
-  "description": "Free Flight overlay. Inherits every metric, curve, gate, timing rule, and phase weight from the authoritative landing evaluation key. Live TITLE is matched against config/scoring/aircraft-vapp-db.json for VAPP; DESIGN SPEED VS0 is next; defaultVappKts is last-resort only.",
+  "version": 15,
+  "description": "Free Flight overlay. Inherits every metric, curve, gate, and phase weight from the authoritative landing evaluation key, with a Free-only 2,000 ft glideslope-intercept start policy. Live TITLE is matched against config/scoring/aircraft-vapp-db.json for VAPP; DESIGN SPEED VS0 is next; defaultVappKts is last-resort only.",
   "inherits": "landing-evaluation-key.json",
   "speedTarget": {
     "defaultVappKts": 70
   },
   "freeMode": {
     "unavailableMetricScorePercent": 50,
-    "missingGatePenaltyFraction": 0.5
+    "missingGatePenaltyFraction": 0.5,
+    "evaluationStart": {
+      "heightAboveRunwayFeet": 2000,
+      "leadSeconds": 5,
+      "approachPathMaxDistNm": 15
+    }
   }
 }

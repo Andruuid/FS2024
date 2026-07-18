@@ -4,13 +4,16 @@ using ChallengeLab.Core.Models;
 namespace ChallengeLab.Core.Scoring;
 
 public sealed record FreeFlightInferenceSettings(
-    int NearbyAirportCount = 5,
-    double NearbyAirportRadiusNm = 25,
-    double MaximumThresholdDistanceNm = 12,
-    double MaximumHeadingErrorDeg = 30,
-    double MaximumCrossTrackNm = 1.5,
+    int NearbyAirportCount = 12,
+    double NearbyAirportRadiusNm = 30,
+    double ProvisionalMaximumThresholdDistanceNm = 20,
+    double ProvisionalMaximumHeadingErrorDeg = 60,
+    double ProvisionalMaximumCrossTrackNm = 3,
+    double ConfirmationMaximumThresholdDistanceNm = 12,
+    double ConfirmationMaximumHeadingErrorDeg = 30,
+    double ConfirmationMaximumCrossTrackNm = 1.5,
     double MinimumGroundSpeedKts = 30,
-    int StableSamplesToLock = 3);
+    int StableSamplesToConfirm = 3);
 
 public sealed record AirportDistance(AirportFacility Airport, double DistanceNm);
 
@@ -22,13 +25,14 @@ public sealed record FreeFlightTarget(
 
 public sealed record FreeFlightInferenceResult(
     AirportDistance? NearestAirport,
-    FreeFlightTarget? Candidate,
-    FreeFlightTarget? LockedTarget,
+    FreeFlightTarget? ProvisionalTarget,
+    FreeFlightTarget? StableTarget,
     int StableSamples);
 
 /// <summary>
 /// Pure, deterministic airport/runway inference using position, runway geometry,
-/// and aircraft heading.
+/// and aircraft heading. A relaxed target is available immediately; only a target
+/// inside the tighter confirmation envelope accumulates stable samples.
 /// </summary>
 public sealed class FreeFlightRunwayInference
 {
@@ -40,39 +44,68 @@ public sealed class FreeFlightRunwayInference
         => _settings = settings ?? new FreeFlightInferenceSettings();
 
     public FreeFlightInferenceSettings Settings => _settings;
-    public FreeFlightTarget? LockedTarget { get; private set; }
+    public FreeFlightTarget? ProvisionalTarget { get; private set; }
+    public FreeFlightTarget? StableTarget { get; private set; }
 
+    /// <summary>
+    /// Build a bounded facility-detail shortlist. The nearest airport is always retained,
+    /// while the remaining slots favor airports ahead of the aircraft rather than private
+    /// strips that merely happen to be closer off the approach path.
+    /// </summary>
     public IReadOnlyList<AirportDistance> RankNearbyAirports(
         TelemetrySample sample,
         IEnumerable<AirportFacility> airports)
-        => airports
+    {
+        var ranked = airports
             .Where(a => IsFinitePosition(a.Latitude, a.Longitude))
-            .Select(a => new AirportDistance(
-                a,
-                GeoUtil.HaversineMetersPublic(
+            .Select(a =>
+            {
+                var distanceNm = GeoUtil.HaversineMetersPublic(
                     sample.Latitude,
                     sample.Longitude,
                     a.Latitude,
-                    a.Longitude) / 1852.0))
-            .OrderBy(a => a.DistanceNm)
-            .Take(_settings.NearbyAirportCount)
+                    a.Longitude) / 1852.0;
+                var bearingError = BearingErrorDeg(sample, a);
+                var score = bearingError / 90.0 + distanceNm / _settings.NearbyAirportRadiusNm;
+                return (Distance: new AirportDistance(a, distanceNm), BearingError: bearingError, Score: score);
+            })
+            .Where(x => x.Distance.DistanceNm <= _settings.NearbyAirportRadiusNm)
             .ToList();
+
+        if (ranked.Count == 0)
+            return [];
+
+        var nearest = ranked.OrderBy(x => x.Distance.DistanceNm).First();
+        var result = ranked
+            .Where(x => !(x.Distance.Airport.Icao.Equals(nearest.Distance.Airport.Icao, StringComparison.OrdinalIgnoreCase)
+                          && x.Distance.Airport.Region.Equals(nearest.Distance.Airport.Region, StringComparison.OrdinalIgnoreCase))
+                        && x.BearingError <= 90)
+            .OrderBy(x => x.Score)
+            .ThenBy(x => x.Distance.Airport.Icao, StringComparer.Ordinal)
+            .Take(Math.Max(0, _settings.NearbyAirportCount - 1))
+            .Select(x => x.Distance)
+            .Prepend(nearest.Distance)
+            .ToList();
+
+        return result;
+    }
 
     public FreeFlightInferenceResult Update(
         TelemetrySample sample,
         IReadOnlyList<AirportDistance> nearbyAirports,
-        IEnumerable<AirportRunwayFacility> detailedAirports)
+        IEnumerable<AirportRunwayFacility> detailedAirports,
+        IReadOnlySet<string>? excludedAirportIcaos = null,
+        bool advanceStability = true)
     {
-        var nearest = nearbyAirports.FirstOrDefault();
-        if (LockedTarget is not null)
-            return new FreeFlightInferenceResult(nearest, LockedTarget, LockedTarget, _stableSamples);
-
-        FreeFlightTarget? candidate = null;
+        var nearest = nearbyAirports.OrderBy(a => a.DistanceNm).FirstOrDefault();
+        FreeFlightTarget? provisional = null;
         if (!sample.SimOnGround
             && sample.GroundSpeedKts >= _settings.MinimumGroundSpeedKts
-            && nearbyAirports.Any(a => a.DistanceNm <= _settings.NearbyAirportRadiusNm))
+            && nearbyAirports.Count > 0)
         {
-            candidate = detailedAirports
+            provisional = detailedAirports
+                .Where(detail => excludedAirportIcaos is null
+                                 || !excludedAirportIcaos.Contains(detail.Airport.Icao))
                 .SelectMany(RunwayFacilityGeometry.BuildEnds)
                 .Select(end => EvaluateCandidate(sample, end))
                 .Where(x => x is not null)
@@ -83,30 +116,43 @@ public sealed class FreeFlightRunwayInference
                 .FirstOrDefault();
         }
 
-        if (candidate is null)
+        ProvisionalTarget = provisional;
+        if (provisional is null || !IsInsideConfirmationEnvelope(provisional))
         {
             _stableKey = null;
             _stableSamples = 0;
+            StableTarget = null;
         }
-        else if (candidate.Runway.Key == _stableKey)
+        else if (provisional.Runway.Key == _stableKey)
         {
-            _stableSamples++;
+            if (advanceStability)
+                _stableSamples++;
         }
         else
         {
-            _stableKey = candidate.Runway.Key;
-            _stableSamples = 1;
+            _stableKey = provisional.Runway.Key;
+            _stableSamples = advanceStability ? 1 : 0;
+            StableTarget = null;
         }
 
-        if (candidate is not null && _stableSamples >= _settings.StableSamplesToLock)
-            LockedTarget = candidate;
+        if (provisional is not null
+            && _stableSamples >= _settings.StableSamplesToConfirm)
+        {
+            StableTarget = provisional;
+        }
 
-        return new FreeFlightInferenceResult(nearest, candidate, LockedTarget, _stableSamples);
+        return new FreeFlightInferenceResult(nearest, provisional, StableTarget, _stableSamples);
     }
+
+    public bool IsInsideConfirmationEnvelope(FreeFlightTarget target) =>
+        target.ThresholdDistanceNm <= _settings.ConfirmationMaximumThresholdDistanceNm
+        && target.HeadingErrorDeg <= _settings.ConfirmationMaximumHeadingErrorDeg
+        && target.CrossTrackNm <= _settings.ConfirmationMaximumCrossTrackNm;
 
     public void Reset()
     {
-        LockedTarget = null;
+        ProvisionalTarget = null;
+        StableTarget = null;
         _stableKey = null;
         _stableSamples = 0;
     }
@@ -128,15 +174,31 @@ public sealed class FreeFlightRunwayInference
         var headingError = Math.Abs(NormalizeSigned(sample.HeadingTrueDeg - end.HeadingTrueDeg));
         var crossTrackNm = Math.Abs(state.LateralMeters) / 1852.0;
 
-        if (thresholdDistanceNm > _settings.MaximumThresholdDistanceNm
-            || headingError > _settings.MaximumHeadingErrorDeg
-            || crossTrackNm > _settings.MaximumCrossTrackNm)
+        if (thresholdDistanceNm > _settings.ProvisionalMaximumThresholdDistanceNm
+            || headingError > _settings.ProvisionalMaximumHeadingErrorDeg
+            || crossTrackNm > _settings.ProvisionalMaximumCrossTrackNm)
             return null;
 
-        var rank = headingError / _settings.MaximumHeadingErrorDeg
-                   + crossTrackNm / _settings.MaximumCrossTrackNm
-                   + thresholdDistanceNm / _settings.MaximumThresholdDistanceNm;
+        var rank = headingError / _settings.ProvisionalMaximumHeadingErrorDeg
+                   + crossTrackNm / _settings.ProvisionalMaximumCrossTrackNm
+                   + thresholdDistanceNm / _settings.ProvisionalMaximumThresholdDistanceNm;
         return (new FreeFlightTarget(end, thresholdDistanceNm, headingError, crossTrackNm), rank);
+    }
+
+    private static double BearingErrorDeg(TelemetrySample sample, AirportFacility airport)
+    {
+        if (Math.Abs(sample.Latitude - airport.Latitude) < 1e-10
+            && Math.Abs(sample.Longitude - airport.Longitude) < 1e-10)
+            return 0;
+
+        var lat1 = sample.Latitude * Math.PI / 180.0;
+        var lat2 = airport.Latitude * Math.PI / 180.0;
+        var deltaLon = (airport.Longitude - sample.Longitude) * Math.PI / 180.0;
+        var y = Math.Sin(deltaLon) * Math.Cos(lat2);
+        var x = Math.Cos(lat1) * Math.Sin(lat2)
+                - Math.Sin(lat1) * Math.Cos(lat2) * Math.Cos(deltaLon);
+        var bearing = Math.Atan2(y, x) * 180.0 / Math.PI;
+        return Math.Abs(NormalizeSigned(sample.HeadingTrueDeg - bearing));
     }
 
     private static bool IsFinitePosition(double latitude, double longitude)

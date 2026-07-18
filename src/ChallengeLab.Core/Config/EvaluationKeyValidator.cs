@@ -28,7 +28,7 @@ public static class EvaluationKeyValidator
         ValidateCockpitViewGate(key.GeneralPenalties?.CockpitView,
             "generalPenalties.cockpitView", errors);
         ValidateContactMapping(key.ContactMapping, errors);
-        ValidateFreeMode(key.FreeMode, errors);
+        ValidateFreeMode(key.FreeMode, key.Timing, errors);
 
         if (key.Phases.Count == 0)
             errors.Add("phases must contain at least one phase.");
@@ -69,7 +69,10 @@ public static class EvaluationKeyValidator
         return errors;
     }
 
-    private static void ValidateFreeMode(FreeModeScoringPolicy? policy, List<string> errors)
+    private static void ValidateFreeMode(
+        FreeModeScoringPolicy? policy,
+        EvaluationTiming? timing,
+        List<string> errors)
     {
         if (policy is null) return;
         if (!double.IsFinite(policy.UnavailableMetricScorePercent)
@@ -78,6 +81,15 @@ public static class EvaluationKeyValidator
         if (!double.IsFinite(policy.MissingGatePenaltyFraction)
             || policy.MissingGatePenaltyFraction is < 0 or > 1)
             errors.Add("freeMode.missingGatePenaltyFraction must be between 0 and 1.");
+        if (policy.EvaluationStart is not { } start) return;
+        if (!IsPositiveFinite(start.HeightAboveRunwayFeet))
+            errors.Add("freeMode.evaluationStart.heightAboveRunwayFeet must be greater than zero.");
+        if (!double.IsFinite(start.LeadSeconds) || start.LeadSeconds < 0)
+            errors.Add("freeMode.evaluationStart.leadSeconds must be at least zero.");
+        if (!IsPositiveFinite(start.ApproachPathMaxDistNm))
+            errors.Add("freeMode.evaluationStart.approachPathMaxDistNm must be greater than zero.");
+        else if (timing is not null && start.ApproachPathMaxDistNm <= timing.ApproachPathMinDistNm)
+            errors.Add("freeMode.evaluationStart.approachPathMaxDistNm must be greater than timing.approachPathMinDistNm.");
     }
 
     private static void ValidatePhasePenalties(

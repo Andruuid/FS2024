@@ -153,6 +153,13 @@ public sealed class SecondaryHudViewModel : ViewModelBase
 
     public void UpdatePhase(LandingPhase phase) => PhaseLabel = phase.ToString().ToUpperInvariant();
 
+    public void ShowProvisionalFreeTarget(string airportIcao, string runwayId, string status)
+    {
+        TargetLabel = $"{airportIcao}  ·  RWY {runwayId}";
+        PhaseLabel = "TARGETING";
+        MonitorStatus = status;
+    }
+
     public void SetDisconnected()
     {
         ResetAttempt();

@@ -20,6 +20,8 @@ public sealed class LandingEvaluationKey
     {
         var flare = Phases.SelectMany(p => p.Metrics)
             .FirstOrDefault(m => m.Id.Equals("flare_efficiency", StringComparison.OrdinalIgnoreCase));
+        var approachPathMaxDistNm = FreeMode?.EvaluationStart?.ApproachPathMaxDistNm
+                                    ?? Timing!.ApproachPathMaxDistNm;
         return new LandingSessionSettings(
         Settle!.GroundSpeedKts,
         Settle.HoldSeconds,
@@ -30,7 +32,7 @@ public sealed class LandingEvaluationKey
         Timing.MinAirborneAglFeet,
         Timing.MinAirborneSamples,
         Timing.ApproachPathMinDistNm,
-        Timing.ApproachPathMaxDistNm,
+        approachPathMaxDistNm,
         Timing.ImpactPreWindowSeconds,
         Timing.ImpactWindowSeconds,
         Timing.ImpactFilterCutoffHz,
@@ -72,9 +74,26 @@ public sealed class FreeModeScoringPolicy
 {
     public double UnavailableMetricScorePercent { get; set; } = 50;
     public double MissingGatePenaltyFraction { get; set; } = 0.5;
+    public FreeFlightEvaluationStartPolicy? EvaluationStart { get; set; }
 
     public double MissingGateMultiplier(double configuredFailureMultiplier) =>
         1 - MissingGatePenaltyFraction * (1 - configuredFailureMultiplier);
+}
+
+/// <summary>
+/// Free Flight begins measuring one continuous landing attempt shortly before the
+/// nominal glideslope reaches a configured height above the runway.
+/// </summary>
+public sealed class FreeFlightEvaluationStartPolicy
+{
+    public double HeightAboveRunwayFeet { get; set; } = 2_000;
+    public double LeadSeconds { get; set; } = 5;
+
+    /// <summary>
+    /// Upper analysis bound for Free Flight. The session is created at the dynamic
+    /// start point, so this only prevents those post-start samples from being filtered.
+    /// </summary>
+    public double ApproachPathMaxDistNm { get; set; } = 15;
 }
 
 public sealed record LandingSessionSettings(

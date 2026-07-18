@@ -21,6 +21,62 @@ namespace ChallengeLab.App.Tests;
 [Collection("Wpf")]
 public sealed class FreeFlightHudModeTests
 {
+    private static void VerifyIncrementalFacilityLoadingAndClear()
+    {
+            var scorePath = Path.Combine(Path.GetTempPath(), $"challenge-lab-{Guid.NewGuid():N}.json");
+            var careerPath = Path.Combine(Path.GetTempPath(), $"challenge-lab-career-{Guid.NewGuid():N}.json");
+            var block = new AirportFacility("BLOCK", "ZZ", .01, -.15, 0);
+            var good = new AirportFacility("GOOD", "ZZ", 0, 0, 0);
+            var alternate = new AirportFacility("ALT", "ZZ", 0, .02, 0);
+            var sim = new FakeSimBridge
+            {
+                Airports = [block, good, alternate],
+                BlockedAirportDetails = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "BLOCK" },
+                AirportDetails = new Dictionary<string, AirportRunwayFacility>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["GOOD"] = Detail(good),
+                    ["ALT"] = Detail(alternate)
+                }
+            };
+            var vm = new MainViewModel(
+                sim,
+                new ConfigLoader(FindConfig()),
+                new HighscoreStore(scorePath),
+                new CareerProgressStore(careerPath));
+
+            try
+            {
+                sim.SetState(SimConnectionState.Connected);
+                sim.EmitTelemetry(ApproachSample(
+                    "Airbus A320 neo Asobo",
+                    longitude: -.15,
+                    heading: 90,
+                    gearHandlePosition: 1));
+
+                WaitUntil(
+                    () => vm.FreeAirportStatus.Contains("Likely GOOD RWY 09", StringComparison.Ordinal),
+                    TimeSpan.FromSeconds(3));
+                Assert.Contains("Likely GOOD RWY 09", vm.FreeAirportStatus, StringComparison.Ordinal);
+                Assert.Contains("BLOCK", sim.RequestedAirportDetails);
+                Assert.Contains("GOOD", sim.RequestedAirportDetails);
+                AssertNoSimulatorMutation(sim);
+
+                vm.CleanMetricsCommand.Execute(null);
+
+                WaitUntil(
+                    () => vm.FreeAirportStatus.Contains("Likely ALT RWY 09", StringComparison.Ordinal),
+                    TimeSpan.FromSeconds(3));
+                Assert.Contains("Likely ALT RWY 09", vm.FreeAirportStatus, StringComparison.Ordinal);
+                AssertNoSimulatorMutation(sim);
+            }
+            finally
+            {
+                vm.Dispose();
+                if (File.Exists(scorePath)) File.Delete(scorePath);
+                if (File.Exists(careerPath)) File.Delete(careerPath);
+            }
+    }
+
     [Fact]
     public void ModeTransitions_CancelDetectionAndNeverMutateSimulator()
     {
@@ -28,6 +84,7 @@ public sealed class FreeFlightHudModeTests
         {
             var app = new ChallengeLab.App.App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             app.InitializeComponent();
+            VerifyIncrementalFacilityLoadingAndClear();
             var bindingErrors = new BindingErrorListener();
             PresentationTraceSources.DataBindingSource.Listeners.Add(bindingErrors);
             var scorePath = Path.Combine(Path.GetTempPath(), $"challenge-lab-{Guid.NewGuid():N}.json");
@@ -242,7 +299,7 @@ public sealed class FreeFlightHudModeTests
             ?? throw new MissingMethodException(nameof(MainViewModel), "ArmFreeFlightSession");
         var airport = new AirportFacility("TEST", "ZZ", 0, 0, 10);
         var runway = new RunwayEndFacility(airport, "09", 0, 0, 10, 90, 2000, 45, 4, false);
-        method.Invoke(vm, [new FreeFlightTarget(runway, 2, 0, 0), sample, CancellationToken.None]);
+        method.Invoke(vm, [new FreeFlightTarget(runway, 2, 0, 0), sample, CancellationToken.None, false]);
     }
 
     private static void WaitUntil(Func<bool> condition, TimeSpan timeout)
@@ -258,22 +315,47 @@ public sealed class FreeFlightHudModeTests
         }
     }
 
-    private static TelemetrySample ApproachSample(string? aircraftTitle = null) => new()
+    private static TelemetrySample ApproachSample(
+        string? aircraftTitle = null,
+        double longitude = -.04,
+        double heading = 110,
+        double gearHandlePosition = 1) => new()
     {
         Latitude = 0,
-        Longitude = -.04,
+        Longitude = longitude,
         AltitudeFeet = 1000,
         AglFeet = 1000,
         RadioHeightFeet = 1000,
         AirspeedKts = 90,
         GroundSpeedKts = 90,
-        HeadingTrueDeg = 110,
+        HeadingTrueDeg = heading,
         SimOnGround = false,
         DesignSpeedVs0Kts = 45,
         AircraftTitle = aircraftTitle,
         IsGearWheels = true,
-        IsGearRetractable = true
+        IsGearRetractable = true,
+        GearHandlePosition = gearHandlePosition
     };
+
+    private static AirportRunwayFacility Detail(AirportFacility airport) => new(
+        airport,
+        [new RunwayFacility(
+            CenterLatitude: airport.Latitude,
+            CenterLongitude: airport.Longitude,
+            AltitudeMeters: 0,
+            HeadingTrueDeg: 90,
+            LengthMeters: 2_000,
+            WidthMeters: 45,
+            Surface: 4,
+            PrimaryNumber: 9,
+            PrimaryDesignator: 0,
+            SecondaryNumber: 27,
+            SecondaryDesignator: 0,
+            PrimaryClosed: false,
+            SecondaryClosed: false,
+            PrimaryLandingAllowed: true,
+            SecondaryLandingAllowed: true)],
+        [new RunwayStartFacility(airport.Latitude, airport.Longitude, 0, 90, 9, 0, 1)]);
 
     private static string FindConfig()
     {
@@ -308,6 +390,11 @@ public sealed class FreeFlightHudModeTests
         public string? StatusMessage => State.ToString();
         public bool IsConnected => State == SimConnectionState.Connected;
         public bool BlockAirportCatalog { get; init; }
+        public IReadOnlyList<AirportFacility>? Airports { get; init; }
+        public IReadOnlySet<string> BlockedAirportDetails { get; init; } = new HashSet<string>();
+        public IReadOnlyDictionary<string, AirportRunwayFacility> AirportDetails { get; init; } =
+            new Dictionary<string, AirportRunwayFacility>();
+        public List<string> RequestedAirportDetails { get; } = [];
         public bool AirportCatalogRequested { get; private set; }
         public bool FacilityRequestCancelled { get; private set; }
         public int LoadScenarioCalls { get; private set; }
@@ -338,13 +425,20 @@ public sealed class FreeFlightHudModeTests
             using var registration = ct.Register(() => FacilityRequestCancelled = true);
             if (BlockAirportCatalog)
                 await Task.Delay(Timeout.InfiniteTimeSpan, ct);
-            return [new AirportFacility("TEST", "ZZ", 0, 0, 0)];
+            return Airports ?? [new AirportFacility("TEST", "ZZ", 0, 0, 0)];
         }
 
-        public Task<AirportRunwayFacility> GetAirportRunwaysAsync(
+        public async Task<AirportRunwayFacility> GetAirportRunwaysAsync(
             AirportFacility airport,
-            CancellationToken ct = default) =>
-            Task.FromResult(new AirportRunwayFacility(airport, [], []));
+            CancellationToken ct = default)
+        {
+            RequestedAirportDetails.Add(airport.Icao);
+            if (BlockedAirportDetails.Contains(airport.Icao))
+                await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            return AirportDetails.TryGetValue(airport.Icao, out var detail)
+                ? detail
+                : new AirportRunwayFacility(airport, [], []);
+        }
 
         public Task<SpawnApplyResult> LoadScenarioAsync(
             ChallengeConfig challenge,

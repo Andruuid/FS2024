@@ -83,8 +83,9 @@ public sealed class TelemetrySample
     public double? ManualBrakeRightPosition { get; init; }
 
     /// <summary>
-    /// True while MSFS reports autobrakes applying brake pressure
-    /// (<c>AUTOBRAKES ACTIVE</c>). Null when not sampled.
+    /// True while autobrakes are applying brake pressure. Combines stock
+    /// <c>AUTOBRAKES ACTIVE</c> with airliner L-vars (FBW <c>A32NX_AUTOBRAKES_ACTIVE</c>,
+    /// iniBuilds <c>INI_AUTOBRAKE_BRAKING</c> / <c>INI_AUTOBRAKE_ENGAGED</c>). Null when not sampled.
     /// </summary>
     public bool? AutoBrakesActive { get; init; }
 

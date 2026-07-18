@@ -255,7 +255,7 @@ public sealed class LandingReportV9Tests
         Assert.Equal("98.2%", chain.RawScoreDisplay);
         Assert.Equal("79.5%", chain.FinalScoreDisplay);
         Assert.Equal("−18.7 pts", chain.PointLossDisplay);
-        Assert.Equal(new[] { "MANUAL BRAKES", "REVERSE THRUST" },
+        Assert.Equal(new[] { "BRAKES", "REVERSE THRUST" },
             chain.Penalties.Select(penalty => penalty.DisplayName));
         Assert.All(chain.Penalties, penalty => Assert.Equal("×0.9", penalty.MultiplierDisplay));
 

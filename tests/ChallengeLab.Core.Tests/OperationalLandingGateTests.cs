@@ -33,7 +33,7 @@ public sealed class OperationalLandingGateTests
         Assert.Equal(0.8, rollout.Rollout!.MultiplierOnFail, 6);
 
         Assert.True(free.IsValid, string.Join("; ", free.Errors));
-        Assert.Equal(14, free.Key!.Version);
+        Assert.Equal(15, free.Key!.Version);
         Assert.NotNull(free.Key.FreeMode);
         Assert.NotNull(free.Key.GeneralPenalties?.PauseUsage);
         Assert.NotNull(free.Key.GeneralPenalties?.SimulationRate);
@@ -377,6 +377,40 @@ public sealed class OperationalLandingGateTests
         Assert.Null(obs.FirstSimultaneousBrakingTimeSeconds);
         Assert.False(obs.EarlyOrAirborneBrakeViolation);
         Assert.True(obs.AutoBrakeTelemetryCoverageAvailable);
+    }
+
+    [Fact]
+    public void Brakes_AutobrakeWhileNoseAirborneDoesNotCountAsPedalViolation_AndSatisfiesAfterNoseTd()
+    {
+        // Nose still airborne: autobrake applying is normal (and may animate pedals).
+        var session = CreateSession();
+        session.Arm();
+        session.Ingest(AirSample(10, 100));
+        session.Ingest(AirSample(11, 10, noseOnGround: false, autoBrakesActive: true,
+            brakeLeft: 0.4, brakeRight: 0.4));
+        Assert.False(session.Snapshot.GateObservations.EarlyOrAirborneBrakeViolation);
+        Assert.Null(session.Snapshot.GateObservations.FirstAutoBrakeActiveTimeSeconds);
+
+        session.Ingest(AirSample(12, 10, noseOnGround: true, autoBrakesActive: true,
+            brakeLeft: 0.4, brakeRight: 0.4));
+        var obs = session.Snapshot.GateObservations;
+        Assert.Equal(12, obs.NoseGearTouchdownTimeSeconds);
+        Assert.Equal(12, obs.FirstAutoBrakeActiveTimeSeconds);
+        // Pedal pressure while autobrake is active must not be attributed to manual pedals.
+        Assert.Null(obs.FirstSimultaneousBrakingTimeSeconds);
+        Assert.False(obs.EarlyOrAirborneBrakeViolation);
+
+        var (key, challenge) = LoadChallengeProfile();
+        var snapshot = PassingSnapshot();
+        snapshot.GateObservations.NoseGearTouchdownTimeSeconds = 12;
+        snapshot.GateObservations.FirstAutoBrakeActiveTimeSeconds = 12;
+        snapshot.GateObservations.FirstSimultaneousBrakingTimeSeconds = null;
+        snapshot.GateObservations.AutoBrakeTelemetryCoverageAvailable = true;
+        snapshot.GateObservations.EarlyOrAirborneBrakeViolation = false;
+        var result = new ScoreEngine(key).Evaluate(challenge, snapshot);
+        var criterion = result.Criteria.Single(c => c.Id == "manual_braking");
+        Assert.Equal(MetricStatus.Informational, criterion.Status);
+        Assert.Contains("autobrake", criterion.Note!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

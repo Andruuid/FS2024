@@ -713,13 +713,20 @@ public sealed class LandingSession
             var leftPressed = left > gate.PedalPressThreshold;
             var rightPressed = right > gate.PedalPressThreshold;
 
+            // Autobrake may animate pedals (Airbus) or raise stock BRAKE POSITION while the
+            // nose is still airborne — that is normal and must not count as a pedal violation.
+            var autoApplying = sample.AutoBrakesActive == true;
             if ((leftPressed || rightPressed)
                 && logical.NoseGearContactAvailable
-                && !logical.NoseOnGround)
+                && !logical.NoseOnGround
+                && !autoApplying)
                 observations.EarlyOrAirborneBrakeViolation = true;
 
+            // Simultaneous pedals after nose TD satisfy the gate only when autobrake is not
+            // the source of the pressure (otherwise attribute success to the autobrake path).
             if (leftPressed && rightPressed
                 && logical.NoseOnGround
+                && !autoApplying
                 && observations.NoseGearTouchdownTimeSeconds is not null
                 && observations.FirstSimultaneousBrakingTimeSeconds is null)
                 observations.FirstSimultaneousBrakingTimeSeconds = timeSeconds;

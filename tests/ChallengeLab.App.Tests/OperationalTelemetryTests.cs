@@ -17,9 +17,28 @@ public sealed class OperationalTelemetryTests
         double Resolve(double standard, double pedal, bool autobrake) =>
             Assert.IsType<double>(method!.Invoke(null, new object[] { standard, pedal, autobrake }));
 
+        // Autobrake active: stock pressure and animated pedals are not pilot manual input.
         Assert.Equal(0, Resolve(32768, 0, autobrake: true), 6);
-        Assert.Equal(0.2, Resolve(32768, 0.2, autobrake: true), 6);
+        Assert.Equal(0, Resolve(32768, 0.2, autobrake: true), 6);
         Assert.Equal(1, Resolve(32768, 0, autobrake: false), 6);
+        Assert.Equal(0.2, Resolve(0, 0.2, autobrake: false), 6);
+    }
+
+    [Fact]
+    public void SimConnectDefinition_IncludesAirlinerAutobrakeAndPedalLVars()
+    {
+        var root = FindRepositoryRoot();
+        var client = File.ReadAllText(Path.Combine(
+            root, "src", "ChallengeLab.SimConnect", "SimConnectClient.cs"));
+
+        Assert.Contains("AUTOBRAKES ACTIVE", client, StringComparison.Ordinal);
+        Assert.Contains("L:A32NX_AUTOBRAKES_ACTIVE", client, StringComparison.Ordinal);
+        Assert.Contains("L:INI_AUTOBRAKE_BRAKING", client, StringComparison.Ordinal);
+        Assert.Contains("L:INI_AUTOBRAKE_ENGAGED", client, StringComparison.Ordinal);
+        Assert.Contains("L:A32NX_LEFT_BRAKE_PEDAL_INPUT", client, StringComparison.Ordinal);
+        Assert.Contains("L:A32NX_RIGHT_BRAKE_PEDAL_INPUT", client, StringComparison.Ordinal);
+        Assert.Contains("L:LEFT_BRAKE_PEDAL_INPUT", client, StringComparison.Ordinal);
+        Assert.Contains("L:INI_BRAKE_AXIS_LEFT", client, StringComparison.Ordinal);
     }
 
     [Fact]

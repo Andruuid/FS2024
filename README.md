@@ -40,7 +40,7 @@ dotnet run --project src\ChallengeLab.App
 5. Start the revealed assignment or default challenge — watch the progress bar, then fly the landing.
 6. After touchdown, slow below **50 knots**. Score appears on the **Companion HUD** and under the **Session** tab.
 
-For a flight that is already in progress, select **Free** on the HUD instead. Challenge Lab reads the installed MSFS airport/runway facilities, detects the approached runway from position and aircraft heading, and arms after the same target wins three one-second scans. Free mode does not change the aircraft, time, weather, position, or pause state. **Clear** releases the current runway and immediately starts detection again in place.
+For a flight that is already in progress, select **Free** on the HUD instead. Challenge Lab warms nearby MSFS airport/runway facilities in the background, shows the most likely target as soon as the gear is down (immediately for fixed-gear aircraft), and refines it until evaluation begins. Scoring starts five seconds before the detected runway's glideslope reaches 2,000 ft above runway elevation. Free mode does not change the aircraft, time, weather, position, or pause state. **Clear** temporarily rejects the current airport and immediately searches for the next likely target without requiring another gear cycle.
 
 ## Career Mode — classified promotion flights
 
@@ -133,7 +133,7 @@ Spawn verified: horiz=… m · altErr=… ft · ias=… kt
 
 `config/scoring/profiles/free-flight-evaluation-key.json` (Free, generic VS0-based VAPP and no flap-index gate)
 
-Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, phase/general penalties, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v23 and the Free key is v9. Session log confirms load:
+Loaded at startup (path from `catalog.json` → `evaluationKey`). Phase weights, metric importance, named composite curves, phase/general penalties, settle GS, contact mapping, and simulation-time analysis windows all live here. The Normal key is v27 and the Free key is v15. Session log confirms load:
 
 ```
 Evaluation key loaded: landing-evaluation-key v23 · N metrics · Approach 25% + Touchdown 70% + Rollout 5%

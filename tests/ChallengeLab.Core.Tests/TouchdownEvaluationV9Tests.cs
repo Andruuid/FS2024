@@ -50,7 +50,7 @@ public sealed class TouchdownEvaluationV9Tests
         foreach (var (path, version) in new[]
                  {
                      (catalog.EvaluationKey, 27),
-                     (catalog.FreeFlightEvaluationKey, 14)
+                     (catalog.FreeFlightEvaluationKey, 15)
                  })
         {
             var loaded = loader.LoadEvaluationKey(path);
