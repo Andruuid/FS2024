@@ -1,4 +1,5 @@
 using ChallengeLab.Core.Config;
+using ChallengeLab.Core.Facilities;
 using ChallengeLab.Core.Highscores;
 using ChallengeLab.Core.Models;
 
@@ -19,7 +20,8 @@ public static class FlightTapeReplayer
 {
     public static FlightTapeReplayResult Replay(
         FlightTapeDocument tape,
-        LandingEvaluationKey baseKey)
+        LandingEvaluationKey baseKey,
+        RunwayReferenceResolver? runwayResolver = null)
     {
         ArgumentNullException.ThrowIfNull(tape);
         ArgumentNullException.ThrowIfNull(baseKey);
@@ -29,6 +31,18 @@ public static class FlightTapeReplayer
             throw new InvalidOperationException("Flight tape has no samples.");
 
         var challenge = tape.Challenge;
+        if (string.IsNullOrWhiteSpace(challenge.Runway.RunwayDataSource))
+        {
+            runwayResolver ??= new RunwayReferenceResolver();
+            if (!runwayResolver.TryApplyCsv(challenge.Runway))
+            {
+                challenge.Runway.RunwayDataSource = "Stored flight-tape geometry";
+                RunwayReferenceResolver.ApplyAimingPoint(
+                    challenge.Runway,
+                    challenge.Runway.RunwayDataSource,
+                    "Low");
+            }
+        }
         var effective = EffectiveEvaluationProfileBuilder.Build(baseKey, challenge);
         var settings = effective.Key.ToSessionSettings();
         var engine = new ScoreEngine(effective.Key, effective.ProfileHash);

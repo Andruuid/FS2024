@@ -32,7 +32,7 @@ internal static class CrabAngleCalculator
 
             points.Add(new Point(
                 time,
-                Math.Abs(NormalizeHeading(sample.HeadingTrueDeg - runwayHeadingTrueDeg))));
+                NormalizeHeading(sample.HeadingTrueDeg - runwayHeadingTrueDeg)));
             if (time >= windowEnd)
                 break;
         }
@@ -40,7 +40,7 @@ internal static class CrabAngleCalculator
         if (points.Count < 2 || points[0].TimeSeconds > touchdownTimeSeconds + 0.1)
             return Unavailable("The main-gear touchdown heading sample is unavailable.");
 
-        var touchdownErrorDeg = points[0].AbsoluteErrorDeg;
+        var touchdownErrorDeg = Math.Abs(points[0].HeadingErrorDeg);
         double integral = 0;
         double coverage = 0;
         var peak = touchdownErrorDeg;
@@ -62,11 +62,11 @@ internal static class CrabAngleCalculator
                 continue;
 
             var fraction = dt / rawDt;
-            var endError = previous.AbsoluteErrorDeg
-                           + (current.AbsoluteErrorDeg - previous.AbsoluteErrorDeg) * fraction;
-            integral += 0.5 * (previous.AbsoluteErrorDeg + endError) * dt;
+            var endError = previous.HeadingErrorDeg
+                           + (current.HeadingErrorDeg - previous.HeadingErrorDeg) * fraction;
+            integral += IntegrateAbsoluteLinear(previous.HeadingErrorDeg, endError, dt);
             coverage += dt;
-            peak = Math.Max(peak, Math.Max(previous.AbsoluteErrorDeg, endError));
+            peak = Math.Max(peak, Math.Max(Math.Abs(previous.HeadingErrorDeg), Math.Abs(endError)));
             validSamples++;
 
             if (segmentEnd >= windowEnd - 1e-9)
@@ -110,5 +110,17 @@ internal static class CrabAngleCalculator
         return deg;
     }
 
-    private readonly record struct Point(double TimeSeconds, double AbsoluteErrorDeg);
+    private static double IntegrateAbsoluteLinear(double start, double end, double duration)
+    {
+        var startAbs = Math.Abs(start);
+        var endAbs = Math.Abs(end);
+        if (start == 0 || end == 0 || Math.Sign(start) == Math.Sign(end))
+            return 0.5 * (startAbs + endAbs) * duration;
+
+        var zeroFraction = startAbs / (startAbs + endAbs);
+        return 0.5 * startAbs * duration * zeroFraction
+               + 0.5 * endAbs * duration * (1 - zeroFraction);
+    }
+
+    private readonly record struct Point(double TimeSeconds, double HeadingErrorDeg);
 }

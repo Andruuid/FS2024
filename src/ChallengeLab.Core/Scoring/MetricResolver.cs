@@ -17,6 +17,7 @@ public static class MetricResolver
     {
         "touchdownVerticalSpeedFpm",
         "touchdownPointErrorFt",
+        "touchdownOffsetFromAimingMarkerFt",
         "centerlineDeviationM",
         "alignmentDeg",
         "touchdownIasErrorKts",
@@ -51,6 +52,7 @@ public static class MetricResolver
         {
             "touchdownverticalspeedfpm" => MetricObservation.Available(snap.VerticalSpeedAtTouchdownFpm),
             "touchdownpointerrorft" => ResolveTouchdownPoint(snap, challenge),
+            "touchdownoffsetfromaimingmarkerft" => ResolveTouchdownPointOffset(snap, challenge),
             "centerlinedeviationm" => MetricObservation.Available(Math.Abs(snap.TouchdownLateralOffsetM)),
             "alignmentdeg" => MetricObservation.Available(Math.Abs(snap.TouchdownHeadingErrorDeg)),
             "touchdowniaserrorkts" => MetricObservation.Available(snap.TouchdownIasErrorKts),
@@ -128,6 +130,7 @@ public static class MetricResolver
     private static bool IsTouchdownMetric(string metric) => metric.ToLowerInvariant() is
         "touchdownverticalspeedfpm" or
         "touchdownpointerrorft" or
+        "touchdownoffsetfromaimingmarkerft" or
         "centerlinedeviationm" or
         "alignmentdeg" or
         "touchdowniaserrorkts" or
@@ -148,6 +151,22 @@ public static class MetricResolver
             out var measurement,
             out var reason)
             ? MetricObservation.Available(measurement.AbsoluteErrorFeet)
+            : MetricObservation.Unavailable(reason ?? "Touchdown-point geometry is unavailable.");
+    }
+
+    private static MetricObservation ResolveTouchdownPointOffset(
+        LandingSnapshot snapshot,
+        ChallengeConfig challenge)
+    {
+        if (snapshot.Touchdown is null)
+            return MetricObservation.Unavailable("Touchdown telemetry was not captured.");
+
+        return TouchdownPointCalculator.TryCalculate(
+            challenge.Runway,
+            snapshot.Touchdown,
+            out var measurement,
+            out var reason)
+            ? MetricObservation.Available(measurement.OffsetFromAimingMarkerFeet)
             : MetricObservation.Unavailable(reason ?? "Touchdown-point geometry is unavailable.");
     }
 }

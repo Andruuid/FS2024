@@ -442,6 +442,37 @@ public sealed class LandingReportV9Tests
         Assert.Contains("perfect point 1200.0 ft", metric.Note, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("inside ideal band")]
+    [InlineData("200.0 ft short")]
+    [InlineData("200.0 ft long")]
+    public void Report_FormatsVersionTwentySevenTouchdownBand(string position)
+    {
+        var criterion = new HighscoreCriterionDetail
+        {
+            Id = "touchdown_point",
+            DisplayName = "Touchdown point",
+            ScorePercent = 75,
+            RawValue = 1_100,
+            Unit = "ft",
+            Status = MetricStatus.Scored,
+            Note = $"Measured: touchdown 1100.0 ft from threshold; aiming marker 1000.0 ft; ideal band 1300.0-1500.0 ft; {position}.",
+            PhaseId = "touchdown",
+            PhaseDisplayName = "Touchdown",
+            PhaseImportancePercent = 19,
+            PhaseWeightPercent = 70,
+            MaxOverallPoints = 13.3
+        };
+
+        var reportMetric = new ReportMetricViewModel(criterion, false);
+        var summaryMetric = new SummaryMetricViewModel(criterion);
+
+        Assert.Equal(
+            $"1100.0 ft from threshold · marker 1000.0 ft · ideal 1300.0-1500.0 ft · {position}",
+            reportMetric.RawDisplay);
+        Assert.Equal(position, summaryMetric.DetailDisplay);
+    }
+
     [Fact]
     public void Report_SeparatesAllOperationalPenaltyCardsFromMetrics()
     {

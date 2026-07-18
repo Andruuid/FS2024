@@ -9,15 +9,15 @@ namespace ChallengeLab.Core.Tests;
 public sealed class FreeModeScoringParityTests
 {
     [Fact]
-    public void FreeV12_IsAStructuralOverlayOfLandingV26()
+    public void FreeV13_IsAStructuralOverlayOfLandingV27()
     {
         var loader = new ConfigLoader(FindConfig());
         var catalog = loader.LoadCatalog();
         var normal = loader.LoadEvaluationKey(catalog.EvaluationKey).Key!;
         var free = loader.LoadEvaluationKey(catalog.FreeFlightEvaluationKey).Key!;
 
-        Assert.Equal(26, normal.Version);
-        Assert.Equal(12, free.Version);
+        Assert.Equal(27, normal.Version);
+        Assert.Equal(13, free.Version);
         Assert.NotNull(free.FreeMode);
         Assert.Equal(50, free.FreeMode!.UnavailableMetricScorePercent);
         Assert.Equal(0.5, free.FreeMode.MissingGatePenaltyFraction);

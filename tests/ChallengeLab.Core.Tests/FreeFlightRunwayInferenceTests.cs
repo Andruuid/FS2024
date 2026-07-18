@@ -286,6 +286,23 @@ public sealed class FreeFlightRunwayInferenceTests
     }
 
     [Fact]
+    public void ChallengeFactory_FreeModeFreezesFallbackAimingMarkerIntoRunwayIdentity()
+    {
+        var end = new RunwayEndFacility(Airport, "01", 0, 0, 10, 10, 1415, 31, 4, false);
+
+        var challenge = FreeFlightChallengeFactory.Create(
+            new FreeFlightTarget(end, 2, 0, 0),
+            Sample(-.01, 10));
+
+        Assert.Equal(984 * RunwayPathGeometry.MetersPerFoot, challenge.Runway.AimingMarkerStartM!.Value, 6);
+        Assert.Equal(52.5, challenge.Runway.AimingMarkerLengthM!.Value, 6);
+        Assert.Equal((984 + 400) * RunwayPathGeometry.MetersPerFoot,
+            challenge.Runway.IdealTouchdownDistanceM!.Value, 6);
+        Assert.Equal("SimConnect", challenge.Runway.AimingMarkerSource);
+        Assert.Equal("Medium", challenge.Runway.AimingMarkerConfidence);
+    }
+
+    [Fact]
     public void GenericSpeedTarget_UsesSmallAircraftVs0WithoutA330Clamp()
     {
         var challenge = new ChallengeConfig { Mode = "free_flight" };

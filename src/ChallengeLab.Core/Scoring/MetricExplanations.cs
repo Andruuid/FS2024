@@ -118,7 +118,9 @@ public static class MetricExplanations
                                        challenge.Runway,
                                        snap.Touchdown,
                                        out var touchdownPoint,
-                                       out _) =>
+                                       out _,
+                                       Get(metric.Params, "idealNearOffsetFt", TouchdownPointCalculator.DefaultIdealNearOffsetFeet),
+                                       Get(metric.Params, "idealFarOffsetFt", TouchdownPointCalculator.DefaultIdealFarOffsetFeet)) =>
                 FormatTouchdownPoint(touchdownPoint),
             "peak_g" =>
                 $"Measured: {snap.PeakGForce:0.00} G.",
@@ -227,12 +229,14 @@ public static class MetricExplanations
 
     private static string FormatTouchdownPoint(TouchdownPointMeasurement point)
     {
-        var onTarget = point.AbsoluteErrorFeet < 0.05;
-        var signedError = onTarget ? "0.0" : Signed(point.SignedErrorFeet);
-        var direction = onTarget ? "on target" : point.SignedErrorFeet < 0 ? "early" : "late";
+        var bandResult = Math.Abs(point.SignedDistanceFromIdealBandFeet) < 0.05
+            ? "inside ideal band"
+            : $"{Math.Abs(point.SignedDistanceFromIdealBandFeet):0.0} ft "
+              + (point.SignedDistanceFromIdealBandFeet < 0 ? "short" : "long");
         return $"Measured: touchdown {point.ActualDistanceFeet:0.0} ft from threshold; " +
-               $"perfect point {point.PerfectDistanceFeet:0.0} ft; " +
-               $"error {signedError} ft ({direction}).";
+               $"aiming marker {point.AimingMarkerDistanceFeet:0.0} ft; " +
+               $"ideal band {point.IdealNearDistanceFeet:0.0}-{point.IdealFarDistanceFeet:0.0} ft; " +
+               $"{bandResult}.";
     }
 
     private static string Signed(double v) => v >= 0 ? $"+{v:0.0}" : $"{v:0.0}";

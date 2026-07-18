@@ -16,7 +16,7 @@ public sealed class OperationalLandingGateTests
         var free = loader.LoadEvaluationKey(loader.LoadCatalog().FreeFlightEvaluationKey);
 
         Assert.True(challenge.IsValid, string.Join("; ", challenge.Errors));
-        Assert.Equal(26, challenge.Key!.Version);
+        Assert.Equal(27, challenge.Key!.Version);
         var touchdown = challenge.Key.Phases.Single(p => p.Id == "touchdown").Penalties!;
         var approach = challenge.Key.Phases.Single(p => p.Id == "approach").Penalties!;
         var rollout = challenge.Key.Phases.Single(p => p.Id == "rollout").Penalties!;
@@ -33,7 +33,7 @@ public sealed class OperationalLandingGateTests
         Assert.Equal(0.8, rollout.Rollout!.MultiplierOnFail, 6);
 
         Assert.True(free.IsValid, string.Join("; ", free.Errors));
-        Assert.Equal(12, free.Key!.Version);
+        Assert.Equal(13, free.Key!.Version);
         Assert.NotNull(free.Key.FreeMode);
         Assert.NotNull(free.Key.GeneralPenalties?.PauseUsage);
         Assert.NotNull(free.Key.GeneralPenalties?.SimulationRate);
@@ -1310,7 +1310,7 @@ public sealed class OperationalLandingGateTests
                 time: 10,
                 airborne: false,
                 groundSpeed: 120,
-                alongRunwayMeters: 1_200 * RunwayPathGeometry.MetersPerFoot),
+                alongRunwayMeters: 1_712 * RunwayPathGeometry.MetersPerFoot),
             GearDownAtTouchdown = true,
             FlapsIndexAtTouchdown = 3,
             VerticalSpeedAtTouchdownFpm = -100,

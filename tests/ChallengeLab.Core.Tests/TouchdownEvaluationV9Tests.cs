@@ -49,8 +49,8 @@ public sealed class TouchdownEvaluationV9Tests
         var catalog = loader.LoadCatalog();
         foreach (var (path, version) in new[]
                  {
-                     (catalog.EvaluationKey, 26),
-                     (catalog.FreeFlightEvaluationKey, 12)
+                     (catalog.EvaluationKey, 27),
+                     (catalog.FreeFlightEvaluationKey, 13)
                  })
         {
             var loaded = loader.LoadEvaluationKey(path);
@@ -244,7 +244,7 @@ public sealed class TouchdownEvaluationV9Tests
         var result = new ScoreEngine(profile11.Key, profile11.ProfileHash)
             .EvaluatePreview(challenge, new LandingSnapshot());
         Assert.Equal(profile11.Key.Id, result.EvaluationKeyId);
-        Assert.Equal(26, result.EvaluationKeyVersion);
+        Assert.Equal(27, result.EvaluationKeyVersion);
         Assert.Equal(profile11.ProfileHash, result.ScoringProfileHash);
         Assert.Equal(profile11.BucketId(challenge.Id), result.RankedBucketId);
 

@@ -471,6 +471,13 @@ public sealed class SummaryMetricViewModel
         if (!criterion.Id.Equals("touchdown_point", StringComparison.OrdinalIgnoreCase))
             return "";
 
+        var bandResult = Regex.Match(
+            criterion.Note ?? "",
+            @"ideal\s+band\s+-?\d+(?:\.\d+)?-\s*-?\d+(?:\.\d+)?\s*ft;\s*(inside\s+ideal\s+band|\d+(?:\.\d+)?\s*ft\s+(?:short|long))",
+            RegexOptions.IgnoreCase);
+        if (bandResult.Success)
+            return bandResult.Groups[1].Value.ToLowerInvariant();
+
         var match = Regex.Match(
             criterion.Note ?? "",
             @"error\s+([+\-]?\d+(?:\.\d+)?)\s*ft\s+\((early|late|on\s+target)\)",
@@ -698,6 +705,18 @@ public sealed class ReportMetricViewModel
         var id = criterion.Id ?? "";
         if (id == "touchdown_point")
         {
+            var band = Regex.Match(
+                criterion.Note ?? "",
+                @"aiming\s+marker\s+(-?\d+(?:\.\d+)?)\s*ft;\s*ideal\s+band\s+(-?\d+(?:\.\d+)?)-\s*(-?\d+(?:\.\d+)?)\s*ft;\s*(inside\s+ideal\s+band|\d+(?:\.\d+)?\s*ft\s+(?:short|long))",
+                RegexOptions.IgnoreCase);
+            if (band.Success)
+            {
+                return $"{criterion.RawValue:0.0} ft from threshold · " +
+                       $"marker {band.Groups[1].Value} ft · " +
+                       $"ideal {band.Groups[2].Value}-{band.Groups[3].Value} ft · " +
+                       band.Groups[4].Value.ToLowerInvariant();
+            }
+
             var target = TryParseFromNote(criterion.Note, @"perfect\s+point\s+(-?\d+(?:\.\d+)?)\s*ft");
             var errorMatch = Regex.Match(
                 criterion.Note ?? "",

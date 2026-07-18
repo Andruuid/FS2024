@@ -223,6 +223,27 @@ public static class EvaluationKeyValidator
                 if (TryFinite(metric, "failScore", out var failScore) && failScore is < 0 or > 1)
                     errors.Add($"{path}.params.failScore must be between 0 and 1.");
                 break;
+            case "touchdownpoint":
+                ValidateExactParams(
+                    metric,
+                    path,
+                    errors,
+                    "idealNearOffsetFt",
+                    "idealFarOffsetFt",
+                    "shortSpanFt",
+                    "longSpanFt");
+                if (TryFinite(metric, "idealNearOffsetFt", out var near)
+                    && near < 0)
+                    errors.Add($"{path}.params.idealNearOffsetFt must be at least zero.");
+                if (TryFinite(metric, "idealNearOffsetFt", out near)
+                    && TryFinite(metric, "idealFarOffsetFt", out var far)
+                    && far <= near)
+                    errors.Add($"{path}.params.idealFarOffsetFt must be greater than idealNearOffsetFt.");
+                if (TryFinite(metric, "shortSpanFt", out var shortSpan) && shortSpan <= 0)
+                    errors.Add($"{path}.params.shortSpanFt must be greater than zero.");
+                if (TryFinite(metric, "longSpanFt", out var longSpan) && longSpan <= 0)
+                    errors.Add($"{path}.params.longSpanFt must be greater than zero.");
+                break;
             case "landingimpact":
                 ValidateComposite(metric, path, errors,
                     new[] { "verticalSpeedWeight", "peakGWeight" },

@@ -403,7 +403,7 @@ public sealed class ScoreEngineTests
         var loaded = new ConfigLoader(FindConfig()).LoadEvaluationKey();
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("landing-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(26, loaded.Key.Version);
+        Assert.Equal(27, loaded.Key.Version);
         Assert.Equal(0, loaded.Key.Timing!.PostTouchdownAlignmentDelaySeconds);
         Assert.Equal(143, loaded.Key.SpeedTarget!.DefaultVappKts);
     }
@@ -417,7 +417,7 @@ public sealed class ScoreEngineTests
 
         Assert.True(loaded.IsValid, string.Join("; ", loaded.Errors));
         Assert.Equal("free-flight-evaluation-key", loaded.Key!.Id);
-        Assert.Equal(12, loaded.Key.Version);
+        Assert.Equal(13, loaded.Key.Version);
         Assert.Equal(70, loaded.Key.SpeedTarget!.DefaultVappKts);
         Assert.NotNull(loaded.Key.FreeMode);
         Assert.NotNull(loaded.Key.Phases.Single(p => p.Id == "touchdown").Penalties!.Flaps);

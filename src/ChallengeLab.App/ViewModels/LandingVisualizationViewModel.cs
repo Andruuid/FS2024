@@ -22,9 +22,36 @@ public sealed class LandingVisualizationViewModel
         var actualFeet = data.TouchdownDistanceFromThresholdM * FeetPerMeter;
         var idealFeet = data.IdealTouchdownDistanceFromThresholdM * FeetPerMeter;
         var errorFeet = actualFeet - idealFeet;
+        var idealNearM = data.IdealTouchdownNearDistanceFromThresholdM.GetValueOrDefault();
+        var idealFarM = data.IdealTouchdownFarDistanceFromThresholdM.GetValueOrDefault();
+        var hasIdealBand = data.IdealTouchdownNearDistanceFromThresholdM is not null
+                           && data.IdealTouchdownFarDistanceFromThresholdM is not null
+                           && double.IsFinite(idealNearM)
+                           && double.IsFinite(idealFarM)
+                           && idealFarM > idealNearM;
+        var idealNearFeet = hasIdealBand ? idealNearM * FeetPerMeter : idealFeet;
+        var idealFarFeet = hasIdealBand ? idealFarM * FeetPerMeter : idealFeet;
+        var longitudinalResult = hasIdealBand
+            ? FormatBandPosition(actualFeet, idealNearFeet, idealFarFeet)
+            : FormatEarlyLate(errorFeet);
         PositionHeadline = $"{actualFeet:0} FT FROM THRESHOLD";
-        PositionDetail = $"Target {idealFeet:0} ft  ·  {FormatEarlyLate(errorFeet)}  ·  " +
-                         FormatLateral(data.TouchdownLateralOffsetM);
+        PositionDetail = hasIdealBand
+            ? $"Ideal {idealNearFeet:0}-{idealFarFeet:0} ft  ·  {longitudinalResult}  ·  "
+              + FormatLateral(data.TouchdownLateralOffsetM)
+            : $"Target {idealFeet:0} ft  ·  {longitudinalResult}  ·  "
+              + FormatLateral(data.TouchdownLateralOffsetM);
+        if (data.AimingMarkerStartDistanceFromThresholdM is { } markerStartM &&
+            double.IsFinite(markerStartM) && markerStartM >= 0)
+        {
+            var provenance = string.IsNullOrWhiteSpace(data.AimingMarkerSource)
+                ? "estimated"
+                : data.AimingMarkerSource;
+            var confidence = string.IsNullOrWhiteSpace(data.AimingMarkerConfidence)
+                ? ""
+                : $", {data.AimingMarkerConfidence.ToLowerInvariant()} confidence";
+            PositionDetail +=
+                $"  ·  Aiming marker {markerStartM * FeetPerMeter:0} ft ({provenance}{confidence})";
+        }
 
         var impact = FindCriterion(entry, "touchdown_impact")
                      ?? entry.Criteria.FirstOrDefault(IsVerticalSpeedCriterion);
@@ -60,7 +87,7 @@ public sealed class LandingVisualizationViewModel
 
         VerdictHeadline = $"{entry.Grade}  ·  {VerdictFor(entry.ScorePercent)}";
         VerdictSummary =
-            $"Touchdown was {FormatEarlyLate(errorFeet).ToLowerInvariant()} and " +
+            $"Touchdown was {longitudinalResult.ToLowerInvariant()} and " +
             $"{FormatLateral(data.TouchdownLateralOffsetM).ToLowerInvariant()}. " +
             $"The main-gear impact was {data.TouchdownVerticalSpeedFpm:0} fpm at " +
             $"{data.TouchdownRobustPeakG:0.00} g, contributing to a {entry.ScorePercent:0.0}% final score.";
@@ -177,6 +204,13 @@ public sealed class LandingVisualizationViewModel
     {
         if (Math.Abs(errorFeet) < .5) return "ON TARGET";
         return $"{Math.Abs(errorFeet):0} FT {(errorFeet < 0 ? "EARLY" : "LATE")}";
+    }
+
+    private static string FormatBandPosition(double actualFeet, double nearFeet, double farFeet)
+    {
+        if (actualFeet < nearFeet) return $"{nearFeet - actualFeet:0} FT SHORT";
+        if (actualFeet > farFeet) return $"{actualFeet - farFeet:0} FT LONG";
+        return "INSIDE IDEAL BAND";
     }
 
     private static string FormatLateral(double offsetMeters)

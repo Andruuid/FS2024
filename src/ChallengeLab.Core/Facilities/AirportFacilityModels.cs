@@ -9,7 +9,8 @@ public sealed record AirportFacility(
     string Region,
     double Latitude,
     double Longitude,
-    double AltitudeMeters);
+    double AltitudeMeters,
+    string Country = "");
 
 /// <summary>A runway start/threshold position returned as an AIRPORT/START child.</summary>
 public sealed record RunwayStartFacility(
@@ -20,6 +21,20 @@ public sealed record RunwayStartFacility(
     int Number,
     int Designator,
     int Type);
+
+/// <summary>Optional runway pavement child returned by the SimConnect facility API.</summary>
+public sealed record RunwayPavementFacility(
+    double LengthMeters,
+    double WidthMeters,
+    bool Enabled);
+
+/// <summary>One PAPI/VASI installation attached to a runway end.</summary>
+public sealed record RunwayVisualSlopeFacility(
+    int Type,
+    double BiasXMeters,
+    double BiasZMeters,
+    double SpacingMeters,
+    double AngleDeg);
 
 /// <summary>One physical, bidirectional runway returned as an AIRPORT/RUNWAY child.</summary>
 public sealed record RunwayFacility(
@@ -39,7 +54,11 @@ public sealed record RunwayFacility(
     bool PrimaryLandingAllowed,
     bool SecondaryLandingAllowed,
     /// <summary>VASI/PAPI angles in definition order: primary L/R, secondary L/R (null if none).</summary>
-    IReadOnlyList<double?>? VasiAnglesDeg = null);
+    IReadOnlyList<double?>? VasiAnglesDeg = null,
+    RunwayPavementFacility? PrimaryThreshold = null,
+    RunwayPavementFacility? SecondaryThreshold = null,
+    /// <summary>Complete VASI/PAPI records in definition order: primary L/R, secondary L/R.</summary>
+    IReadOnlyList<RunwayVisualSlopeFacility?>? VisualSlopeSystems = null);
 
 /// <summary>Detailed airport data assembled from the SimConnect facility-data stream.</summary>
 public sealed record AirportRunwayFacility(
@@ -60,7 +79,10 @@ public sealed record RunwayEndFacility(
     int Surface,
     bool IsWater,
     double GlideslopeDeg = 3.0,
-    string GlideslopeSource = "default")
+    string GlideslopeSource = "default",
+    string CountryCode = "",
+    double DisplacedThresholdMeters = 0,
+    double? LandingDistanceAvailableMeters = null)
 {
     public string Key => $"{Airport.Icao}:{RunwayId}";
 
@@ -75,7 +97,11 @@ public sealed record RunwayEndFacility(
         LengthM = LengthMeters,
         WidthM = WidthMeters,
         GlideslopeDeg = GlideslopeDeg,
-        GlideslopeSource = GlideslopeSource
+        GlideslopeSource = GlideslopeSource,
+        CountryCode = CountryCode,
+        DisplacedThresholdM = DisplacedThresholdMeters,
+        LandingDistanceAvailableM = LandingDistanceAvailableMeters,
+        RunwayDataSource = "SimConnect"
     };
 }
 
@@ -157,6 +183,10 @@ public static class RunwayFacilityGeometry
         double heading,
         bool primaryEnd)
     {
+        var thresholdFacility = primaryEnd ? runway.PrimaryThreshold : runway.SecondaryThreshold;
+        var thresholdOffsetMeters = thresholdFacility is { Enabled: true }
+            ? Math.Max(0, thresholdFacility.LengthMeters)
+            : 0;
         var start = airport.Starts.FirstOrDefault(s =>
             s.Type is 1 or 2 && s.Number == number && s.Designator == designator);
 
@@ -178,6 +208,14 @@ public static class RunwayFacilityGeometry
                 runway.CenterLongitude,
                 Normalize(outwardHeading),
                 runway.LengthMeters / 2.0);
+            if (thresholdOffsetMeters > 0)
+            {
+                (latitude, longitude) = Project(
+                    latitude,
+                    longitude,
+                    heading,
+                    thresholdOffsetMeters);
+            }
             altitudeMeters = runway.AltitudeMeters;
         }
 
@@ -209,7 +247,10 @@ public static class RunwayFacilityGeometry
             runway.Surface,
             IsWaterSurface(runway.Surface),
             gs.Degrees,
-            gs.Source);
+            gs.Source,
+            airport.Airport.Country,
+            thresholdOffsetMeters,
+            Math.Max(0, runway.LengthMeters - thresholdOffsetMeters));
     }
 
     private static double? AngleAt(IReadOnlyList<double?>? angles, int index)

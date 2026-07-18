@@ -237,12 +237,25 @@ public sealed class RunwayConfig
 {
     public string AirportIcao { get; set; } = "";
     public string RunwayId { get; set; } = "";
+    public string CountryCode { get; set; } = "";
     public double ThresholdLatitude { get; set; }
     public double ThresholdLongitude { get; set; }
     public double HeadingTrueDeg { get; set; }
     public double ElevationFeet { get; set; }
     public double LengthM { get; set; } = 3500;
     public double WidthM { get; set; } = 60;
+
+    /// <summary>Distance from physical pavement end to the usable landing threshold.</summary>
+    public double? DisplacedThresholdM { get; set; }
+
+    /// <summary>Usable landing distance beginning at the landing threshold.</summary>
+    public double? LandingDistanceAvailableM { get; set; }
+
+    /// <summary>Frozen runway-geometry authority, such as OurAirports CSV or SimConnect.</summary>
+    public string RunwayDataSource { get; set; } = "";
+
+    /// <summary>Snapshot identifier for deterministic flight-tape replay.</summary>
+    public string RunwayDataSnapshotId { get; set; } = "";
 
     /// <summary>
     /// Nominal approach path angle in degrees (default 3.0).
@@ -255,6 +268,30 @@ public sealed class RunwayConfig
     /// Diagnostic only; not required for scoring.
     /// </summary>
     public string GlideslopeSource { get; set; } = "default";
+
+    /// <summary>Beginning of the two aiming-point blocks, measured from the landing threshold.</summary>
+    public double? AimingMarkerStartM { get; set; }
+
+    /// <summary>Diagnostic marker position measured from the physical pavement end.</summary>
+    public double? AimingMarkerFromPavementEndM { get; set; }
+
+    /// <summary>Best nominal estimate of the aiming-point block length.</summary>
+    public double? AimingMarkerLengthM { get; set; }
+
+    /// <summary>Nominal center of the aiming-point blocks, measured from the landing threshold.</summary>
+    public double? AimingMarkerCenterM { get; set; }
+
+    /// <summary>
+    /// Optional runway-specific ideal wheel-touchdown position. When absent, scoring retains
+    /// the legacy runway-length rule used by existing Challenge and Career configurations.
+    /// </summary>
+    public double? IdealTouchdownDistanceM { get; set; }
+
+    /// <summary>Diagnostic aiming-marker rule/data source used for this runway.</summary>
+    public string AimingMarkerSource { get; set; } = "";
+
+    /// <summary>High, Medium, or Low confidence for the aiming-marker estimate.</summary>
+    public string AimingMarkerConfidence { get; set; } = "";
 }
 
 /// <summary>Control point: metric value → metric score percent.</summary>

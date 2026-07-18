@@ -28,6 +28,7 @@ public sealed class PrecisionRunwayView : FrameworkElement
     private static readonly Brush CyanBrush = FrozenBrush(Color.FromRgb(0x2D, 0xE2, 0xE6));
     private static readonly Brush AmberBrush = FrozenBrush(Color.FromRgb(0xFF, 0xB0, 0x20));
     private static readonly Brush GreenBrush = FrozenBrush(Color.FromRgb(0x62, 0xE6, 0xA7));
+    private static readonly Brush IdealBandBrush = FrozenBrush(Color.FromArgb(0x38, 0x62, 0xE6, 0xA7));
     private static readonly Pen EdgePen = FrozenPen(Color.FromArgb(0xD8, 0xF2, 0xF4, 0xED), 1.4);
     private static readonly Pen FaintPen = FrozenPen(Color.FromArgb(0x28, 0xFF, 0xFF, 0xFF), 1);
     private static readonly Pen CenterGuidePen = DashedPen(Color.FromArgb(0xB0, 0x2D, 0xE2, 0xE6), 1.2, 3, 3);
@@ -110,9 +111,12 @@ public sealed class PrecisionRunwayView : FrameworkElement
         var top = Math.Max(68, (height - runwayHeight) * .46);
         var runway = new Rect(left, top, runwayWidth, runwayHeight);
 
-        var idealM = double.IsFinite(data.IdealTouchdownDistanceFromThresholdM)
-            ? Math.Max(0, data.IdealTouchdownDistanceFromThresholdM)
-            : 0;
+        var idealM = data.IdealTouchdownFarDistanceFromThresholdM is { } far
+                     && double.IsFinite(far)
+            ? Math.Max(0, far)
+            : double.IsFinite(data.IdealTouchdownDistanceFromThresholdM)
+                ? Math.Max(0, data.IdealTouchdownDistanceFromThresholdM)
+                : 0;
         var requestedVisibleM = Math.Max(
             data.RunwayLengthM * RunwayDisplayFraction,
             Math.Max(
@@ -139,6 +143,47 @@ public sealed class PrecisionRunwayView : FrameworkElement
             rawX < minX,
             rawX > maxX,
             rawY < minY || rawY > maxY);
+    }
+
+    public static AimingMarkerPlotLayout CalculateApproachAimingMarkerLayout(
+        LandingVisualizationData data,
+        RunwayPlotLayout layout)
+    {
+        var lengthM = IsPositiveFinite(data.AimingMarkerNominalLengthM)
+            ? data.AimingMarkerNominalLengthM!.Value
+            : 45.0;
+        var startM = IsNonNegativeFinite(data.AimingMarkerStartDistanceFromThresholdM)
+            ? data.AimingMarkerStartDistanceFromThresholdM!.Value
+            : 305.0 - lengthM / 2.0;
+        var x = XForDistance(startM, layout.VisibleDistanceM, layout.Runway);
+        var width = Math.Max(5, lengthM / layout.VisibleDistanceM * layout.Runway.Width);
+        return new AimingMarkerPlotLayout(startM, lengthM, x, width);
+    }
+
+    public static IdealTouchdownBandLayout CalculateIdealTouchdownBandLayout(
+        LandingVisualizationData data,
+        RunwayPlotLayout layout)
+    {
+        if (data.IdealTouchdownNearDistanceFromThresholdM is { } near
+            && data.IdealTouchdownFarDistanceFromThresholdM is { } far
+            && double.IsFinite(near)
+            && double.IsFinite(far)
+            && near >= 0
+            && far > near)
+        {
+            return new IdealTouchdownBandLayout(
+                near,
+                far,
+                XForDistance(near, layout.VisibleDistanceM, layout.Runway),
+                XForDistance(far, layout.VisibleDistanceM, layout.Runway),
+                true);
+        }
+
+        var legacy = double.IsFinite(data.IdealTouchdownDistanceFromThresholdM)
+            ? Math.Max(0, data.IdealTouchdownDistanceFromThresholdM)
+            : 0;
+        var x = XForDistance(legacy, layout.VisibleDistanceM, layout.Runway);
+        return new IdealTouchdownBandLayout(legacy, legacy, x, x, false);
     }
 
     private static void DrawGroundTexture(DrawingContext dc, Rect bounds)
@@ -210,7 +255,10 @@ public sealed class PrecisionRunwayView : FrameworkElement
         LandingVisualizationData data,
         RunwayPlotLayout layout)
     {
-        DrawAimingBlocks(dc, layout, 305);
+        // Older saved landings did not retain aiming-block geometry. Preserve their prior
+        // appearance (45 m blocks centered at 305 m) while Free Mode uses its runway estimate.
+        var marker = CalculateApproachAimingMarkerLayout(data, layout);
+        DrawAimingBlocks(dc, layout, marker.StartDistanceM, marker.LengthM);
 
         var groups = new[] { 3, 3, 2, 2, 1, 1 };
         for (var index = 0; index < groups.Length; index++)
@@ -222,7 +270,11 @@ public sealed class PrecisionRunwayView : FrameworkElement
 
         if (!layout.RunwayContinues)
         {
-            DrawAimingBlocks(dc, layout, data.RunwayLengthM - 305);
+            DrawAimingBlocks(
+                dc,
+                layout,
+                data.RunwayLengthM - marker.StartDistanceM - marker.LengthM,
+                marker.LengthM);
             for (var index = 0; index < groups.Length; index++)
             {
                 var distance = 150.0 * (index + 1);
@@ -235,19 +287,31 @@ public sealed class PrecisionRunwayView : FrameworkElement
     private static void DrawAimingBlocks(
         DrawingContext dc,
         RunwayPlotLayout layout,
-        double distanceM)
+        double startDistanceM,
+        double lengthM)
     {
         var runway = layout.Runway;
-        if (distanceM <= 120 || distanceM >= layout.VisibleDistanceM - 40) return;
-        var x = XForDistance(distanceM, layout.VisibleDistanceM, runway);
-        var blockWidth = Math.Max(5, 45 / layout.VisibleDistanceM * runway.Width);
+        if (!double.IsFinite(startDistanceM) || !double.IsFinite(lengthM) || lengthM <= 0 ||
+            startDistanceM + lengthM <= 0 || startDistanceM >= layout.VisibleDistanceM)
+            return;
+
+        var visibleStartM = Math.Max(0, startDistanceM);
+        var visibleEndM = Math.Min(layout.VisibleDistanceM, startDistanceM + lengthM);
+        var x = XForDistance(visibleStartM, layout.VisibleDistanceM, runway);
+        var blockWidth = Math.Max(5, (visibleEndM - visibleStartM) / layout.VisibleDistanceM * runway.Width);
         var blockHeight = Math.Max(4, runway.Height * .12);
         var inset = runway.Height * .18;
         dc.DrawRectangle(WhiteBrush, null,
-            new Rect(x - blockWidth / 2, runway.Top + inset, blockWidth, blockHeight));
+            new Rect(x, runway.Top + inset, Math.Min(blockWidth, runway.Right - x), blockHeight));
         dc.DrawRectangle(WhiteBrush, null,
-            new Rect(x - blockWidth / 2, runway.Bottom - inset - blockHeight, blockWidth, blockHeight));
+            new Rect(x, runway.Bottom - inset - blockHeight, Math.Min(blockWidth, runway.Right - x), blockHeight));
     }
+
+    private static bool IsPositiveFinite(double? value) =>
+        value is > 0 && double.IsFinite(value.Value);
+
+    private static bool IsNonNegativeFinite(double? value) =>
+        value is >= 0 && double.IsFinite(value.Value);
 
     private static void DrawTouchdownZoneGroup(
         DrawingContext dc,
@@ -332,17 +396,35 @@ public sealed class PrecisionRunwayView : FrameworkElement
         LandingVisualizationData data,
         RunwayPlotLayout layout)
     {
-        var x = XForDistance(data.IdealTouchdownDistanceFromThresholdM, layout.VisibleDistanceM, layout.Runway);
-        dc.DrawLine(TargetPen, new Point(x, layout.Runway.Top - 7), new Point(x, layout.Runway.Bottom + 7));
+        var band = CalculateIdealTouchdownBandLayout(data, layout);
+        if (band.HasBand)
+        {
+            dc.DrawRectangle(
+                IdealBandBrush,
+                null,
+                new Rect(
+                    band.NearX,
+                    layout.Runway.Top,
+                    Math.Max(2, band.FarX - band.NearX),
+                    layout.Runway.Height));
+            dc.DrawLine(TargetPen, new Point(band.NearX, layout.Runway.Top - 7), new Point(band.NearX, layout.Runway.Bottom + 7));
+            dc.DrawLine(TargetPen, new Point(band.FarX, layout.Runway.Top - 7), new Point(band.FarX, layout.Runway.Bottom + 7));
+        }
+        else
+        {
+            dc.DrawLine(TargetPen, new Point(band.NearX, layout.Runway.Top - 7), new Point(band.NearX, layout.Runway.Bottom + 7));
+        }
         var dpi = VisualTreeHelper.GetDpi(new DrawingVisual()).PixelsPerDip;
         var label = CreateText(
-            $"IDEAL  {data.IdealTouchdownDistanceFromThresholdM * FeetPerMeter:0} FT",
+            band.HasBand
+                ? $"IDEAL  {band.NearDistanceM * FeetPerMeter:0}-{band.FarDistanceM * FeetPerMeter:0} FT"
+                : $"IDEAL  {band.NearDistanceM * FeetPerMeter:0} FT",
             9,
             GreenBrush,
             dpi,
             FontWeights.Bold);
         dc.DrawText(label, new Point(
-            Math.Clamp(x - label.Width / 2, 8, layout.Runway.Right - label.Width),
+            Math.Clamp((band.NearX + band.FarX) / 2 - label.Width / 2, 8, layout.Runway.Right - label.Width),
             layout.Runway.Bottom + 31));
     }
 
@@ -355,7 +437,13 @@ public sealed class PrecisionRunwayView : FrameworkElement
         var centerY = layout.Runway.Top + layout.Runway.Height / 2;
         dc.DrawLine(CenterGuidePen, marker, new Point(marker.X, centerY));
 
-        var targetX = XForDistance(data.IdealTouchdownDistanceFromThresholdM, layout.VisibleDistanceM, layout.Runway);
+        var band = CalculateIdealTouchdownBandLayout(data, layout);
+        var targetDistanceM = data.TouchdownDistanceFromThresholdM < band.NearDistanceM
+            ? band.NearDistanceM
+            : data.TouchdownDistanceFromThresholdM > band.FarDistanceM
+                ? band.FarDistanceM
+                : data.TouchdownDistanceFromThresholdM;
+        var targetX = XForDistance(targetDistanceM, layout.VisibleDistanceM, layout.Runway);
         var measureY = layout.Runway.Top - 14;
         dc.DrawLine(CenterGuidePen, new Point(targetX, measureY), new Point(marker.X, measureY));
         dc.DrawLine(CenterGuidePen, new Point(targetX, measureY - 4), new Point(targetX, measureY + 4));
@@ -540,3 +628,16 @@ public readonly record struct RunwayPlotLayout(
     bool ClippedBefore,
     bool ClippedAfter,
     bool ClippedLateral);
+
+public readonly record struct AimingMarkerPlotLayout(
+    double StartDistanceM,
+    double LengthM,
+    double StartX,
+    double Width);
+
+public readonly record struct IdealTouchdownBandLayout(
+    double NearDistanceM,
+    double FarDistanceM,
+    double NearX,
+    double FarX,
+    bool HasBand);

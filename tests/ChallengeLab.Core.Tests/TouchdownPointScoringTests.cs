@@ -10,16 +10,58 @@ public sealed class TouchdownPointScoringTests
     private const double MetersPerFoot = 0.3048;
 
     [Theory]
-    [InlineData(5_999.9, 1_100)]
-    [InlineData(6_000.0, 1_100)]
-    [InlineData(6_000.1, 1_200)]
-    public void PerfectPoint_UsesInclusiveSixThousandFootBoundary(
-        double runwayLengthFeet,
-        double expectedFeet)
+    [InlineData(1_400, 100.0)]
+    [InlineData(1_000, 62.5)]
+    [InlineData(1_100, 75.0)]
+    [InlineData(1_700, 60.0)]
+    [InlineData(500, 0.0)]
+    [InlineData(2_000, 0.0)]
+    public void LandingScorer_MatchesPublishedExamples(double touchdownFeet, double expectedPercent)
     {
-        Assert.Equal(
-            expectedFeet,
-            TouchdownPointCalculator.PerfectTouchdownPointFeet(runwayLengthFeet));
+        Assert.Equal(expectedPercent, LandingScorer.Score(1_000, touchdownFeet), 6);
+    }
+
+    [Theory]
+    [InlineData(500, 0.0)]
+    [InlineData(1_299.999, 100.0)]
+    [InlineData(1_300, 100.0)]
+    [InlineData(1_500, 100.0)]
+    [InlineData(1_500.001, 100.0)]
+    [InlineData(2_000, 0.0)]
+    [InlineData(-10_000, 0.0)]
+    [InlineData(10_000, 0.0)]
+    public void LandingScorer_UsesInclusiveBandBoundariesClampingAndRounding(
+        double touchdownFeet,
+        double expectedPercent)
+    {
+        Assert.Equal(expectedPercent, LandingScorer.Score(1_000, touchdownFeet), 6);
+    }
+
+    [Fact]
+    public void LandingScorer_IsMoreSevereForAnEqualLongMiss()
+    {
+        Assert.Equal(75.0, LandingScorer.Score(1_000, 1_100));
+        Assert.Equal(60.0, LandingScorer.Score(1_000, 1_700));
+        Assert.Equal(66.7, LandingScorer.Score(1_000, 1_666.5));
+    }
+
+    [Theory]
+    [InlineData(-1, 1_000, 300, 500, 800, 500)]
+    [InlineData(1_000, double.NaN, 300, 500, 800, 500)]
+    [InlineData(1_000, 1_400, -1, 500, 800, 500)]
+    [InlineData(1_000, 1_400, 500, 500, 800, 500)]
+    [InlineData(1_000, 1_400, 300, 500, 0, 500)]
+    [InlineData(1_000, 1_400, 300, 500, 800, double.PositiveInfinity)]
+    public void LandingScorer_RejectsInvalidParameters(
+        double marker,
+        double touchdown,
+        double near,
+        double far,
+        double shortSpan,
+        double longSpan)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            LandingScorer.Score(marker, touchdown, near, far, shortSpan, longSpan));
     }
 
     [Theory]
@@ -43,20 +85,31 @@ public sealed class TouchdownPointScoringTests
 
         Assert.True(available, reason);
         Assert.Equal(6_000, result.RunwayLengthFeet, 6);
-        Assert.Equal(1_100, result.PerfectDistanceFeet);
+        Assert.Equal(984, result.AimingMarkerDistanceFeet);
+        Assert.Equal(1_284, result.IdealNearDistanceFeet);
+        Assert.Equal(1_484, result.IdealFarDistanceFeet);
         Assert.Equal(alongFeet, result.ActualDistanceFeet, 3);
-        Assert.Equal(alongFeet - 1_100, result.SignedErrorFeet, 3);
-        Assert.Equal(Math.Abs(alongFeet - 1_100), result.AbsoluteErrorFeet, 3);
+        Assert.Equal(alongFeet - 984, result.OffsetFromAimingMarkerFeet, 3);
+        var expectedBandDistance = alongFeet < 1_284
+            ? alongFeet - 1_284
+            : alongFeet > 1_484
+                ? alongFeet - 1_484
+                : 0;
+        Assert.Equal(expectedBandDistance, result.SignedDistanceFromIdealBandFeet, 3);
     }
 
     [Fact]
-    public void Calculator_ConvertsMetersBeforeChoosingPerfectPoint()
+    public void RunwaySpecificAimingMarker_OverridesLengthRule()
     {
-        var atBoundary = Measure(Runway(0, 6_000 * MetersPerFoot), 1_100);
-        var aboveBoundary = Measure(Runway(0, 6_000.1 * MetersPerFoot), 1_200);
+        var runway = Runway(0, 8_000 * MetersPerFoot);
+        runway.AimingMarkerStartM = 830 * MetersPerFoot;
 
-        Assert.Equal(1_100, atBoundary.PerfectDistanceFeet);
-        Assert.Equal(1_200, aboveBoundary.PerfectDistanceFeet);
+        var measurement = Measure(runway, 1_250);
+
+        Assert.Equal(830, measurement.AimingMarkerDistanceFeet, 6);
+        Assert.Equal(1_130, measurement.IdealNearDistanceFeet, 6);
+        Assert.Equal(1_330, measurement.IdealFarDistanceFeet, 6);
+        Assert.Equal(0, measurement.SignedDistanceFromIdealBandFeet, 3);
     }
 
     [Theory]
@@ -71,30 +124,38 @@ public sealed class TouchdownPointScoringTests
     [InlineData(300.001, 25)]
     [InlineData(500, 25)]
     [InlineData(500.001, 0)]
-    public void UpperBoundBands_UseInclusiveCeilings(double errorFeet, double expectedPercent)
+    public void HistoricalUpperBoundEvaluator_RemainsAvailableForOldProfiles(
+        double errorFeet,
+        double expectedPercent)
     {
-        var actual = UpperBoundBandsEvaluator.Instance.Evaluate(errorFeet, TouchdownMetric());
+        var actual = UpperBoundBandsEvaluator.Instance.Evaluate(errorFeet, HistoricalTouchdownMetric());
         Assert.Equal(expectedPercent, actual * 100, 6);
     }
 
     [Fact]
-    public void Metric_ScoresEarlyAndLateErrorsSymmetricallyAndReportsActualPoint()
+    public void Metric_ScoresShortAndLongMissesAsymmetricallyAndReportsActualPoint()
     {
         var (key, challenge) = LoadProfile();
         challenge.Runway = Runway(73, 8_000 * MetersPerFoot);
-        var early = PreviewAt(key, challenge, 1_125);
-        var late = PreviewAt(key, challenge, 1_275);
+        challenge.Runway.CountryCode = "US";
+        challenge.Runway.AimingMarkerStartM = 1_000 * MetersPerFoot;
+        var inside = PreviewAt(key, challenge, 1_400);
+        var shortResult = PreviewAt(key, challenge, 1_100);
+        var longResult = PreviewAt(key, challenge, 1_700);
 
-        var earlyMetric = early.Criteria.Single(c => c.Id == "touchdown_point");
-        var lateMetric = late.Criteria.Single(c => c.Id == "touchdown_point");
-        Assert.Equal(90, earlyMetric.ScorePercent);
-        Assert.Equal(earlyMetric.ScorePercent, lateMetric.ScorePercent);
-        Assert.Equal(1_125, earlyMetric.RawValue!.Value, 3);
-        Assert.Equal(19, earlyMetric.PhaseImportancePercent);
-        Assert.Equal(13.3, earlyMetric.MaxOverallPoints, 6);
-        Assert.Contains("perfect point 1200.0 ft", earlyMetric.Note, StringComparison.Ordinal);
-        Assert.Contains("error -75.0 ft (early)", earlyMetric.Note, StringComparison.Ordinal);
-        Assert.Contains("error +75.0 ft (late)", lateMetric.Note, StringComparison.Ordinal);
+        var insideMetric = inside.Criteria.Single(c => c.Id == "touchdown_point");
+        var shortMetric = shortResult.Criteria.Single(c => c.Id == "touchdown_point");
+        var longMetric = longResult.Criteria.Single(c => c.Id == "touchdown_point");
+        Assert.Equal(100, insideMetric.ScorePercent);
+        Assert.Equal(75, shortMetric.ScorePercent);
+        Assert.Equal(60, longMetric.ScorePercent);
+        Assert.Equal(1_100, shortMetric.RawValue!.Value, 3);
+        Assert.Equal(19, shortMetric.PhaseImportancePercent);
+        Assert.Equal(13.3, shortMetric.MaxOverallPoints, 6);
+        Assert.Contains("aiming marker 1000.0 ft", insideMetric.Note, StringComparison.Ordinal);
+        Assert.Contains("ideal band 1300.0-1500.0 ft", insideMetric.Note, StringComparison.Ordinal);
+        Assert.Contains("200.0 ft short", shortMetric.Note, StringComparison.Ordinal);
+        Assert.Contains("200.0 ft long", longMetric.Note, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -102,6 +163,7 @@ public sealed class TouchdownPointScoringTests
     {
         var (key, challenge) = LoadProfile();
         challenge.Runway = Runway(90, 8_000 * MetersPerFoot);
+        challenge.Runway.AimingMarkerStartM = 984 * MetersPerFoot;
         var session = new LandingSession(challenge, key.ToSessionSettings() with
         {
             PostArmIgnoreSeconds = 0,
@@ -111,7 +173,7 @@ public sealed class TouchdownPointScoringTests
 
         session.Arm();
         session.Ingest(SessionSample(challenge.Runway, 0, -100, contact: false));
-        session.Ingest(SessionSample(challenge.Runway, 1, 1_200, contact: true));
+        session.Ingest(SessionSample(challenge.Runway, 1, 1_384, contact: true));
         session.Ingest(SessionSample(challenge.Runway, 2, 1_700, contact: true));
 
         Assert.NotNull(session.Snapshot.Touchdown);
@@ -120,8 +182,8 @@ public sealed class TouchdownPointScoringTests
             session.Snapshot.Touchdown,
             out var measurement,
             out var reason), reason);
-        Assert.Equal(1_200, measurement.ActualDistanceFeet, 3);
-        Assert.Equal(0, measurement.AbsoluteErrorFeet, 3);
+        Assert.Equal(1_384, measurement.ActualDistanceFeet, 3);
+        Assert.Equal(0, measurement.AbsoluteDistanceFromIdealBandFeet, 3);
     }
 
     [Fact]
@@ -148,13 +210,19 @@ public sealed class TouchdownPointScoringTests
     }
 
     [Fact]
-    public void ScoreResult_CapturesSelfContainedLandingVisualization()
+    public void ScoreResult_CapturesSelfContainedVersionThreeLandingVisualization()
     {
         var (key, challenge) = LoadProfile();
         challenge.Runway = Runway(73, 8_000 * MetersPerFoot);
         challenge.Runway.AirportIcao = "KTVS";
         challenge.Runway.RunwayId = "09L";
-        var (latitude, longitude) = Project(challenge.Runway, 1_275, 12.5);
+        challenge.Runway.AimingMarkerStartM = 1_000 * MetersPerFoot;
+        challenge.Runway.AimingMarkerLengthM = 45;
+        challenge.Runway.AimingMarkerCenterM = challenge.Runway.AimingMarkerStartM + 22.5;
+        challenge.Runway.IdealTouchdownDistanceM = 830 * MetersPerFoot;
+        challenge.Runway.AimingMarkerSource = "OurAirports CSV";
+        challenge.Runway.AimingMarkerConfidence = "Dataset";
+        var (latitude, longitude) = Project(challenge.Runway, 1_400, 12.5);
         var snapshot = new LandingSnapshot
         {
             Touchdown = new TelemetrySample { Latitude = latitude, Longitude = longitude },
@@ -173,43 +241,40 @@ public sealed class TouchdownPointScoringTests
         var result = new ScoreEngine(key).EvaluatePreview(challenge, snapshot);
         var visual = Assert.IsType<LandingVisualizationData>(result.LandingVisualization);
 
-        Assert.Equal(LandingVisualizationData.CurrentVersion, visual.Version);
+        Assert.Equal(3, visual.Version);
         Assert.Equal("KTVS", visual.AirportIcao);
         Assert.Equal("09L", visual.RunwayId);
-        Assert.Equal(73, visual.RunwayHeadingTrueDeg);
-        Assert.Equal(8_000 * MetersPerFoot, visual.RunwayLengthM, 6);
-        Assert.Equal(45, visual.RunwayWidthM);
-        Assert.Equal(1_275 * MetersPerFoot, visual.TouchdownDistanceFromThresholdM, 3);
-        Assert.Equal(1_200 * MetersPerFoot, visual.IdealTouchdownDistanceFromThresholdM, 6);
+        Assert.Equal(1_400 * MetersPerFoot, visual.TouchdownDistanceFromThresholdM, 3);
+        Assert.Equal(1_400 * MetersPerFoot, visual.IdealTouchdownDistanceFromThresholdM, 6);
+        Assert.Equal(1_300 * MetersPerFoot, visual.IdealTouchdownNearDistanceFromThresholdM!.Value, 6);
+        Assert.Equal(1_500 * MetersPerFoot, visual.IdealTouchdownFarDistanceFromThresholdM!.Value, 6);
+        Assert.Equal(1_000 * MetersPerFoot, visual.AimingMarkerStartDistanceFromThresholdM!.Value, 6);
+        Assert.Equal(45, visual.AimingMarkerNominalLengthM);
+        Assert.Equal(1_000 * MetersPerFoot + 22.5, visual.AimingMarkerCenterDistanceFromThresholdM!.Value, 6);
+        Assert.Equal("OurAirports CSV", visual.AimingMarkerSource);
+        Assert.Equal("Dataset", visual.AimingMarkerConfidence);
         Assert.Equal(12.5, visual.TouchdownLateralOffsetM);
         Assert.Equal(-2.25, visual.TouchdownHeadingErrorDeg);
-        Assert.Equal(3.5, visual.TouchdownBankDeg);
-        Assert.Equal(5.75, visual.TouchdownPitchDeg);
-        Assert.Equal(-236, visual.TouchdownVerticalSpeedFpm);
-        Assert.Equal(1.47, visual.TouchdownRawPeakG);
-        Assert.Equal(1.36, visual.TouchdownRobustPeakG);
-        Assert.Equal(139, visual.TouchdownAirspeedKts);
-        Assert.Equal(138, visual.TargetTouchdownAirspeedKts);
-        Assert.Equal(1_275, result.Criteria.Single(c => c.Id == "touchdown_point").RawValue!.Value, 3);
+        Assert.Equal(1_400, result.Criteria.Single(c => c.Id == "touchdown_point").RawValue!.Value, 3);
     }
 
     [Fact]
-    public void UpperBoundBandsValidation_RejectsUnorderedAndDuplicateBounds()
+    public void TouchdownPointValidation_RejectsInvalidOffsetsAndSpans()
     {
         var (key, _) = LoadProfile();
         var metric = key.Phases.SelectMany(p => p.Metrics)
             .Single(m => m.Id == "touchdown_point");
-        metric.Points =
-        [
-            new ScorePoint { V = 100, S = 90 },
-            new ScorePoint { V = 50, S = 100 },
-            new ScorePoint { V = 50, S = 75 }
-        ];
+        metric.Params["idealNearOffsetFt"] = -1;
+        metric.Params["idealFarOffsetFt"] = -2;
+        metric.Params["shortSpanFt"] = 0;
+        metric.Params["longSpanFt"] = double.NaN;
 
         var errors = EvaluationKeyValidator.Validate(key);
 
-        Assert.Contains(errors, error =>
-            error.Contains("strictly increasing", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(errors, error => error.Contains("idealNearOffsetFt", StringComparison.Ordinal));
+        Assert.Contains(errors, error => error.Contains("idealFarOffsetFt", StringComparison.Ordinal));
+        Assert.Contains(errors, error => error.Contains("shortSpanFt", StringComparison.Ordinal));
+        Assert.Contains(errors, error => error.Contains("longSpanFt", StringComparison.Ordinal));
     }
 
     private static TouchdownPointMeasurement Measure(RunwayConfig runway, double alongFeet)
@@ -229,11 +294,10 @@ public sealed class TouchdownPointScoringTests
         double alongFeet)
     {
         var (latitude, longitude) = Project(challenge.Runway, alongFeet, 0);
-        var snapshot = new LandingSnapshot
+        return new ScoreEngine(key).EvaluatePreview(challenge, new LandingSnapshot
         {
             Touchdown = new TelemetrySample { Latitude = latitude, Longitude = longitude }
-        };
-        return new ScoreEngine(key).EvaluatePreview(challenge, snapshot);
+        });
     }
 
     private static TelemetrySample SessionSample(
@@ -270,7 +334,7 @@ public sealed class TouchdownPointScoringTests
         };
     }
 
-    private static EvaluationMetric TouchdownMetric() => new()
+    private static EvaluationMetric HistoricalTouchdownMetric() => new()
     {
         Id = "touchdown_point",
         DisplayName = "Touchdown point",

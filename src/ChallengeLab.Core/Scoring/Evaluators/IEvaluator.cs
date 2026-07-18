@@ -13,7 +13,7 @@ public static class EvaluatorFactory
     private static readonly HashSet<string> KnownTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "target", "band", "piecewise", "upperboundbands", "centerline", "boolean", "range",
-        "landingimpact", "flareefficiency", "contactstability", "crabangle"
+        "touchdownpoint", "landingimpact", "flareefficiency", "contactstability", "crabangle"
     };
 
     public static bool IsKnown(string evaluatorType) => KnownTypes.Contains(Normalize(evaluatorType));
@@ -30,6 +30,7 @@ public static class EvaluatorFactory
         "centerline" => CenterlineEvaluator.Instance,
         "boolean" => BooleanEvaluator.Instance,
         "range" => RangeEvaluator.Instance,
+        "touchdownpoint" => TouchdownPointEvaluator.Instance,
         _ => throw new ArgumentException($"Unknown evaluator '{evaluatorType}'.", nameof(evaluatorType))
     };
 

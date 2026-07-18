@@ -1,4 +1,5 @@
 using ChallengeLab.Core.Config;
+using ChallengeLab.Core.Facilities;
 using ChallengeLab.Core.Highscores;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scoring;
@@ -32,6 +33,7 @@ public sealed class FlightTapeTests
     public void SaveLoad_RoundTripsSamplesAndChallenge()
     {
         var (challenge, _, _) = Load();
+        Assert.True(new RunwayReferenceResolver().TryApplyCsv(challenge.Runway));
         using var dir = new TempDir();
         var store = new FlightTapeStore(dir.Path);
 
@@ -46,6 +48,11 @@ public sealed class FlightTapeTests
         Assert.Equal(challenge.Id, loaded.ChallengeId);
         Assert.Equal(challenge.Title, loaded.Challenge!.Title);
         Assert.Equal(challenge.Runway.ThresholdLatitude, loaded.Challenge.Runway.ThresholdLatitude);
+        Assert.Equal("OurAirports CSV", loaded.Challenge.Runway.RunwayDataSource);
+        Assert.Equal(challenge.Runway.RunwayDataSnapshotId, loaded.Challenge.Runway.RunwayDataSnapshotId);
+        Assert.Equal(challenge.Runway.DisplacedThresholdM, loaded.Challenge.Runway.DisplacedThresholdM);
+        Assert.Equal(challenge.Runway.LandingDistanceAvailableM, loaded.Challenge.Runway.LandingDistanceAvailableM);
+        Assert.Equal(challenge.Runway.AimingMarkerStartM, loaded.Challenge.Runway.AimingMarkerStartM);
         Assert.Equal(samples.Count, loaded.Samples.Count);
         Assert.Equal(samples[0].Latitude, loaded.Samples[0].Latitude, 6);
         Assert.Equal(samples[^1].GroundSpeedKts, loaded.Samples[^1].GroundSpeedKts, 3);
@@ -104,6 +111,8 @@ public sealed class FlightTapeTests
         var first = FlightTapeReplayer.Replay(tape, key);
         var second = FlightTapeReplayer.Replay(tape, key);
 
+        Assert.Equal("OurAirports CSV", tape.Challenge.Runway.RunwayDataSource);
+        Assert.False(string.IsNullOrWhiteSpace(tape.Challenge.Runway.RunwayDataSnapshotId));
         Assert.True(first.Session.IsComplete || first.Session.Snapshot.Touchdown is not null);
         Assert.Equal(first.Result.ScorePercent, second.Result.ScorePercent);
         Assert.Equal(first.Result.Grade, second.Result.Grade);
@@ -112,6 +121,47 @@ public sealed class FlightTapeTests
             first.Result.Criteria.Single(c => c.Id == "reverse_thrust").Status);
         Assert.True(first.Session.Snapshot.ApproachSamples.Count > 0);
         Assert.NotNull(first.Session.Snapshot.Touchdown);
+    }
+
+    [Fact]
+    public void Replayer_OldTapeFallsBackToStoredGeometryWhenCsvHasNoExactEnd()
+    {
+        var (challenge, key, _) = Load();
+        challenge.Runway.AirportIcao = "ZZZZ";
+        challenge.Runway.RunwayId = "00";
+        challenge.Runway.RunwayDataSource = "";
+        var samples = BuildSettlingLanding(challenge, DateTimeOffset.UtcNow);
+        var tape = new FlightTapeDocument
+        {
+            Challenge = challenge,
+            Samples = samples,
+            SampleCount = samples.Count
+        };
+
+        FlightTapeReplayer.Replay(tape, key);
+
+        Assert.Equal("Stored flight-tape geometry", challenge.Runway.RunwayDataSource);
+        Assert.NotNull(challenge.Runway.AimingMarkerStartM);
+    }
+
+    [Fact]
+    public void Replayer_NewTapeKeepsItsFrozenRunwayGeometry()
+    {
+        var (challenge, key, _) = Load();
+        challenge.Runway.RunwayDataSource = "OurAirports CSV";
+        challenge.Runway.RunwayDataSnapshotId = "frozen-snapshot";
+        challenge.Runway.AimingMarkerStartM = 777 * RunwayPathGeometry.MetersPerFoot;
+        var samples = BuildSettlingLanding(challenge, DateTimeOffset.UtcNow);
+
+        FlightTapeReplayer.Replay(new FlightTapeDocument
+        {
+            Challenge = challenge,
+            Samples = samples,
+            SampleCount = samples.Count
+        }, key);
+
+        Assert.Equal("frozen-snapshot", challenge.Runway.RunwayDataSnapshotId);
+        Assert.Equal(777 * RunwayPathGeometry.MetersPerFoot, challenge.Runway.AimingMarkerStartM!.Value, 6);
     }
 
     [Fact]

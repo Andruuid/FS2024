@@ -46,6 +46,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private readonly EvaluationKeyLoadResult _freeEvaluationKeyLoad;
     private readonly string? _freeEvaluationKeyPath;
     private readonly ISimBridge _sim;
+    private readonly RunwayReferenceResolver _runwayReferenceResolver;
     private ScoreEngine? _activeScoreEngine;
     private LandingSessionSettings? _activeSessionSettings;
     private readonly DispatcherTimer _reconnectTimer;
@@ -121,9 +122,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         ConfigLoader? configLoader = null,
         HighscoreStore? highscores = null,
         CareerProgressStore? careerStore = null,
-        IRandomIndexProvider? careerRandom = null)
+        IRandomIndexProvider? careerRandom = null,
+        OurAirportsRunwayCatalog? runwayCatalog = null)
     {
         _sim = sim;
+        _runwayReferenceResolver = new RunwayReferenceResolver(runwayCatalog);
         _configLoader = configLoader ?? new ConfigLoader();
         _highscores = highscores ?? new HighscoreStore();
         _landingTraces = new LandingTraceStore();
@@ -835,6 +838,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             var catalog = _configLoader.LoadCatalog();
             var challenges = _configLoader.LoadAllChallenges(catalog);
+            var csvMatches = 0;
+            foreach (var challenge in challenges)
+                if (_runwayReferenceResolver.TryApplyCsv(challenge.Runway))
+                    csvMatches++;
             _allChallenges.Clear();
             _allChallenges.AddRange(challenges);
             _careerRewardIds.Clear();
@@ -876,6 +883,17 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
             RefreshCareerPresentation(refreshChallenges: true);
             AppendLog($"Loaded {_allChallenges.Count} challenge(s) from {_configLoader.RootPath}");
+            if (_runwayReferenceResolver.Catalog.IsAvailable)
+            {
+                AppendLog(
+                    $"OurAirports {_runwayReferenceResolver.Catalog.SnapshotId}: " +
+                    $"{_runwayReferenceResolver.Catalog.RunwayEndCount} indexed ends Â· " +
+                    $"{csvMatches}/{challenges.Count} challenge runway matches.");
+            }
+            else
+            {
+                AppendLog("OurAirports unavailable: " + _runwayReferenceResolver.Catalog.LoadError);
+            }
             AppendLog(CareerConfigurationStatus);
         }
         catch (Exception ex)
@@ -1068,7 +1086,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     $"{nearestText} · Locked {locked.Runway.Airport.Icao} RWY {locked.Runway.RunwayId}" +
                     $" · {FormatFreePathAngle(locked.Runway)}";
                 if (_session is null)
-                    ArmFreeFlightSession(locked, sample);
+                    ArmFreeFlightSession(locked, sample, cts.Token);
             }
             else if (inference.Candidate is { } candidate)
             {
@@ -1129,7 +1147,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private void ArmFreeFlightSession(FreeFlightTarget target, TelemetrySample sample)
+    private void ArmFreeFlightSession(
+        FreeFlightTarget target,
+        TelemetrySample sample,
+        CancellationToken cancellationToken)
     {
         if (_freeSessionSettings is null || _freeScoreEngine is null)
         {
@@ -1140,7 +1161,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
         var airport = target.Runway.Airport.Icao.Trim().ToUpperInvariant();
         var runway = target.Runway.RunwayId.Trim().ToUpperInvariant();
-        var challenge = FreeFlightChallengeFactory.Create(target, sample);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsFreeMode || _session is not null)
+            return;
+
+        var challenge = FreeFlightChallengeFactory.Create(target, sample, _runwayReferenceResolver);
+        var aimingStartFeet = TouchdownPointCalculator.ResolveAimingMarkerFeet(challenge.Runway);
+        var idealNearFeet = aimingStartFeet + TouchdownPointCalculator.DefaultIdealNearOffsetFeet;
+        var idealFarFeet = aimingStartFeet + TouchdownPointCalculator.DefaultIdealFarOffsetFeet;
         var effective = EffectiveEvaluationProfileBuilder.Build(_freeEvaluationKeyLoad.Key!, challenge);
         _activeScoreEngine = new ScoreEngine(effective.Key, effective.ProfileHash);
         _activeSessionSettings = effective.Key.ToSessionSettings();
@@ -1160,7 +1188,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         SetAttemptOrigin(LandingAttemptOrigin.FreeFlight);
         StartFlightTapeRecording(challenge, LandingAttemptOrigin.FreeFlight.ToString());
         PhaseLabel = "Free · Armed";
-        HudTip = $"Locked {airport} RWY {runway} · {FormatFreePathAngle(target.Runway)} · scoring this landing.";
+        HudTip =
+            $"Locked {airport} RWY {runway} · aiming blocks {aimingStartFeet:0} ft · " +
+            $"ideal {idealNearFeet:0}-{idealFarFeet:0} ft · scoring this landing.";
         LastScore = null;
         ResultVisible = false;
         SetPreviewPerfect("free flight · runway locked · unmeasured metrics assumed 100%");
@@ -1170,6 +1200,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             $"Free armed: {airport} RWY {runway} · {FormatFreePathAngle(target.Runway)} · " +
             $"{target.ThresholdDistanceNm:0.0} NM · " +
             $"heading error {target.HeadingErrorDeg:0.0}° · cross-track {target.CrossTrackNm:0.00} NM · " +
+            $"aiming marker start {aimingStartFeet:0} ft · " +
+            $"ideal band {idealNearFeet:0}-{idealFarFeet:0} ft · " +
+            $"source {challenge.Runway.RunwayDataSource}/{challenge.Runway.AimingMarkerConfidence} · " +
             $"gear gate={(challenge.RequireGearDown ? "on" : "not applicable")} · " +
             $"capabilities frozen ({challenge.FreeFlightCapabilities?.GateDecisions.Count ?? 0} gate decisions).");
     }
@@ -1271,6 +1304,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 MessageBoxImage.Error);
             return;
         }
+
+        await ResolveRunwayReferenceAsync(challenge);
 
         EffectiveEvaluationProfile effective;
         try
@@ -1466,6 +1501,70 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             IsLoading = false;
             (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
+    }
+
+    private async Task ResolveRunwayReferenceAsync(ChallengeConfig challenge)
+    {
+        if (_runwayReferenceResolver.TryApplyCsv(challenge.Runway))
+            return;
+
+        if (_sim.IsConnected)
+        {
+            try
+            {
+                var airportId = OurAirportsRunwayCatalog.NormalizeAirport(challenge.Runway.AirportIcao);
+                var runwayId = OurAirportsRunwayCatalog.NormalizeRunway(challenge.Runway.RunwayId);
+                var airports = await _sim.GetAirportsAsync(CancellationToken.None);
+                foreach (var airport in airports.Where(candidate =>
+                             string.Equals(
+                                 OurAirportsRunwayCatalog.NormalizeAirport(candidate.Icao),
+                                 airportId,
+                                 StringComparison.Ordinal)))
+                {
+                    var detail = await _sim.GetAirportRunwaysAsync(airport, CancellationToken.None);
+                    var runwayEnd = RunwayFacilityGeometry.BuildEnds(detail).FirstOrDefault(candidate =>
+                        string.Equals(
+                            OurAirportsRunwayCatalog.NormalizeRunway(candidate.RunwayId),
+                            runwayId,
+                            StringComparison.Ordinal));
+                    if (runwayEnd is null) continue;
+
+                    ApplySimulatorRunway(challenge.Runway, runwayEnd);
+                    AppendLog(
+                        $"Runway reference fallback: {airportId} RWY {runwayId} from SimConnect.");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Runway reference SimConnect fallback failed: {ex.Message}");
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(challenge.Runway.RunwayDataSource))
+            challenge.Runway.RunwayDataSource = "Stored challenge geometry";
+        RunwayReferenceResolver.ApplyAimingPoint(
+            challenge.Runway,
+            challenge.Runway.RunwayDataSource,
+            "Low");
+    }
+
+    private static void ApplySimulatorRunway(RunwayConfig destination, RunwayEndFacility source)
+    {
+        destination.CountryCode = source.CountryCode;
+        destination.ThresholdLatitude = source.ThresholdLatitude;
+        destination.ThresholdLongitude = source.ThresholdLongitude;
+        destination.ElevationFeet = source.ElevationFeet;
+        destination.HeadingTrueDeg = source.HeadingTrueDeg;
+        destination.LengthM = source.LengthMeters;
+        destination.WidthM = source.WidthMeters;
+        destination.GlideslopeDeg = source.GlideslopeDeg;
+        destination.GlideslopeSource = source.GlideslopeSource;
+        destination.DisplacedThresholdM = source.DisplacedThresholdMeters;
+        destination.LandingDistanceAvailableM = source.LandingDistanceAvailableMeters;
+        destination.RunwayDataSource = "SimConnect";
+        destination.RunwayDataSnapshotId = "";
+        RunwayReferenceResolver.ApplyAimingPoint(destination, "SimConnect", "Medium");
     }
 
     private void DetachSession()
@@ -2353,6 +2452,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         try
         {
             var tape = _flightTapes.Load(path);
+            if (tape.Challenge is { } tapedChallenge
+                && string.IsNullOrWhiteSpace(tapedChallenge.Runway.RunwayDataSource))
+            {
+                if (!_runwayReferenceResolver.TryApplyCsv(tapedChallenge.Runway))
+                {
+                    tapedChallenge.Runway.RunwayDataSource = "Stored flight-tape geometry";
+                    RunwayReferenceResolver.ApplyAimingPoint(
+                        tapedChallenge.Runway,
+                        tapedChallenge.Runway.RunwayDataSource,
+                        "Low");
+                }
+            }
             // Challenge tapes use the challenge key; free-flight tapes use free key when present.
             var baseKey = ResolveKeyForTape(tape);
             var replay = FlightTapeReplayer.Replay(tape, baseKey);

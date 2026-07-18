@@ -23,7 +23,7 @@ public sealed class LandingVisualizationTests
             Criterion("touchdown_impact", "Touchdown impact", 88,
                 "[Touchdown · 55%] Measured: -245 fpm and 1.31 g. Impact was controlled."),
             Criterion("touchdown_point", "Touchdown point", 72,
-                "[Touchdown · 20%] Measured: touchdown 1250 ft from threshold; perfect point 1200 ft; error +50 ft (late)."),
+                "[Touchdown · 20%] Measured: touchdown 1250 ft from threshold; aiming marker 1000 ft; ideal band 1300-1500 ft; 50 ft short."),
             Criterion("centerline", "Centerline", 98,
                 "[Touchdown · 10%] Measured: 3.2 m right of centerline.")
         ];
@@ -32,14 +32,17 @@ public sealed class LandingVisualizationTests
 
         Assert.Equal("TEST  ·  RUNWAY 09L", view.RunwayTitle);
         Assert.Equal("1250 FT FROM THRESHOLD", view.PositionHeadline);
-        Assert.Contains("50 FT LATE", view.PositionDetail);
+        Assert.Contains("Ideal 1300-1500 ft", view.PositionDetail);
+        Assert.Contains("50 FT SHORT", view.PositionDetail);
         Assert.Contains("3.2 M RIGHT", view.PositionDetail);
+        Assert.Contains("Aiming marker 1000 ft", view.PositionDetail);
+        Assert.Contains("high confidence", view.PositionDetail);
         Assert.Equal("-245", view.VerticalSpeed.Value);
         Assert.Equal("1.31", view.PeakG.Value);
         Assert.Equal("Centerline", view.StrengthTitle);
         Assert.Contains("98%", view.StrengthBody);
         Assert.Equal("Touchdown point", view.ImprovementTitle);
-        Assert.Contains("perfect point", view.ImprovementBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ideal band", view.ImprovementBody, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("245 fpm", view.VerdictSummary, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -95,6 +98,26 @@ public sealed class LandingVisualizationTests
     }
 
     [Fact]
+    public void HistoricalVersionTwoVisualization_RetainsSingularTarget()
+    {
+        var entry = Entry();
+        entry.LandingVisualization!.Version = 2;
+        entry.LandingVisualization.IdealTouchdownNearDistanceFromThresholdM = null;
+        entry.LandingVisualization.IdealTouchdownFarDistanceFromThresholdM = null;
+
+        var view = new LandingVisualizationViewModel(entry, entry.LandingVisualization);
+        var layout = PrecisionRunwayView.CalculateLayout(entry.LandingVisualization, 800, 300);
+        var target = PrecisionRunwayView.CalculateIdealTouchdownBandLayout(
+            entry.LandingVisualization,
+            layout);
+
+        Assert.Contains("Target 1200 ft", view.PositionDetail);
+        Assert.Contains("50 FT LATE", view.PositionDetail);
+        Assert.False(target.HasBand);
+        Assert.Equal(target.NearX, target.FarX, 6);
+    }
+
+    [Fact]
     public void RunwayLayout_FocusesTheFirstThirdAndClipsOutsideTheLandingZone()
     {
         var data = Entry().LandingVisualization!;
@@ -146,6 +169,40 @@ public sealed class LandingVisualizationTests
     }
 
     [Fact]
+    public void RunwayLayout_PlacesAimingBlocksFromStoredStartAndLength()
+    {
+        var data = Entry().LandingVisualization!;
+        data.RunwayLengthM = 1415;
+        data.AimingMarkerStartDistanceFromThresholdM = 222.504; // 730 ft
+        data.AimingMarkerNominalLengthM = 45;
+        var runway = PrecisionRunwayView.CalculateLayout(data, 800, 300);
+
+        var marker = PrecisionRunwayView.CalculateApproachAimingMarkerLayout(data, runway);
+
+        Assert.Equal(222.504, marker.StartDistanceM, 6);
+        Assert.Equal(45, marker.LengthM, 6);
+        Assert.Equal(
+            runway.Runway.Left + 222.504 / runway.VisibleDistanceM * runway.Runway.Width,
+            marker.StartX,
+            6);
+        Assert.Equal(45 / runway.VisibleDistanceM * runway.Runway.Width, marker.Width, 6);
+    }
+
+    [Fact]
+    public void RunwayLayout_PlacesVersionThreeIdealTouchdownBand()
+    {
+        var data = Entry().LandingVisualization!;
+        var runway = PrecisionRunwayView.CalculateLayout(data, 800, 300);
+
+        var band = PrecisionRunwayView.CalculateIdealTouchdownBandLayout(data, runway);
+
+        Assert.True(band.HasBand);
+        Assert.Equal(1300 / 3.280839895, band.NearDistanceM, 6);
+        Assert.Equal(1500 / 3.280839895, band.FarDistanceM, 6);
+        Assert.True(band.FarX > band.NearX);
+    }
+
+    [Fact]
     public void VectorControlsRenderNonEmptyOutputOnStaThread()
     {
         RunSta(() =>
@@ -153,6 +210,7 @@ public sealed class LandingVisualizationTests
             var focusedTouchdown = Entry().LandingVisualization!;
             focusedTouchdown.RunwayId = "32";
             focusedTouchdown.RunwayLengthM = 3392;
+            focusedTouchdown.IdealTouchdownDistanceFromThresholdM = 830 / 3.280839895;
             focusedTouchdown.TouchdownDistanceFromThresholdM = 3548 / 3.280839895;
             focusedTouchdown.TouchdownLateralOffsetM = 5.5;
             AssertNonEmptyRender(
@@ -218,6 +276,13 @@ public sealed class LandingVisualizationTests
             RunwayWidthM = 45,
             TouchdownDistanceFromThresholdM = 1250 / 3.280839895,
             IdealTouchdownDistanceFromThresholdM = 1200 / 3.280839895,
+            IdealTouchdownNearDistanceFromThresholdM = 1300 / 3.280839895,
+            IdealTouchdownFarDistanceFromThresholdM = 1500 / 3.280839895,
+            AimingMarkerStartDistanceFromThresholdM = 1000 / 3.280839895,
+            AimingMarkerNominalLengthM = 45,
+            AimingMarkerCenterDistanceFromThresholdM = 804 / 3.280839895,
+            AimingMarkerSource = "IcaoLdaTable/LiveSimulator",
+            AimingMarkerConfidence = "High",
             TouchdownLateralOffsetM = 3.2,
             TouchdownHeadingErrorDeg = -1.5,
             TouchdownBankDeg = 2.4,

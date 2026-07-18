@@ -1,6 +1,6 @@
 {
   "id": "landing-evaluation-key",
-  "version": 26,
+  "version": 27,
   "description": "Single authoritative Challenge/Career landing score. Phase penalties affect only their owning phase; pause usage, reduced simulation rate, and cockpit-view exits are general penalties on the combined score.",
   "formula": "phaseAfterPenalties = phaseScore * product(phase penalty multipliers); subtotal = sum(phaseAfterPenalties * phaseWeightPercent / 100); final = round(subtotal * product(general penalty multipliers), 1)",
   "settle": {
@@ -127,16 +127,15 @@
           "displayName": "Touchdown point",
           "importancePercent": 19,
           "unit": "ft",
-          "evaluator": "upperBoundBands",
-          "metric": "touchdownPointErrorFt",
-          "note": "Longitudinal position of the first accepted main-gear touchdown. The perfect point is 1,100 ft from the landing threshold on runways up to and including 6,000 ft, otherwise 1,200 ft. Early and late errors score equally.",
-          "points": [
-            { "v": 50, "s": 100 },
-            { "v": 100, "s": 90 },
-            { "v": 200, "s": 75 },
-            { "v": 300, "s": 50 },
-            { "v": 500, "s": 25 }
-          ]
+          "evaluator": "touchdownPoint",
+          "metric": "touchdownOffsetFromAimingMarkerFt",
+          "note": "Main-gear touchdown relative to the runway aiming-point marker. The ideal band is 300-500 ft beyond the marker, with an 800 ft short-side falloff and a steeper 500 ft long-side falloff.",
+          "params": {
+            "idealNearOffsetFt": 300,
+            "idealFarOffsetFt": 500,
+            "shortSpanFt": 800,
+            "longSpanFt": 500
+          }
         },
         {
           "id": "flare_efficiency",

@@ -218,7 +218,8 @@ public sealed class ScoreEngine
                 double? displayRaw = raw;
                 if (metric.Metric.Equals("touchdownIasErrorKts", StringComparison.OrdinalIgnoreCase))
                     displayRaw = snapshot.AirspeedAtTouchdownKts;
-                else if (metric.Metric.Equals("touchdownPointErrorFt", StringComparison.OrdinalIgnoreCase)
+                else if ((metric.Metric.Equals("touchdownPointErrorFt", StringComparison.OrdinalIgnoreCase)
+                          || metric.Metric.Equals("touchdownOffsetFromAimingMarkerFt", StringComparison.OrdinalIgnoreCase))
                          && snapshot.Touchdown is not null
                          && TouchdownPointCalculator.TryCalculate(
                              challenge.Runway,
@@ -395,17 +396,30 @@ public sealed class ScoreEngine
         };
     }
 
-    private static LandingVisualizationData? BuildLandingVisualization(
+    private LandingVisualizationData? BuildLandingVisualization(
         ChallengeConfig challenge,
         LandingSnapshot snapshot,
         LandingResultDiagnostics diagnostics)
     {
+        var touchdownMetric = _key.Phases
+            .SelectMany(phase => phase.Metrics)
+            .FirstOrDefault(metric => metric.Id.Equals("touchdown_point", StringComparison.OrdinalIgnoreCase));
+        var nearOffset = Parameter(
+            touchdownMetric,
+            "idealNearOffsetFt",
+            TouchdownPointCalculator.DefaultIdealNearOffsetFeet);
+        var farOffset = Parameter(
+            touchdownMetric,
+            "idealFarOffsetFt",
+            TouchdownPointCalculator.DefaultIdealFarOffsetFeet);
         if (snapshot.Touchdown is null
             || !TouchdownPointCalculator.TryCalculate(
                 challenge.Runway,
                 snapshot.Touchdown,
                 out var point,
-                out _)
+                out _,
+                nearOffset,
+                farOffset)
             || !double.IsFinite(challenge.Runway.WidthM)
             || challenge.Runway.WidthM <= 0
             || !double.IsFinite(snapshot.TouchdownLateralOffsetM))
@@ -433,6 +447,13 @@ public sealed class ScoreEngine
             RunwayWidthM = challenge.Runway.WidthM,
             TouchdownDistanceFromThresholdM = point.ActualDistanceFeet * RunwayPathGeometry.MetersPerFoot,
             IdealTouchdownDistanceFromThresholdM = point.PerfectDistanceFeet * RunwayPathGeometry.MetersPerFoot,
+            IdealTouchdownNearDistanceFromThresholdM = point.IdealNearDistanceFeet * RunwayPathGeometry.MetersPerFoot,
+            IdealTouchdownFarDistanceFromThresholdM = point.IdealFarDistanceFeet * RunwayPathGeometry.MetersPerFoot,
+            AimingMarkerStartDistanceFromThresholdM = challenge.Runway.AimingMarkerStartM,
+            AimingMarkerNominalLengthM = challenge.Runway.AimingMarkerLengthM,
+            AimingMarkerCenterDistanceFromThresholdM = challenge.Runway.AimingMarkerCenterM,
+            AimingMarkerSource = challenge.Runway.AimingMarkerSource,
+            AimingMarkerConfidence = challenge.Runway.AimingMarkerConfidence,
             TouchdownLateralOffsetM = snapshot.TouchdownLateralOffsetM,
             TouchdownHeadingErrorDeg = VisualizationFiniteOrZero(snapshot.TouchdownHeadingErrorDeg),
             TouchdownBankDeg = VisualizationFiniteOrZero(snapshot.BankAtTouchdownDeg),
@@ -444,6 +465,11 @@ public sealed class ScoreEngine
             TargetTouchdownAirspeedKts = VisualizationFiniteOrZero(snapshot.TargetTouchdownIasKts)
         };
     }
+
+    private static double Parameter(EvaluationMetric? metric, string name, double fallback) =>
+        metric?.Params.TryGetValue(name, out var value) == true && double.IsFinite(value)
+            ? value
+            : fallback;
 
     private static double VisualizationFiniteFallback(double preferred, double fallback) =>
         double.IsFinite(preferred) && Math.Abs(preferred) > .000_001

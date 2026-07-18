@@ -260,6 +260,21 @@ public sealed class SimConnectClient : ISimBridge
         public byte SecondaryLanding;
     }
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
+    private struct AirportDetailFacilityStruct
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+        public string Country;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    private struct PavementFacilityStruct
+    {
+        public float Length;
+        public float Width;
+        public int Enable;
+    }
+
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     private struct RunwayStartFacilityStruct
     {
@@ -285,6 +300,7 @@ public sealed class SimConnectClient : ISimBridge
     private sealed class FacilityRequestContext
     {
         public required AirportFacility Airport { get; init; }
+        public string Country { get; set; } = "";
         public TaskCompletionSource<AirportRunwayFacility> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public List<RunwayFacilityDraft> Runways { get; } = new();
@@ -313,7 +329,13 @@ public sealed class SimConnectClient : ISimBridge
         public required bool SecondaryLandingAllowed { get; init; }
         /// <summary>Order: primary L, primary R, secondary L, secondary R.</summary>
         public double?[] VasiAnglesDeg { get; } = new double?[4];
+        /// <summary>Order: primary L, primary R, secondary L, secondary R.</summary>
+        public RunwayVisualSlopeFacility?[] VisualSlopeSystems { get; } =
+            new RunwayVisualSlopeFacility?[4];
         public int VasiCount { get; set; }
+        public RunwayPavementFacility? PrimaryThreshold { get; set; }
+        public RunwayPavementFacility? SecondaryThreshold { get; set; }
+        public int ThresholdCount { get; set; }
 
         public RunwayFacility ToFacility() => new(
             CenterLatitude,
@@ -331,7 +353,10 @@ public sealed class SimConnectClient : ISimBridge
             SecondaryClosed,
             PrimaryLandingAllowed,
             SecondaryLandingAllowed,
-            VasiAnglesDeg.ToList());
+            VasiAnglesDeg.ToList(),
+            PrimaryThreshold,
+            SecondaryThreshold,
+            VisualSlopeSystems.ToList());
     }
 
     /// <summary>
@@ -1637,6 +1662,11 @@ public sealed class SimConnectClient : ISimBridge
         {
             switch ((SIMCONNECT_FACILITY_DATA_TYPE)data.Type)
             {
+                case SIMCONNECT_FACILITY_DATA_TYPE.AIRPORT
+                    when data.Data[0] is AirportDetailFacilityStruct airport:
+                    context.Country = airport.Country?.Trim() ?? "";
+                    break;
+
                 case SIMCONNECT_FACILITY_DATA_TYPE.RUNWAY
                     when data.Data[0] is RunwayFacilityStruct runway:
                 {
@@ -1664,6 +1694,27 @@ public sealed class SimConnectClient : ISimBridge
                     break;
                 }
 
+                case SIMCONNECT_FACILITY_DATA_TYPE.PAVEMENT
+                    when data.Data[0] is PavementFacilityStruct pavement:
+                {
+                    if (!context.RunwayIndexByUniqueId.TryGetValue(data.ParentUniqueRequestId, out var runwayIndex)
+                        || runwayIndex < 0
+                        || runwayIndex >= context.Runways.Count)
+                        break;
+
+                    var draft = context.Runways[runwayIndex];
+                    var threshold = new RunwayPavementFacility(
+                        double.IsFinite(pavement.Length) ? Math.Max(0, pavement.Length) : 0,
+                        double.IsFinite(pavement.Width) ? Math.Max(0, pavement.Width) : 0,
+                        pavement.Enable != 0);
+                    if (draft.ThresholdCount == 0)
+                        draft.PrimaryThreshold = threshold;
+                    else if (draft.ThresholdCount == 1)
+                        draft.SecondaryThreshold = threshold;
+                    draft.ThresholdCount++;
+                    break;
+                }
+
                 case SIMCONNECT_FACILITY_DATA_TYPE.VASI
                     when data.Data[0] is VasiFacilityStruct vasi:
                 {
@@ -1680,6 +1731,19 @@ public sealed class SimConnectClient : ISimBridge
                         // TYPE 0 = NONE in the SDK; ignore empty / nonsense angles.
                         if (vasi.Type != 0 && double.IsFinite(vasi.Angle) && vasi.Angle is >= 1.5f and <= 10f)
                             draft.VasiAnglesDeg[slot] = vasi.Angle;
+                        if (vasi.Type != 0
+                            && double.IsFinite(vasi.BiasX)
+                            && double.IsFinite(vasi.BiasZ)
+                            && double.IsFinite(vasi.Spacing)
+                            && double.IsFinite(vasi.Angle))
+                        {
+                            draft.VisualSlopeSystems[slot] = new RunwayVisualSlopeFacility(
+                                vasi.Type,
+                                vasi.BiasX,
+                                vasi.BiasZ,
+                                vasi.Spacing,
+                                vasi.Angle);
+                        }
                         draft.VasiCount = slot + 1;
                     }
 
@@ -1715,8 +1779,11 @@ public sealed class SimConnectClient : ISimBridge
             return;
 
         var runways = context.Runways.Select(r => r.ToFacility()).ToList();
+        var airport = string.IsNullOrWhiteSpace(context.Country)
+            ? context.Airport
+            : context.Airport with { Country = context.Country };
         var detail = new AirportRunwayFacility(
-            context.Airport,
+            airport,
             runways,
             context.Starts.ToList());
         _airportDetailCache[FacilityCacheKey(context.Airport)] = detail;
@@ -2187,6 +2254,7 @@ public sealed class SimConnectClient : ISimBridge
         // Free-mode navdata: request only the runway and start fields needed by scoring.
         // This API is read-only and never changes the aircraft or simulation state.
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "OPEN AIRPORT");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "COUNTRY");
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "OPEN RUNWAY");
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "LATITUDE");
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "LONGITUDE");
@@ -2203,6 +2271,9 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "SECONDARY_CLOSED");
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "PRIMARY_LANDING");
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "SECONDARY_LANDING");
+        // Offset-threshold pavement lengths are needed to derive landing distance available (LDA).
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "PRIMARY_THRESHOLD");
+        _sim.AddToFacilityDefinition(Definitions.AirportFacility, "SECONDARY_THRESHOLD");
         // VASI/PAPI angle structs (arrive as FACILITY_DATA_TYPE.VASI children of RUNWAY).
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "PRIMARY_LEFT_VASI");
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "PRIMARY_RIGHT_VASI");
@@ -2219,8 +2290,12 @@ public sealed class SimConnectClient : ISimBridge
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "TYPE");
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "CLOSE START");
         _sim.AddToFacilityDefinition(Definitions.AirportFacility, "CLOSE AIRPORT");
+        _sim.RegisterFacilityDataDefineStruct<AirportDetailFacilityStruct>(
+            SIMCONNECT_FACILITY_DATA_TYPE.AIRPORT);
         _sim.RegisterFacilityDataDefineStruct<RunwayFacilityStruct>(
             SIMCONNECT_FACILITY_DATA_TYPE.RUNWAY);
+        _sim.RegisterFacilityDataDefineStruct<PavementFacilityStruct>(
+            SIMCONNECT_FACILITY_DATA_TYPE.PAVEMENT);
         _sim.RegisterFacilityDataDefineStruct<RunwayStartFacilityStruct>(
             SIMCONNECT_FACILITY_DATA_TYPE.START);
         _sim.RegisterFacilityDataDefineStruct<VasiFacilityStruct>(

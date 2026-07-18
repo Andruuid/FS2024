@@ -6,7 +6,7 @@ namespace ChallengeLab.Core.Models;
 /// </summary>
 public sealed class LandingVisualizationData
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 3;
 
     public int Version { get; set; } = CurrentVersion;
     public string AirportIcao { get; set; } = "";
@@ -20,6 +20,24 @@ public sealed class LandingVisualizationData
 
     /// <summary>The scoring profile's ideal touchdown point for this runway.</summary>
     public double IdealTouchdownDistanceFromThresholdM { get; set; }
+
+    /// <summary>Near boundary of the v3 ideal touchdown band.</summary>
+    public double? IdealTouchdownNearDistanceFromThresholdM { get; set; }
+
+    /// <summary>Far boundary of the v3 ideal touchdown band.</summary>
+    public double? IdealTouchdownFarDistanceFromThresholdM { get; set; }
+
+    /// <summary>Beginning of the approached runway's aiming-point blocks, when known.</summary>
+    public double? AimingMarkerStartDistanceFromThresholdM { get; set; }
+
+    /// <summary>Nominal longitudinal length of each aiming-point block, when known.</summary>
+    public double? AimingMarkerNominalLengthM { get; set; }
+
+    /// <summary>Nominal center of the aiming-point blocks, when known.</summary>
+    public double? AimingMarkerCenterDistanceFromThresholdM { get; set; }
+
+    public string AimingMarkerSource { get; set; } = "";
+    public string AimingMarkerConfidence { get; set; } = "";
 
     /// <summary>Positive is right of centerline while facing the landing direction.</summary>
     public double TouchdownLateralOffsetM { get; set; }
