@@ -132,6 +132,19 @@ public sealed class TelemetrySample
     /// </summary>
     public int? CameraState { get; init; }
 
+    /// <summary>
+    /// Current gameplay-camera pitch and yaw relative to its gameplay reference, in radians.
+    /// Null when the MSFS camera SimVars are unavailable.
+    /// </summary>
+    public double? CameraGameplayPitchRadians { get; init; }
+    public double? CameraGameplayYawRadians { get; init; }
+
+    /// <summary>
+    /// Current MSFS camera view type. Pilot is 1, instrument is 2, and cockpit quickview is 3.
+    /// Null when the indexed camera-view SimVar is unavailable.
+    /// </summary>
+    public int? CameraViewType { get; init; }
+
     /// <summary>Pause_EX1 state copied into every telemetry sample.</summary>
     public bool PauseStateAvailable { get; init; }
     public bool NormalPauseActive { get; init; }

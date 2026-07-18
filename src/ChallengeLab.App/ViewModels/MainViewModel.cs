@@ -18,6 +18,7 @@ using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scenarios;
 using ChallengeLab.Core.Scoring;
 using ChallengeLab.Core.Snapshots;
+using ChallengeLab.App.Controls.Hud;
 using ChallengeLab.SimConnect;
 // LandingEvaluationKey lives in ChallengeLab.Core.Config
 
@@ -127,6 +128,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private bool _freeGearDownActive;
     private string _freeTargetMonitorStatus = "Runway data warming · lower gear to select an aligned runway";
     private bool _isSecondaryHudVisible;
+    private bool _isFighterHudVisible;
+    private long _fighterHudSequence;
 
     // Post-spawn GO gate: wait until IAS + surfaces match challenge before enabling GO.
     private bool _isSpawnPreparing;
@@ -217,6 +220,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         DismissResultCommand = new RelayCommand(() => ResultVisible = false);
         ClearHighscoreSelectionCommand = new RelayCommand(() => SelectedHighscore = null);
         ToggleSecondaryHudCommand = new RelayCommand(() => RequestToggleSecondaryHud?.Invoke());
+        ToggleFighterHudCommand = new RelayCommand(ToggleFighterHud);
         RefreshFlightTapesCommand = new RelayCommand(RefreshFlightTapes);
         EvaluateSelectedFlightTapeCommand = new RelayCommand(
             EvaluateSelectedFlightTape,
@@ -319,6 +323,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public event Action? RequestToggleSecondaryHud;
     /// <summary>Show or hide the main app window (HUD stays). Menu button toggle.</summary>
     public event Action? RequestToggleMain;
+    /// <summary>Open/close the approach overlay HUD window (wired in MainWindow).</summary>
+    public event Action? RequestToggleFighterHud;
+    /// <summary>Push a presentation frame to the fighter HUD when it is open.</summary>
+    internal event Action<HudPresentationFrame?>? FighterHudPresentation;
     public event Action<ScoreResult>? ScoreComputed;
 
     public SecondaryHudViewModel SecondaryHud { get; }
@@ -330,6 +338,35 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     }
 
     public void SetSecondaryHudVisible(bool visible) => IsSecondaryHudVisible = visible;
+
+    public bool IsFighterHudVisible
+    {
+        get => _isFighterHudVisible;
+        private set => SetProperty(ref _isFighterHudVisible, value);
+    }
+
+    public void SetFighterHudVisible(bool visible)
+    {
+        if (IsFighterHudVisible == visible)
+            return;
+
+        IsFighterHudVisible = visible;
+        if (visible)
+        {
+            AppendLog("Approach HUD on — overlay tracks the active MSFS window.");
+            PushFighterHudPresentation();
+        }
+        else
+        {
+            AppendLog("Approach HUD off.");
+            FighterHudPresentation?.Invoke(null);
+        }
+    }
+
+    private void ToggleFighterHud()
+    {
+        RequestToggleFighterHud?.Invoke();
+    }
 
     public bool HasValidScoringConfiguration => _scoreEngine is not null && _sessionSettings is not null;
     public bool HasValidFreeScoringConfiguration =>
@@ -403,6 +440,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand DismissResultCommand { get; }
     public ICommand ClearHighscoreSelectionCommand { get; }
     public ICommand ToggleSecondaryHudCommand { get; }
+    /// <summary>Show or hide the fighter-style sim overlay HUD.</summary>
+    public ICommand ToggleFighterHudCommand { get; }
     public ICommand OpenMenuCommand { get; }
     public ICommand RefreshFlightTapesCommand { get; }
     public ICommand EvaluateSelectedFlightTapeCommand { get; }
@@ -2329,6 +2368,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 PreviewScorePercent,
                 _session?.Phase ?? LandingPhase.Idle,
                 _sim.IsConnected);
+            if (IsFighterHudVisible)
+                PushFighterHudPresentation(sample);
             if (IsFreeMode && _session is null)
             {
                 if (_freeGearDownActive && _freeInference.ProvisionalTarget is { } provisional)
@@ -2745,6 +2786,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             else
             {
                 SecondaryHud.SetDisconnected();
+                if (IsFighterHudVisible)
+                    PushFighterHudPresentation(sample: null, connected: false);
                 if (!IsFreeMode) return;
                 _freeAirportCatalog = null;
                 _freeAirportDetails.Clear();
@@ -3323,6 +3366,41 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             Diagnostics = result.Diagnostics,
             LandingVisualization = result.LandingVisualization
         };
+    }
+
+    private void PushFighterHudPresentation(
+        ChallengeLab.Core.Models.TelemetrySample? sample = null,
+        bool? connected = null)
+    {
+        if (!IsFighterHudVisible)
+            return;
+
+        var isConnected = connected ?? _sim.IsConnected;
+        sample ??= _lastTelemetry;
+        _fighterHudSequence++;
+        if (sample is null)
+        {
+            FighterHudPresentation?.Invoke(HudPresentationFrame.Disconnected(_fighterHudSequence));
+            return;
+        }
+
+        var settings = CurrentSessionSettings;
+        double? targetTouchdownIas = null;
+        if (_activeChallenge is not null && settings is not null)
+        {
+            targetTouchdownIas = SpeedTargetCalculator
+                .Resolve(_activeChallenge, settings, sample)
+                .TargetTouchdownIasKts;
+        }
+
+        FighterHudPresentation?.Invoke(HudPresentationFrame.FromSample(
+            sample,
+            isConnected,
+            _fighterHudSequence,
+            _activeChallenge?.Runway,
+            targetTouchdownIas,
+            settings?.ApproachPathMinDistNm ?? .2,
+            settings?.ApproachPathMaxDistNm ?? 4.5));
     }
 
     private void AppendLog(string line)

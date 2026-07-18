@@ -1,0 +1,17 @@
+<Window x:Class="ChallengeLab.App.Controls.Hud.HudWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:hud="clr-namespace:ChallengeLab.App.Controls.Hud"
+        Title="Challenge Lab Approach HUD"
+        Width="1280"
+        Height="720"
+        AllowsTransparency="True"
+        Background="Transparent"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        ShowActivated="False"
+        ShowInTaskbar="False"
+        Topmost="True"
+        IsHitTestVisible="False">
+  <hud:HudVisual x:Name="Visual" />
+</Window>

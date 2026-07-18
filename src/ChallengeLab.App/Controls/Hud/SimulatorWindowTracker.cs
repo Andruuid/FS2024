@@ -1,0 +1,106 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+
+namespace ChallengeLab.App.Controls.Hud;
+
+/// <summary>
+/// Locates the Microsoft Flight Simulator main window and reports its client area
+/// in screen coordinates so the overlay HUD can cover the sim view.
+/// </summary>
+internal sealed class SimulatorWindowTracker
+{
+    private static readonly string[] ProcessNames =
+    [
+        "FlightSimulator2024",
+        "FlightSimulator",
+    ];
+
+    public bool TryGetActiveClientBounds(out WindowClientBounds bounds)
+    {
+        bounds = default;
+        foreach (var name in ProcessNames)
+        {
+            Process[] processes;
+            try
+            {
+                processes = Process.GetProcessesByName(name);
+            }
+            catch
+            {
+                continue;
+            }
+
+            try
+            {
+                foreach (var process in processes)
+                {
+                    var handle = process.MainWindowHandle;
+                    if (handle == IntPtr.Zero
+                        || !IsWindowVisible(handle)
+                        || IsIconic(handle)
+                        || GetForegroundWindow() != handle)
+                        continue;
+
+                    if (!GetClientRect(handle, out var client))
+                        continue;
+
+                    var width = client.Right - client.Left;
+                    var height = client.Bottom - client.Top;
+                    if (width < 200 || height < 150)
+                        continue;
+
+                    var origin = new Point { X = 0, Y = 0 };
+                    if (!ClientToScreen(handle, ref origin))
+                        continue;
+
+                    bounds = new WindowClientBounds(origin.X, origin.Y, width, height);
+                    return true;
+                }
+            }
+            finally
+            {
+                foreach (var process in processes)
+                    process.Dispose();
+            }
+        }
+
+        return false;
+    }
+
+    internal readonly record struct WindowClientBounds(int Left, int Top, int Width, int Height);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Point
+    {
+        public int X;
+        public int Y;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetClientRect(IntPtr window, out Rect rect);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ClientToScreen(IntPtr window, ref Point point);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(IntPtr window);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+}

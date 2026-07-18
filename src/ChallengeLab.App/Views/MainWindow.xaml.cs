@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using ChallengeLab.App.Controls.Hud;
 using ChallengeLab.App.ViewModels;
 using ChallengeLab.Core.Highscores;
 using ChallengeLab.SimConnect;
@@ -20,6 +21,7 @@ public partial class MainWindow : Window
     private readonly MainViewModel _vm;
     private CompanionHudWindow? _hud;
     private SecondaryHudWindow? _secondaryHud;
+    private HudWindow? _fighterHud;
 
     public MainWindow()
     {
@@ -31,6 +33,8 @@ public partial class MainWindow : Window
         _vm.RequestConnect += ConnectToSim;
         _vm.RequestShowHud += ShowHud;
         _vm.RequestToggleSecondaryHud += ToggleSecondaryHud;
+        _vm.RequestToggleFighterHud += ToggleFighterHud;
+        _vm.FighterHudPresentation += OnFighterHudPresentation;
         _vm.RequestToggleMain += ToggleMainWindow;
 
         // Always paint report in code — no reliance on fragile ItemsControl bindings
@@ -617,6 +621,7 @@ public partial class MainWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        _fighterHud?.Close();
         _secondaryHud?.Close();
         _hud?.Close();
         _vm.Dispose();
@@ -670,6 +675,57 @@ public partial class MainWindow : Window
 
         _secondaryHud.EnsureVisible();
         _vm.SetSecondaryHudVisible(true);
+    }
+
+    private void ToggleFighterHud()
+    {
+        if (_vm.IsFighterHudVisible)
+        {
+            CloseFighterHud();
+            return;
+        }
+
+        if (_fighterHud is null)
+        {
+            // Unowned overlay so it stays up when the menu is hidden.
+            _fighterHud = new HudWindow();
+            _fighterHud.Closed += (_, _) =>
+            {
+                _fighterHud = null;
+                _vm.SetFighterHudVisible(false);
+            };
+        }
+
+        _vm.SetFighterHudVisible(true);
+        _fighterHud.SetUserVisible(true);
+    }
+
+    private void CloseFighterHud()
+    {
+        _vm.SetFighterHudVisible(false);
+        if (_fighterHud is null)
+            return;
+
+        try
+        {
+            _fighterHud.SetUserVisible(false);
+            _fighterHud.Close();
+        }
+        catch
+        {
+            // Window may already be closing.
+        }
+
+        _fighterHud = null;
+    }
+
+    private void OnFighterHudPresentation(HudPresentationFrame? frame)
+    {
+        if (_fighterHud is null)
+            return;
+
+        _fighterHud.UpdatePresentation(frame);
+        _fighterHud.SetUserVisible(frame is not null && _vm.IsFighterHudVisible);
     }
 
     /// <summary>

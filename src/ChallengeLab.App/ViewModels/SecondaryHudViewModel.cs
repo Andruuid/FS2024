@@ -239,34 +239,24 @@ public sealed class SecondaryHudViewModel : ViewModelBase
 
     private void ApplyWind(TelemetrySample sample, bool isConnected)
     {
-        if (!isConnected
-            || !double.IsFinite(sample.WindDirectionDeg)
-            || !double.IsFinite(sample.WindVelocityKts)
-            || !double.IsFinite(sample.HeadingTrueDeg)
-            || sample.WindVelocityKts < 0)
+        var wind = RelativeWindCalculator.Calculate(sample, isConnected);
+        if (!wind.IsAvailable)
         {
             ResetWind();
             return;
         }
 
-        var direction = NormalizeDirection(sample.WindDirectionDeg);
-        var speed = sample.WindVelocityKts;
-        var relativeFrom = NormalizeSignedAngle(direction - NormalizeDirection(sample.HeadingTrueDeg));
-        var relativeRadians = relativeFrom * Math.PI / 180.0;
-        var longitudinal = speed * Math.Cos(relativeRadians);
-        var crosswind = speed * Math.Sin(relativeRadians);
-
-        WindRelativeFromAngleDeg = relativeFrom;
-        WindSpeedKts = speed;
-        HasWind = speed >= 0.5;
-        WindFromDisplay = HasWind ? $"From {FormatDirection(direction)}°" : "Calm";
-        WindLongitudinalDisplay = longitudinal >= -0.05
-            ? $"Headwind {Math.Abs(longitudinal):0.0} kt"
-            : $"Tailwind {Math.Abs(longitudinal):0.0} kt";
-        WindCrosswindDisplay = Math.Abs(crosswind) < 0.05
+        WindRelativeFromAngleDeg = wind.RelativeFromAngleDeg;
+        WindSpeedKts = wind.WindSpeedKts;
+        HasWind = wind.HasWind;
+        WindFromDisplay = HasWind ? $"From {FormatDirection(wind.WindDirectionDeg)}°" : "Calm";
+        WindLongitudinalDisplay = wind.LongitudinalKts >= -0.05
+            ? $"Headwind {Math.Abs(wind.LongitudinalKts):0.0} kt"
+            : $"Tailwind {Math.Abs(wind.LongitudinalKts):0.0} kt";
+        WindCrosswindDisplay = Math.Abs(wind.CrosswindKts) < 0.05
             ? "Crosswind 0.0 kt"
-            : $"Crosswind {(crosswind > 0 ? "R" : "L")} {Math.Abs(crosswind):0.0} kt";
-        WindTotalDisplay = $"Wind {speed:0.0} kt";
+            : $"Crosswind {(wind.CrosswindKts > 0 ? "R" : "L")} {Math.Abs(wind.CrosswindKts):0.0} kt";
+        WindTotalDisplay = $"Wind {wind.WindSpeedKts:0.0} kt";
     }
 
     private void ResetWind()
@@ -363,12 +353,6 @@ public sealed class SecondaryHudViewModel : ViewModelBase
     {
         var normalized = degrees % 360.0;
         return normalized < 0 ? normalized + 360.0 : normalized;
-    }
-
-    private static double NormalizeSignedAngle(double degrees)
-    {
-        var normalized = NormalizeDirection(degrees);
-        return normalized > 180.0 ? normalized - 360.0 : normalized;
     }
 
     private static int FormatDirection(double direction) =>

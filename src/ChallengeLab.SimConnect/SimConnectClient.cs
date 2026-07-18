@@ -211,6 +211,9 @@ public sealed partial class SimConnectClient : ISimBridge
         public double IniAutobrakeEngaged;
         public double SimulationRate;
         public double CameraState;
+        public double CameraGameplayPitch;
+        public double CameraGameplayYaw;
+        public double CameraViewType;
         public double AutopilotHeadingLock;
         public double AutopilotAltitudeLock;
         public double AutopilotMaster;
@@ -2098,6 +2101,15 @@ public sealed partial class SimConnectClient : ISimBridge
                 CameraState = t.CameraState > 0 && double.IsFinite(t.CameraState)
                     ? (int)Math.Round(t.CameraState)
                     : null,
+                CameraGameplayPitchRadians = double.IsFinite(t.CameraGameplayPitch)
+                    ? t.CameraGameplayPitch
+                    : null,
+                CameraGameplayYawRadians = double.IsFinite(t.CameraGameplayYaw)
+                    ? t.CameraGameplayYaw
+                    : null,
+                CameraViewType = t.CameraViewType >= 0 && double.IsFinite(t.CameraViewType)
+                    ? (int)Math.Round(t.CameraViewType)
+                    : null,
                 PauseStateAvailable = pauseStateAvailable,
                 NormalPauseActive = normalPauseActive,
                 ActivePauseActive = activePauseActive,
@@ -2300,6 +2312,12 @@ public sealed partial class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.Telemetry, "SIMULATION RATE", "number",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "CAMERA STATE", "Enum",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "CAMERA GAMEPLAY PITCH YAW:0", "radians",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "CAMERA GAMEPLAY PITCH YAW:1", "radians",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "CAMERA VIEW TYPE AND INDEX:0", "Enum",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "AUTOPILOT HEADING LOCK", "bool",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
