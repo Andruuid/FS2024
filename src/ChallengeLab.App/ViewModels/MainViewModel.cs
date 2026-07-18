@@ -68,8 +68,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private bool _isLoading;
     private double _loadProgress;
     private string _loadStatus = "";
-    private string _hudTip = "Start a challenge to begin.";
-    private string _phaseLabel = "Idle";
+    private string _hudTip = "Free mode observes this flight and detects the runway from position and aircraft heading.";
+    private string _phaseLabel = "Detecting";
     private string _liveStats = "—";
     private string _speedTargetInfo = "Optimal landing speed: —";
     private bool _showTouchdownImpactSummary;
@@ -99,7 +99,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _reportBodyText = "";
     private ObservableCollection<ReportMetricViewModel> _reportMetrics = new();
     private string _windowTitle = AppBuild.WindowTitleDefault;
-    private HudOperatingMode _hudOperatingMode = HudOperatingMode.Normal;
+    private HudOperatingMode _hudOperatingMode = HudOperatingMode.Free;
     private string _freeAirportStatus = "Detecting airport and runway...";
     private CancellationTokenSource? _freeFlightCts;
     private bool _freeInferenceBusy;
@@ -175,8 +175,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         CareerRewards = new ObservableCollection<CareerRewardSlotViewModel>();
         SecondaryHud = new SecondaryHudViewModel();
 
+        // Start is available from Free (default) or Normal — load path switches into Normal.
         StartChallengeCommand = new RelayCommand(async () => await StartChallengeAsync(), () =>
-            IsNormalMode && SelectedChallenge is { Available: true } && HasValidScoringConfiguration && !IsLoading);
+            SelectedChallenge is { Available: true } && HasValidScoringConfiguration && !IsLoading);
         AcceptCareerAssignmentCommand = new RelayCommand(AcceptCareerAssignment, () =>
             IsCareerAvailable && !CareerIsComplete && !CareerHasAssignment && !IsLoading);
         StartCareerAssignmentCommand = new RelayCommand(async () => await StartCareerAssignmentAsync(), () =>
@@ -225,6 +226,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
         LoadCatalog();
         AppendLog($"{AppBuild.Tag} started");
+        AppendLog("HUD mode: Free (default) — observing current flight; no simulator state changes until a challenge is loaded.");
         LogEvaluationKeyStatus();
         LogFreeEvaluationKeyStatus();
         RefreshHighscores();
@@ -1227,9 +1229,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private async Task StartChallengeAsync()
     {
-        if (!IsNormalMode || SelectedChallenge is null || !SelectedChallenge.Available) return;
+        if (SelectedChallenge is null || !SelectedChallenge.Available) return;
 
         if (!EnsureSimulatorConnected()) return;
+
+        // Leave Free (or any non-challenge HUD workflow) only when a challenge is actually loaded.
+        if (!IsNormalMode)
+            await SetHudOperatingModeAsync(HudOperatingMode.Normal);
 
         await RunLoadAsync(SelectedChallenge.Config, LandingAttemptOrigin.DefaultChallenge);
     }

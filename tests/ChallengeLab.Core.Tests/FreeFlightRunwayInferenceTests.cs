@@ -351,6 +351,28 @@ public sealed class FreeFlightRunwayInferenceTests
     }
 
     [Fact]
+    public void GenericSpeedTarget_ReportsAircraftDbWhenMatchedVappWasFrozenAtArm()
+    {
+        var catalog = AircraftVappCatalog.Load(
+            Path.Combine(FindRepoConfigRoot(), "scoring", "aircraft-vapp-db.json"));
+        var challenge = new ChallengeConfig
+        {
+            Mode = "free_flight",
+            AircraftSetup = new AircraftSetupConfig { VappKts = 136 }
+        };
+        var settings = Settings(defaultVapp: 70) with { AircraftVappCatalog = catalog };
+        var sample = new TelemetrySample { AircraftTitle = "Airbus A320 neo Asobo" };
+
+        var result = SpeedTargetCalculator.Resolve(challenge, settings, sample);
+
+        Assert.Equal(136, result.VappKts, 1);
+        Assert.Contains("aircraft DB", result.Source);
+        Assert.Contains("A320", result.Source);
+        Assert.Contains("frozen at arm", result.Source);
+        Assert.DoesNotContain("challenge config", result.Source);
+    }
+
+    [Fact]
     public void GenericSpeedTarget_UsesAircraftDbForHeavyJetWithoutVs0()
     {
         var catalog = AircraftVappCatalog.Load(

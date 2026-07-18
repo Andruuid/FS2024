@@ -19,8 +19,10 @@ public sealed record LandingMonitorReading(
     LandingMonitorStatus AirspeedStatus,
     double? GlideslopeDeg,
     LandingMonitorStatus GlideslopeStatus,
+    double? DescentAngleDeg,
+    LandingMonitorStatus DescentAngleStatus,
     double? VerticalSpeedFpm,
-    LandingMonitorStatus VerticalSpeedStatus,
+    double? TargetVerticalSpeedFpm,
     double? ApproachDistanceNm,
     double? ClosingSpeedKts,
     double ProgressPercent,
@@ -33,8 +35,11 @@ public sealed record LandingMonitorReading(
 public static class LandingMonitorCalculator
 {
     public const double FeetPerMeter = 3.280839895013123;
+    public const double KnotsToFeetPerMinute = 6076.115485564304 / 60.0;
 
     public const double GlideslopeGreenHalfBandDeg = 0.2;
+    public const double DescentAngleGreenHalfBandDeg = 0.2;
+    public const double DescentAngleOrangeHalfBandDeg = 0.5;
 
     public static LandingMonitorReading Calculate(
         TelemetrySample sample,
@@ -55,9 +60,6 @@ public static class LandingMonitorCalculator
             : ClassifyAirspeed(airspeedDelta.Value);
 
         var verticalSpeed = FiniteOrNull(sample.VerticalSpeedFpm);
-        var verticalSpeedStatus = verticalSpeed is null
-            ? LandingMonitorStatus.Neutral
-            : ClassifyVerticalSpeed(verticalSpeed.Value);
 
         if (runway is null
             || !RunwayPathGeometry.TryGetState(sample, runway, out var path)
@@ -71,8 +73,10 @@ public static class LandingMonitorCalculator
                 airspeedStatus,
                 null,
                 LandingMonitorStatus.Neutral,
+                null,
+                LandingMonitorStatus.Neutral,
                 verticalSpeed,
-                verticalSpeedStatus,
+                null,
                 null,
                 null,
                 0,
@@ -109,6 +113,25 @@ public static class LandingMonitorCalculator
             closingSpeed = sample.GroundSpeedKts * Math.Cos(headingErrorRadians);
         }
 
+        double? descentAngle = null;
+        double? targetVerticalSpeed = null;
+        var descentAngleStatus = LandingMonitorStatus.Neutral;
+        if (!sample.SimOnGround
+            && verticalSpeed is not null
+            && closingSpeed is > 5)
+        {
+            descentAngle = Math.Atan2(
+                    -verticalSpeed.Value,
+                    closingSpeed.Value * KnotsToFeetPerMinute)
+                * 180.0 / Math.PI;
+            descentAngleStatus = ClassifyDescentAngle(
+                descentAngle.Value,
+                targetGlideslopeDeg);
+            targetVerticalSpeed = -closingSpeed.Value
+                                  * KnotsToFeetPerMinute
+                                  * Math.Tan(targetGlideslopeDeg * Math.PI / 180.0);
+        }
+
         var progress = (1.0 - Math.Clamp(path.ApproachDistanceNm, 0, approachPathMaxDistNm)
             / approachPathMaxDistNm) * 100.0;
         var insideCollectionWindow = !sample.SimOnGround
@@ -122,8 +145,10 @@ public static class LandingMonitorCalculator
             airspeedStatus,
             glideslope,
             glideslopeStatus,
+            descentAngle,
+            descentAngleStatus,
             verticalSpeed,
-            verticalSpeedStatus,
+            targetVerticalSpeed,
             path.ApproachDistanceNm,
             closingSpeed,
             Math.Clamp(progress, 0, 100),
@@ -149,13 +174,20 @@ public static class LandingMonitorCalculator
             : LandingMonitorStatus.Red;
     }
 
-    public static LandingMonitorStatus ClassifyVerticalSpeed(double verticalSpeedFpm)
+    public static LandingMonitorStatus ClassifyDescentAngle(
+        double measuredDeg,
+        double targetDeg = RunwayPathGeometry.DefaultGlideslopeDeg)
     {
-        if (verticalSpeedFpm > 0 || verticalSpeedFpm < -1000)
-            return LandingMonitorStatus.Red;
-        if (verticalSpeedFpm < -700)
-            return LandingMonitorStatus.Orange;
-        return LandingMonitorStatus.Green;
+        if (!double.IsFinite(measuredDeg))
+            return LandingMonitorStatus.Neutral;
+
+        var target = RunwayPathGeometry.SanitizeGlideslopeDeg(targetDeg);
+        var error = Math.Abs(measuredDeg - target);
+        if (error <= DescentAngleGreenHalfBandDeg + 1e-9)
+            return LandingMonitorStatus.Green;
+        return error <= DescentAngleOrangeHalfBandDeg + 1e-9
+            ? LandingMonitorStatus.Orange
+            : LandingMonitorStatus.Red;
     }
 
     public static double NormalizeSignedDegrees(double degrees)

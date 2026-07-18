@@ -35,10 +35,13 @@ public sealed class SecondaryHudViewModel : ViewModelBase
     private string _airspeedDetail = "TARGET —";
     private Brush _airspeedBrush = NeutralBrush;
     private string _glideslopeDisplay = "—";
-    private string _glideslopeDetail = "GREEN · TARGET 3.0° ±0.2°";
+    private string _glideslopeDetail = "TARGET 3.0° ±0.2°";
     private Brush _glideslopeBrush = NeutralBrush;
+    private string _descentAngleDisplay = "—";
+    private string _descentAngleDetail = "TARGET —";
+    private Brush _descentAngleBrush = NeutralBrush;
     private string _verticalSpeedDisplay = "—";
-    private string _verticalSpeedDetail = "GREEN −700–0 FPM";
+    private string _verticalSpeedDetail = "TARGET —";
     private Brush _verticalSpeedBrush = NeutralBrush;
     private string _etaDisplay = "--:--";
     private double _windRelativeFromAngleDeg;
@@ -62,6 +65,9 @@ public sealed class SecondaryHudViewModel : ViewModelBase
     public string GlideslopeDisplay { get => _glideslopeDisplay; private set => SetProperty(ref _glideslopeDisplay, value); }
     public string GlideslopeDetail { get => _glideslopeDetail; private set => SetProperty(ref _glideslopeDetail, value); }
     public Brush GlideslopeBrush { get => _glideslopeBrush; private set => SetProperty(ref _glideslopeBrush, value); }
+    public string DescentAngleDisplay { get => _descentAngleDisplay; private set => SetProperty(ref _descentAngleDisplay, value); }
+    public string DescentAngleDetail { get => _descentAngleDetail; private set => SetProperty(ref _descentAngleDetail, value); }
+    public Brush DescentAngleBrush { get => _descentAngleBrush; private set => SetProperty(ref _descentAngleBrush, value); }
     public string VerticalSpeedDisplay { get => _verticalSpeedDisplay; private set => SetProperty(ref _verticalSpeedDisplay, value); }
     public string VerticalSpeedDetail { get => _verticalSpeedDetail; private set => SetProperty(ref _verticalSpeedDetail, value); }
     public Brush VerticalSpeedBrush { get => _verticalSpeedBrush; private set => SetProperty(ref _verticalSpeedBrush, value); }
@@ -171,9 +177,13 @@ public sealed class SecondaryHudViewModel : ViewModelBase
         AirspeedDetail = "TARGET —";
         AirspeedBrush = NeutralBrush;
         GlideslopeDisplay = "—";
-        GlideslopeDetail = "GREEN · TARGET 3.0° ±0.2°";
+        GlideslopeDetail = "TARGET 3.0° ±0.2°";
         GlideslopeBrush = NeutralBrush;
+        DescentAngleDisplay = "—";
+        DescentAngleDetail = "TARGET —";
+        DescentAngleBrush = NeutralBrush;
         VerticalSpeedDisplay = "—";
+        VerticalSpeedDetail = "TARGET —";
         VerticalSpeedBrush = NeutralBrush;
         EtaDisplay = "--:--";
         ResetWind();
@@ -191,13 +201,26 @@ public sealed class SecondaryHudViewModel : ViewModelBase
             runway?.GlideslopeDeg ?? RunwayPathGeometry.DefaultGlideslopeDeg);
         var half = LandingMonitorCalculator.GlideslopeGreenHalfBandDeg;
         GlideslopeDisplay = reading.GlideslopeDeg is { } angle ? $"{angle:0.0}°" : "—";
-        GlideslopeDetail = $"GREEN · TARGET {targetGs:0.0}° ±{half:0.0}°";
+        GlideslopeDetail = reading.GlideslopeDeg is { } pathAngle
+            ? $"{PathPositionLabel(pathAngle, targetGs)} · TARGET {targetGs:0.0}° ±{half:0.0}°"
+            : $"TARGET {targetGs:0.0}° ±{half:0.0}°";
         GlideslopeBrush = StatusBrush(reading.GlideslopeStatus);
+
+        DescentAngleDisplay = reading.DescentAngleDeg is { } descentAngle
+            ? $"{descentAngle:0.0}°"
+            : "—";
+        DescentAngleDetail = reading.DescentAngleDeg is { } currentAngle
+            ? $"{DescentAngleLabel(currentAngle, targetGs)} · TARGET {targetGs:0.0}° ±{LandingMonitorCalculator.DescentAngleGreenHalfBandDeg:0.0}°"
+            : $"TARGET {targetGs:0.0}°";
+        DescentAngleBrush = StatusBrush(reading.DescentAngleStatus);
 
         VerticalSpeedDisplay = reading.VerticalSpeedFpm is { } verticalSpeed
             ? $"{(Math.Abs(verticalSpeed) < .5 ? 0 : verticalSpeed):0} FPM"
             : "—";
-        VerticalSpeedBrush = StatusBrush(reading.VerticalSpeedStatus);
+        VerticalSpeedDetail = reading.TargetVerticalSpeedFpm is { } targetVerticalSpeed
+            ? $"TARGET {targetVerticalSpeed:0} FPM · {targetGs:0.0}°"
+            : "TARGET —";
+        VerticalSpeedBrush = StatusBrush(reading.DescentAngleStatus);
     }
 
     private void ApplyWind(TelemetrySample sample, bool isConnected)
@@ -336,6 +359,26 @@ public sealed class SecondaryHudViewModel : ViewModelBase
 
     private static int FormatDirection(double direction) =>
         (int)Math.Round(NormalizeDirection(direction), MidpointRounding.AwayFromZero) % 360;
+
+    private static string PathPositionLabel(double measuredDeg, double targetDeg)
+    {
+        var error = measuredDeg - targetDeg;
+        if (error < -LandingMonitorCalculator.GlideslopeGreenHalfBandDeg)
+            return "LOW";
+        if (error > LandingMonitorCalculator.GlideslopeGreenHalfBandDeg)
+            return "HIGH";
+        return "ON PATH";
+    }
+
+    private static string DescentAngleLabel(double measuredDeg, double targetDeg)
+    {
+        var error = measuredDeg - targetDeg;
+        if (error < -LandingMonitorCalculator.DescentAngleGreenHalfBandDeg)
+            return "TOO SHALLOW";
+        if (error > LandingMonitorCalculator.DescentAngleGreenHalfBandDeg)
+            return "TOO STEEP";
+        return "ON ANGLE";
+    }
 
     private static Brush StatusBrush(LandingMonitorStatus status) => status switch
     {

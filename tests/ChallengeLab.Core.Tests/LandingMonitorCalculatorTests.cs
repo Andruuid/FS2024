@@ -27,14 +27,15 @@ public sealed class LandingMonitorCalculatorTests
         Assert.Equal(expected, LandingMonitorCalculator.ClassifyAirspeed(delta));
 
     [Theory]
-    [InlineData(-1001, LandingMonitorStatus.Red)]
-    [InlineData(-1000, LandingMonitorStatus.Orange)]
-    [InlineData(-700.1, LandingMonitorStatus.Orange)]
-    [InlineData(-700, LandingMonitorStatus.Green)]
-    [InlineData(0, LandingMonitorStatus.Green)]
-    [InlineData(.1, LandingMonitorStatus.Red)]
-    public void VerticalSpeedBands_RespectExactBoundaries(double verticalSpeed, LandingMonitorStatus expected) =>
-        Assert.Equal(expected, LandingMonitorCalculator.ClassifyVerticalSpeed(verticalSpeed));
+    [InlineData(5.3, 5.5, LandingMonitorStatus.Green)]
+    [InlineData(5.7, 5.5, LandingMonitorStatus.Green)]
+    [InlineData(5.71, 5.5, LandingMonitorStatus.Orange)]
+    [InlineData(6.0, 5.5, LandingMonitorStatus.Orange)]
+    [InlineData(6.01, 5.5, LandingMonitorStatus.Red)]
+    [InlineData(4.9, 5.5, LandingMonitorStatus.Red)]
+    public void DescentAngleBands_AreRelativeToRunwayTarget(
+        double measured, double target, LandingMonitorStatus expected) =>
+        Assert.Equal(expected, LandingMonitorCalculator.ClassifyDescentAngle(measured, target));
 
     [Theory]
     [InlineData(2.8, 3.0, LandingMonitorStatus.Green)]
@@ -50,16 +51,48 @@ public sealed class LandingMonitorCalculatorTests
     [Fact]
     public void Calculate_UsesGeometricPathAndHeadingComponent()
     {
-        var sample = SampleAtDistance(2, 3.0, heading: 120, airspeed: 140, verticalSpeed: -650);
+        var sample = SampleAtDistance(2, 3.0, heading: 120, airspeed: 140, verticalSpeed: -460);
 
         var reading = LandingMonitorCalculator.Calculate(sample, Runway, 135, .2, 4.5);
 
         Assert.Equal(LandingMonitorStatus.Green, reading.AirspeedStatus);
         Assert.Equal(LandingMonitorStatus.Green, reading.GlideslopeStatus);
-        Assert.Equal(LandingMonitorStatus.Green, reading.VerticalSpeedStatus);
+        Assert.Equal(LandingMonitorStatus.Green, reading.DescentAngleStatus);
         Assert.InRange(reading.GlideslopeDeg!.Value, 2.999, 3.001);
         Assert.InRange(reading.ClosingSpeedKts!.Value, 86.59, 86.61);
+        Assert.InRange(reading.DescentAngleDeg!.Value, 2.99, 3.02);
+        Assert.InRange(reading.TargetVerticalSpeedFpm!.Value, -460.0, -459.0);
         Assert.True(reading.IsInsideCollectionWindow);
+    }
+
+    [Fact]
+    public void Calculate_SteepApproachSeparatesPathPositionFromDescentAngle()
+    {
+        var steepRunway = new RunwayConfig
+        {
+            AirportIcao = "EGLC",
+            RunwayId = "27",
+            ThresholdLatitude = 0,
+            ThresholdLongitude = 0,
+            HeadingTrueDeg = 90,
+            ElevationFeet = 100,
+            GlideslopeDeg = 5.5
+        };
+        var sample = SampleAtDistance(
+            1.5,
+            5.1,
+            heading: 90,
+            groundSpeed: 138,
+            verticalSpeed: -1487);
+
+        var reading = LandingMonitorCalculator.Calculate(sample, steepRunway, 133, .2, 4.5);
+
+        Assert.InRange(reading.GlideslopeDeg!.Value, 5.099, 5.101);
+        Assert.Equal(LandingMonitorStatus.Red, reading.GlideslopeStatus);
+        Assert.InRange(reading.DescentAngleDeg!.Value, 6.06, 6.09);
+        Assert.Equal(LandingMonitorStatus.Red, reading.DescentAngleStatus);
+        Assert.Equal(-1487, reading.VerticalSpeedFpm);
+        Assert.InRange(reading.TargetVerticalSpeedFpm!.Value, -1346.0, -1345.0);
     }
 
     [Fact]

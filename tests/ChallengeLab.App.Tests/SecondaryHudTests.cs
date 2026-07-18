@@ -57,6 +57,33 @@ public sealed class SecondaryHudTests
         });
     }
 
+    [Fact]
+    public void MonitorGuidance_SeparatesPathDescentAngleAndVerticalSpeed()
+    {
+        RunSta(() =>
+        {
+            var monitor = new SecondaryHudViewModel();
+            var challenge = Challenge(glideslopeDeg: 5.5);
+            var sample = Sample(
+                1.5,
+                DateTimeOffset.Parse("2026-07-15T10:00:00Z"),
+                heading: 90,
+                groundSpeed: 138,
+                pathAngleDeg: 5.1,
+                verticalSpeedFpm: -1487);
+
+            monitor.Update(sample, challenge, Settings(), 133, 94, LandingPhase.Approach, true);
+
+            Assert.Equal("5.1°", monitor.GlideslopeDisplay);
+            Assert.Contains("LOW", monitor.GlideslopeDetail, StringComparison.Ordinal);
+            Assert.Equal("6.1°", monitor.DescentAngleDisplay);
+            Assert.Contains("TOO STEEP", monitor.DescentAngleDetail, StringComparison.Ordinal);
+            Assert.Equal("-1487 FPM", monitor.VerticalSpeedDisplay);
+            Assert.Contains("TARGET -1346 FPM", monitor.VerticalSpeedDetail, StringComparison.Ordinal);
+            Assert.Contains("5.5°", monitor.VerticalSpeedDetail, StringComparison.Ordinal);
+        });
+    }
+
     [Theory]
     [InlineData(0, 0, 10, 0, "From 0°", "Headwind 10.0 kt", "Crosswind 0.0 kt")]
     [InlineData(0, 180, 10, 180, "From 180°", "Tailwind 10.0 kt", "Crosswind 0.0 kt")]
@@ -223,7 +250,7 @@ public sealed class SecondaryHudTests
         });
     }
 
-    private static ChallengeConfig Challenge() => new()
+    private static ChallengeConfig Challenge(double glideslopeDeg = 3) => new()
     {
         Id = "monitor-test",
         Title = "Monitor test",
@@ -234,7 +261,8 @@ public sealed class SecondaryHudTests
             ThresholdLatitude = 0,
             ThresholdLongitude = 0,
             HeadingTrueDeg = 90,
-            ElevationFeet = 100
+            ElevationFeet = 100,
+            GlideslopeDeg = glideslopeDeg
         }
     };
 
@@ -246,12 +274,16 @@ public sealed class SecondaryHudTests
         DateTimeOffset timestamp,
         double heading = 120,
         double windDirection = 0,
-        double windSpeed = 0)
+        double windSpeed = 0,
+        double groundSpeed = 100,
+        double pathAngleDeg = 3,
+        double verticalSpeedFpm = -700)
     {
         var distanceMeters = distanceNm * RunwayPathGeometry.MetersPerNauticalMile;
         var longitude = -distanceMeters / RunwayPathGeometry.EarthRadiusMeters * 180 / Math.PI;
-        var heightFeet = Math.Tan(3 * Math.PI / 180)
-                         * distanceMeters * LandingMonitorCalculator.FeetPerMeter;
+        var pathDistanceMeters = distanceMeters + RunwayPathGeometry.GlideslopeAimPointOffsetMeters;
+        var heightFeet = Math.Tan(pathAngleDeg * Math.PI / 180)
+                         * pathDistanceMeters * LandingMonitorCalculator.FeetPerMeter;
         return new TelemetrySample
         {
             Timestamp = timestamp,
@@ -261,9 +293,9 @@ public sealed class SecondaryHudTests
             AglFeet = heightFeet,
             RadioHeightFeet = heightFeet,
             AirspeedKts = 135,
-            GroundSpeedKts = 100,
+            GroundSpeedKts = groundSpeed,
             HeadingTrueDeg = heading,
-            VerticalSpeedFpm = -700,
+            VerticalSpeedFpm = verticalSpeedFpm,
             WindDirectionDeg = windDirection,
             WindVelocityKts = windSpeed,
             SimOnGround = false

@@ -44,8 +44,9 @@ public sealed class FreeFlightHudModeTests
             var positionPath = Path.Combine(Path.GetTempPath(), $"challenge-lab-hud-{Guid.NewGuid():N}.json");
             try
             {
-                Assert.True(vm.IsNormalMode);
-                Assert.False(vm.IsFreeMode);
+                // Free is the default HUD mode; Normal is entered only when a challenge loads.
+                Assert.True(vm.IsFreeMode);
+                Assert.False(vm.IsNormalMode);
 
                 var showHudCount = 0;
                 vm.RequestShowHud += () => showHudCount++;
@@ -53,12 +54,12 @@ public sealed class FreeFlightHudModeTests
                 Assert.Equal(1, showHudCount);
 
                 sim.EmitTelemetry(ApproachSample());
-                vm.FreeModeCommand.Execute(null);
 
                 Assert.True(vm.IsFreeMode);
-                Assert.False(vm.StartChallengeCommand.CanExecute(null));
                 Assert.False(vm.RestartCommand.CanExecute(null));
                 Assert.True(vm.CleanMetricsCommand.CanExecute(null));
+                // Free is default: connect starts the 1s inference timer; wait for the first scan.
+                WaitUntil(() => sim.AirportCatalogRequested, TimeSpan.FromSeconds(3));
                 Assert.True(sim.AirportCatalogRequested);
                 AssertNoSimulatorMutation(sim);
 
@@ -119,6 +120,10 @@ public sealed class FreeFlightHudModeTests
                 Assert.Equal(System.Windows.Data.BindingMode.OneWay, activeBinding?.Mode);
                 Assert.Null(secondary.FindName("ApproachProgressBar"));
                 Assert.Null(secondary.FindName("ProgressAirplane"));
+                Assert.Null(secondary.FindName("AirspeedCard"));
+                Assert.NotNull(secondary.FindName("PathPositionCard"));
+                Assert.NotNull(secondary.FindName("DescentAngleCard"));
+                Assert.NotNull(secondary.FindName("VerticalSpeedCard"));
                 Assert.NotNull(secondary.FindName("EtaText"));
                 Assert.NotNull(secondary.FindName("ScoreGraph"));
 
@@ -238,6 +243,19 @@ public sealed class FreeFlightHudModeTests
         var airport = new AirportFacility("TEST", "ZZ", 0, 0, 10);
         var runway = new RunwayEndFacility(airport, "09", 0, 0, 10, 90, 2000, 45, 4, false);
         method.Invoke(vm, [new FreeFlightTarget(runway, 2, 0, 0), sample, CancellationToken.None]);
+    }
+
+    private static void WaitUntil(Func<bool> condition, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            // Pump WPF dispatcher so DispatcherTimer ticks can fire.
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                System.Windows.Threading.DispatcherPriority.Background,
+                new Action(() => { }));
+            Thread.Sleep(20);
+        }
     }
 
     private static TelemetrySample ApproachSample(string? aircraftTitle = null) => new()

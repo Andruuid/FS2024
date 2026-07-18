@@ -94,28 +94,28 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <Border x:Name="AirspeedCard" Grid.Column="0" Margin="0,0,5,0" Padding="8,9"
-                        CornerRadius="10" Background="#441A2540"
-                        BorderBrush="{Binding AirspeedBrush, Mode=OneWay}" BorderThickness="2">
-                    <StackPanel HorizontalAlignment="Center">
-                        <TextBlock Text="IAS" FontSize="9" FontWeight="Bold" Foreground="#FF8B9BB8"/>
-                        <TextBlock Text="{Binding AirspeedDisplay}" FontSize="24" FontWeight="Bold"
-                                   FontFamily="Cascadia Mono, Consolas" Foreground="{Binding AirspeedBrush, Mode=OneWay}"
-                                   HorizontalAlignment="Center"/>
-                        <TextBlock Text="{Binding AirspeedDetail}" FontSize="8" TextWrapping="Wrap"
-                                   TextAlignment="Center" Foreground="#FFC5D0E6"/>
-                    </StackPanel>
-                </Border>
-
-                <Border x:Name="GlideslopeCard" Grid.Column="1" Margin="3,0" Padding="8,9"
+                <Border x:Name="PathPositionCard" Grid.Column="0" Margin="0,0,5,0" Padding="8,9"
                         CornerRadius="10" Background="#441A2540"
                         BorderBrush="{Binding GlideslopeBrush, Mode=OneWay}" BorderThickness="2">
                     <StackPanel HorizontalAlignment="Center">
-                        <TextBlock Text="GLIDESLOPE" FontSize="9" FontWeight="Bold" Foreground="#FF8B9BB8"/>
+                        <TextBlock Text="PATH POSITION" FontSize="9" FontWeight="Bold" Foreground="#FF8B9BB8"/>
                         <TextBlock Text="{Binding GlideslopeDisplay}" FontSize="24" FontWeight="Bold"
                                    FontFamily="Cascadia Mono, Consolas" Foreground="{Binding GlideslopeBrush, Mode=OneWay}"
                                    HorizontalAlignment="Center"/>
                         <TextBlock Text="{Binding GlideslopeDetail}" FontSize="8" TextWrapping="Wrap"
+                                   TextAlignment="Center" Foreground="#FFC5D0E6"/>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="DescentAngleCard" Grid.Column="1" Margin="3,0" Padding="8,9"
+                        CornerRadius="10" Background="#441A2540"
+                        BorderBrush="{Binding DescentAngleBrush, Mode=OneWay}" BorderThickness="2">
+                    <StackPanel HorizontalAlignment="Center">
+                        <TextBlock Text="DESCENT ANGLE" FontSize="9" FontWeight="Bold" Foreground="#FF8B9BB8"/>
+                        <TextBlock Text="{Binding DescentAngleDisplay}" FontSize="24" FontWeight="Bold"
+                                   FontFamily="Cascadia Mono, Consolas" Foreground="{Binding DescentAngleBrush, Mode=OneWay}"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Text="{Binding DescentAngleDetail}" FontSize="8" TextWrapping="Wrap"
                                    TextAlignment="Center" Foreground="#FFC5D0E6"/>
                     </StackPanel>
                 </Border>

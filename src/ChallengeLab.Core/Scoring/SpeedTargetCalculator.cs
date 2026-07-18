@@ -28,7 +28,16 @@ public static class SpeedTargetCalculator
         if (challenge.AircraftSetup.VappKts is > 50 and < 250)
         {
             vapp = challenge.AircraftSetup.VappKts.Value;
-            source = "challenge config";
+            if (challenge.ModeEnum == ChallengeMode.FreeFlight
+                && TryMatchAircraftDb(settings, sample, out var dbVapp, out var dbSource)
+                && Math.Abs(vapp - dbVapp) < 0.05)
+            {
+                source = $"{dbSource} · frozen at arm";
+            }
+            else
+            {
+                source = "challenge config";
+            }
         }
         else if (challenge.ModeEnum == ChallengeMode.FreeFlight)
         {
