@@ -466,6 +466,33 @@ public sealed class FreeFlightHudModeTests
         public void ApplyTimeOfDay(TimeOfDayConfig? timeOfDay) => TimeCalls++;
         public void Teleport(SpawnConfig spawn) => TeleportCalls++;
         public void ResumeFlight() => ResumeCalls++;
+
+        public Core.Snapshots.FlightStateSnapshot? NextSnapshot { get; set; }
+        public SpawnApplyResult RestoreResult { get; set; } =
+            SpawnApplyResult.Ok("restored", 0, 0, 0, 0, 0, 0, false);
+        public int CaptureCalls { get; private set; }
+        public int RestoreCalls { get; private set; }
+        public Core.Snapshots.FlightStateSnapshot? LastRestoredSnapshot { get; private set; }
+        public Core.Snapshots.SnapshotRestoreOptions? LastRestoreOptions { get; private set; }
+
+        public Task<Core.Snapshots.FlightStateSnapshot?> CaptureSnapshotAsync(CancellationToken ct = default)
+        {
+            CaptureCalls++;
+            return Task.FromResult(NextSnapshot);
+        }
+
+        public Task<SpawnApplyResult> RestoreSnapshotAsync(
+            Core.Snapshots.FlightStateSnapshot snapshot,
+            Core.Snapshots.SnapshotRestoreOptions options,
+            IProgress<string>? progress = null,
+            CancellationToken ct = default)
+        {
+            RestoreCalls++;
+            LastRestoredSnapshot = snapshot;
+            LastRestoreOptions = options;
+            return Task.FromResult(RestoreResult);
+        }
+
         public void Dispose() { }
     }
 

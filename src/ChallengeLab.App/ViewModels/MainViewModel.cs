@@ -8,6 +8,7 @@ using Application = System.Windows.Application;
 using MessageBox = System.Windows.MessageBox;
 using MessageBoxButton = System.Windows.MessageBoxButton;
 using MessageBoxImage = System.Windows.MessageBoxImage;
+using MessageBoxResult = System.Windows.MessageBoxResult;
 using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 using ChallengeLab.Core.Career;
 using ChallengeLab.Core.Config;
@@ -16,6 +17,7 @@ using ChallengeLab.Core.Highscores;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scenarios;
 using ChallengeLab.Core.Scoring;
+using ChallengeLab.Core.Snapshots;
 using ChallengeLab.SimConnect;
 // LandingEvaluationKey lives in ChallengeLab.Core.Config
 
@@ -28,6 +30,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public const int HighscoresTabIndex = 2;
     public const int SessionTabIndex = 3;
     public const int TestingTabIndex = 4;
+    public const int StoreTabIndex = 5;
 
     private readonly ConfigLoader _configLoader;
     private readonly HighscoreStore _highscores;
@@ -94,6 +97,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private FlightTapeListItem? _selectedFlightTape;
     private string _testingStatus = "Select a recorded flight tape and evaluate offline.";
     private bool _isEvaluatingFlightTape;
+    private readonly SnapshotStore _snapshotStore;
+    private ObservableCollection<SnapshotListItem> _snapshots = new();
+    private SnapshotListItem? _selectedSnapshot;
+    private string _snapshotNameInput = "";
+    private string _storeStatus = "Save the current flight state, or load a stored one.";
+    private bool _isCapturingSnapshot;
+    private bool _isRestoringSnapshot;
+    private bool _isRenamingSnapshot;
+    private string _renameText = "";
+    private bool _restoreWeatherEnabled = true;
+    private bool _restoreAutopilotEnabled = true;
+    private bool _autoResumeAfterRestore;
     private LandingReportViewModel? _landingReport;
     private string _reportStatus = "";
     private string _reportBodyText = "";
@@ -129,7 +144,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         HighscoreStore? highscores = null,
         CareerProgressStore? careerStore = null,
         IRandomIndexProvider? careerRandom = null,
-        OurAirportsRunwayCatalog? runwayCatalog = null)
+        OurAirportsRunwayCatalog? runwayCatalog = null,
+        SnapshotStore? snapshotStore = null)
     {
         _sim = sim;
         _runwayReferenceResolver = new RunwayReferenceResolver(runwayCatalog);
@@ -137,6 +153,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _highscores = highscores ?? new HighscoreStore();
         _landingTraces = new LandingTraceStore();
         _flightTapes = new FlightTapeStore();
+        _snapshotStore = snapshotStore ?? new SnapshotStore();
         _careerStore = careerStore ?? new CareerProgressStore();
         _careerRandom = careerRandom;
 
@@ -207,6 +224,23 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             BrowseAndEvaluateFlightTape,
             () => HasValidScoringConfiguration && !IsEvaluatingFlightTape);
         OpenFlightsFolderCommand = new RelayCommand(OpenFlightsFolder);
+        SaveSnapshotCommand = new RelayCommand(async () => await SaveSnapshotAsync(), CanSaveSnapshot);
+        LoadSnapshotCommand = new RelayCommand(async () => await LoadSelectedSnapshotAsync(), () =>
+            SelectedSnapshot is not null && IsConnected && !IsRestoringSnapshot
+            && !IsCapturingSnapshot && !IsLoading);
+        RenameSnapshotCommand = new RelayCommand(BeginRenameSnapshot, () =>
+            SelectedSnapshot is not null && !IsRestoringSnapshot);
+        ConfirmRenameSnapshotCommand = new RelayCommand(ConfirmRenameSnapshot, () => IsRenamingSnapshot);
+        CancelRenameSnapshotCommand = new RelayCommand(() =>
+        {
+            IsRenamingSnapshot = false;
+            RenameText = "";
+        });
+        DeleteSnapshotCommand = new RelayCommand(DeleteSelectedSnapshot, () =>
+            SelectedSnapshot is not null && !IsRestoringSnapshot);
+        RefreshSnapshotsCommand = new RelayCommand(RefreshSnapshots);
+        OpenSnapshotsFolderCommand = new RelayCommand(OpenSnapshotsFolder);
+        ResumeNowCommand = new RelayCommand(() => _sim.ResumeFlight(), () => IsConnected);
         OpenMenuCommand = new RelayCommand(() =>
         {
             ResultVisible = false;
@@ -237,6 +271,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         LogFreeEvaluationKeyStatus();
         RefreshHighscores();
         RefreshFlightTapes();
+        RefreshSnapshots();
     }
 
     private void LogEvaluationKeyStatus()
@@ -372,6 +407,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand EvaluateSelectedFlightTapeCommand { get; }
     public ICommand BrowseFlightTapeCommand { get; }
     public ICommand OpenFlightsFolderCommand { get; }
+    public ICommand SaveSnapshotCommand { get; }
+    public ICommand LoadSnapshotCommand { get; }
+    public ICommand RenameSnapshotCommand { get; }
+    public ICommand ConfirmRenameSnapshotCommand { get; }
+    public ICommand CancelRenameSnapshotCommand { get; }
+    public ICommand DeleteSnapshotCommand { get; }
+    public ICommand RefreshSnapshotsCommand { get; }
+    public ICommand OpenSnapshotsFolderCommand { get; }
+    public ICommand ResumeNowCommand { get; }
 
     public string FlightsFolderPath => _flightTapes.DirectoryPath;
 
@@ -474,6 +518,107 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             (BrowseFlightTapeCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
     }
+
+    /// <summary>STORE tab list. Rebuilds assign a NEW collection (see AGENTS.md WPF lessons).</summary>
+    public ObservableCollection<SnapshotListItem> Snapshots
+    {
+        get => _snapshots;
+        private set => SetProperty(ref _snapshots, value);
+    }
+
+    public SnapshotListItem? SelectedSnapshot
+    {
+        get => _selectedSnapshot;
+        set
+        {
+            if (ReferenceEquals(_selectedSnapshot, value)) return;
+            SetProperty(ref _selectedSnapshot, value);
+            IsRenamingSnapshot = false;
+            (LoadSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (RenameSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (DeleteSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string SnapshotNameInput
+    {
+        get => _snapshotNameInput;
+        set => SetProperty(ref _snapshotNameInput, value);
+    }
+
+    public string StoreStatus
+    {
+        get => _storeStatus;
+        private set => SetProperty(ref _storeStatus, value);
+    }
+
+    public bool IsCapturingSnapshot
+    {
+        get => _isCapturingSnapshot;
+        private set
+        {
+            if (_isCapturingSnapshot == value) return;
+            SetProperty(ref _isCapturingSnapshot, value);
+            (SaveSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (LoadSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public bool IsRestoringSnapshot
+    {
+        get => _isRestoringSnapshot;
+        private set
+        {
+            if (_isRestoringSnapshot == value) return;
+            SetProperty(ref _isRestoringSnapshot, value);
+            (SaveSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (LoadSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (RenameSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (DeleteSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public bool IsRenamingSnapshot
+    {
+        get => _isRenamingSnapshot;
+        private set
+        {
+            if (_isRenamingSnapshot == value) return;
+            SetProperty(ref _isRenamingSnapshot, value);
+            (ConfirmRenameSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string RenameText
+    {
+        get => _renameText;
+        set => SetProperty(ref _renameText, value);
+    }
+
+    public bool RestoreWeatherEnabled
+    {
+        get => _restoreWeatherEnabled;
+        set => SetProperty(ref _restoreWeatherEnabled, value);
+    }
+
+    public bool RestoreAutopilotEnabled
+    {
+        get => _restoreAutopilotEnabled;
+        set => SetProperty(ref _restoreAutopilotEnabled, value);
+    }
+
+    public bool AutoResumeAfterRestore
+    {
+        get => _autoResumeAfterRestore;
+        set => SetProperty(ref _autoResumeAfterRestore, value);
+    }
+
+    public string SnapshotsFolderPath => _snapshotStore.DirectoryPath;
+
+    /// <summary>Confirmation hook (default MessageBox) — injectable so tests can intercept.</summary>
+    public Func<string, string, bool> ConfirmAction { get; set; } = (message, title) =>
+        MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Question)
+        == MessageBoxResult.Yes;
 
     public LandingReportViewModel? LandingReport
     {
@@ -617,6 +762,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             SetProperty(ref _isConnected, value);
             (StartChallengeCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (SaveSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (LoadSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (ResumeNowCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
@@ -634,6 +782,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             (GoCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (NormalModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (FreeModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (SaveSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (LoadSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
@@ -2643,6 +2793,316 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             MessageBox.Show(
                 $"Could not open flights folder:\n{ex.Message}",
                 "Challenge Lab — Testing",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
+    private bool CanSaveSnapshot() =>
+        IsConnected && !IsCapturingSnapshot && !IsRestoringSnapshot && !IsLoading
+        && _lastTelemetry is not null
+        // CAMERA STATE ≥ 11 = menus / world map — no live flight to capture there.
+        && (_lastTelemetry.CameraState is null || _lastTelemetry.CameraState < 11);
+
+    private async Task SaveSnapshotAsync()
+    {
+        if (!CanSaveSnapshot()) return;
+
+        IsCapturingSnapshot = true;
+        StoreStatus = "Capturing flight state…";
+        try
+        {
+            var snapshot = await _sim.CaptureSnapshotAsync();
+            if (snapshot is null)
+            {
+                StoreStatus = "Could not read flight state — are you in an active flight?";
+                return;
+            }
+
+            snapshot.AppBuildTag = AppBuild.Tag;
+            snapshot.Airport = ResolveNearestAirport(snapshot.Latitude, snapshot.Longitude);
+            snapshot.Name = SnapshotNameBuilder.BuildDefaultName(
+                SnapshotNameInput, snapshot.Airport, snapshot.Latitude, snapshot.Longitude);
+
+            var path = _snapshotStore.Save(snapshot);
+            AppendLog($"Snapshot saved: '{snapshot.Name}' → {path}");
+            SnapshotNameInput = "";
+            RefreshSnapshots();
+            SelectedSnapshot = Snapshots.FirstOrDefault(s =>
+                string.Equals(s.Path, path, StringComparison.OrdinalIgnoreCase));
+
+            var pauseNote = snapshot.PauseContext == SnapshotPauseContext.ActivePause
+                ? " (saved during active pause — velocities may be frozen values)"
+                : "";
+            StoreStatus = $"Saved: {snapshot.Name}{pauseNote}";
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Snapshot save failed: {ex.Message}");
+            StoreStatus = $"Save failed: {ex.Message}";
+        }
+        finally
+        {
+            IsCapturingSnapshot = false;
+        }
+    }
+
+    /// <summary>
+    /// Offline OurAirports CSV first (instant, has name/country), cached live catalog as
+    /// fallback. Never blocks the save on the ~30 s live facilities load.
+    /// </summary>
+    private SnapshotAirportInfo? ResolveNearestAirport(double latitude, double longitude)
+    {
+        try
+        {
+            var index = OurAirportsAirportIndex.Default;
+            if (index.IsAvailable && index.FindNearest(latitude, longitude) is { } nearest)
+            {
+                return new SnapshotAirportInfo
+                {
+                    Icao = nearest.Ident,
+                    Name = string.IsNullOrWhiteSpace(nearest.Name) ? null : nearest.Name,
+                    Municipality = string.IsNullOrWhiteSpace(nearest.Municipality) ? null : nearest.Municipality,
+                    CountryCode = string.IsNullOrWhiteSpace(nearest.CountryCode) ? null : nearest.CountryCode,
+                    DistanceNm = nearest.DistanceNm
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Nearest-airport lookup (CSV) failed: {ex.Message}");
+        }
+
+        try
+        {
+            if (_freeAirportCatalog is { Count: > 0 } catalog)
+            {
+                AirportFacility? best = null;
+                var bestMeters = double.MaxValue;
+                foreach (var airport in catalog)
+                {
+                    var meters = GeoUtil.HaversineMetersPublic(
+                        latitude, longitude, airport.Latitude, airport.Longitude);
+                    if (meters < bestMeters)
+                    {
+                        bestMeters = meters;
+                        best = airport;
+                    }
+                }
+
+                if (best is not null)
+                {
+                    return new SnapshotAirportInfo
+                    {
+                        Icao = best.Icao,
+                        CountryCode = string.IsNullOrWhiteSpace(best.Country) ? null : best.Country,
+                        DistanceNm = bestMeters / 1852.0
+                    };
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Nearest-airport lookup (live) failed: {ex.Message}");
+        }
+
+        return null;
+    }
+
+    private async Task LoadSelectedSnapshotAsync()
+    {
+        var item = SelectedSnapshot;
+        if (item is null || !IsConnected || IsRestoringSnapshot || IsLoading) return;
+
+        FlightStateSnapshot snapshot;
+        try
+        {
+            snapshot = _snapshotStore.Load(item.Path);
+        }
+        catch (Exception ex)
+        {
+            StoreStatus = $"Could not read snapshot: {ex.Message}";
+            AppendLog($"Snapshot load failed for '{item.Path}': {ex.Message}");
+            return;
+        }
+
+        IsRestoringSnapshot = true;
+        StoreStatus = $"Loading '{snapshot.Name}'…";
+        AppendLog($"Snapshot restore requested: '{snapshot.Name}' (safe apply, no FlightLoad).");
+
+        // Teleporting away invalidates any armed challenge/scoring session.
+        DetachSession();
+        StopFreeInference(resetTarget: true);
+        _activeChallenge = null;
+        SetAttemptOrigin(LandingAttemptOrigin.DefaultChallenge);
+        LastScore = null;
+        ResultVisible = false;
+        PhaseLabel = "Loading";
+
+        try
+        {
+            var options = new SnapshotRestoreOptions
+            {
+                RestoreWeather = RestoreWeatherEnabled,
+                RestoreAutopilot = RestoreAutopilotEnabled,
+                AutoResume = AutoResumeAfterRestore
+            };
+            var progress = new Progress<string>(msg => StoreStatus = msg);
+            var result = await _sim.RestoreSnapshotAsync(snapshot, options, progress);
+
+            if (result.Success)
+            {
+                AppendLog(
+                    $"Snapshot restored: '{snapshot.Name}' · horiz={result.HorizontalErrorM:0} m · " +
+                    $"altErr={result.AltErrorFeet:0} ft · onGround={result.ReportedOnGround}.");
+                StoreStatus = AutoResumeAfterRestore
+                    ? $"Restored: {snapshot.Name} — flying."
+                    : $"Restored: {snapshot.Name} — PAUSED. Click Resume now (or unpause in the sim) when ready.";
+            }
+            else
+            {
+                AppendLog($"Snapshot restore FAILED: {result.Message}");
+                StoreStatus = $"Restore failed: {result.Message}";
+            }
+        }
+        catch (AircraftMismatchException ex)
+        {
+            var wanted = ex.ExpectedTitles.FirstOrDefault() ?? snapshot.AircraftTitle;
+            StoreStatus = $"Wrong aircraft — this snapshot needs '{wanted}'.";
+            AppendLog($"Snapshot restore blocked: aircraft mismatch (sim='{ex.ActualTitle}', snapshot='{wanted}').");
+            MessageBox.Show(
+                $"This snapshot was saved in:\n{wanted}\n\n" +
+                $"Current aircraft: {ex.ActualTitle}\n\n" +
+                "Challenge Lab will not swap the aircraft mid-session (that path can crash MSFS 2024).\n\n" +
+                "Do this:\n" +
+                "1. World Map → select the snapshot aircraft\n" +
+                "2. Start a free flight (any airport)\n" +
+                "3. Load the snapshot again.",
+                "Challenge Lab — Store",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Snapshot restore error: {ex.Message}");
+            StoreStatus = $"Restore error: {ex.Message}";
+        }
+        finally
+        {
+            IsRestoringSnapshot = false;
+            RestartObservationAfterSnapshotRestore();
+        }
+    }
+
+    /// <summary>Re-arm Free observation (or Idle in Normal) after a snapshot teleport.</summary>
+    private void RestartObservationAfterSnapshotRestore()
+    {
+        if (IsFreeMode)
+        {
+            PhaseLabel = "Detecting";
+            FreeAirportStatus = "Detecting airport and runway...";
+            _freeFlightCts?.Cancel();
+            _freeFlightCts?.Dispose();
+            _freeFlightCts = new CancellationTokenSource();
+            _freeInferenceTimer.Start();
+        }
+        else
+        {
+            PhaseLabel = "Idle";
+        }
+    }
+
+    private void BeginRenameSnapshot()
+    {
+        if (SelectedSnapshot is null) return;
+        RenameText = SelectedSnapshot.Name;
+        IsRenamingSnapshot = true;
+    }
+
+    private void ConfirmRenameSnapshot()
+    {
+        var item = SelectedSnapshot;
+        if (item is null || !IsRenamingSnapshot) return;
+
+        var newName = (RenameText ?? "").Trim();
+        if (newName.Length == 0)
+        {
+            StoreStatus = "Enter a name before renaming.";
+            return;
+        }
+
+        try
+        {
+            var newPath = _snapshotStore.Rename(item.Path, newName);
+            IsRenamingSnapshot = false;
+            RenameText = "";
+            RefreshSnapshots();
+            SelectedSnapshot = Snapshots.FirstOrDefault(s =>
+                string.Equals(s.Path, newPath, StringComparison.OrdinalIgnoreCase));
+            StoreStatus = $"Renamed to: {newName}";
+            AppendLog($"Snapshot renamed → {newPath}");
+        }
+        catch (Exception ex)
+        {
+            StoreStatus = $"Rename failed: {ex.Message}";
+            AppendLog($"Snapshot rename failed: {ex.Message}");
+        }
+    }
+
+    private void DeleteSelectedSnapshot()
+    {
+        var item = SelectedSnapshot;
+        if (item is null) return;
+        if (!ConfirmAction($"Delete this stored flight?\n\n{item.DisplayName}", "Challenge Lab — Store"))
+            return;
+
+        try
+        {
+            _snapshotStore.Delete(item.Path);
+            AppendLog($"Snapshot deleted: {item.Path}");
+            SelectedSnapshot = null;
+            RefreshSnapshots();
+            StoreStatus = "Deleted.";
+        }
+        catch (Exception ex)
+        {
+            StoreStatus = $"Delete failed: {ex.Message}";
+            AppendLog($"Snapshot delete failed: {ex.Message}");
+        }
+    }
+
+    private void RefreshSnapshots()
+    {
+        var selectedPath = SelectedSnapshot?.Path;
+        // NEW collection instance so the ListBox reliably refreshes (AGENTS.md lesson).
+        Snapshots = new ObservableCollection<SnapshotListItem>(_snapshotStore.List());
+        if (!string.IsNullOrWhiteSpace(selectedPath))
+        {
+            SelectedSnapshot = Snapshots.FirstOrDefault(s =>
+                string.Equals(s.Path, selectedPath, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (Snapshots.Count == 0)
+            StoreStatus = "No stored flights yet. Save one while flying (or parked).";
+    }
+
+    private void OpenSnapshotsFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(SnapshotsFolderPath);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = SnapshotsFolderPath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Open snapshots folder failed: {ex.Message}");
+            MessageBox.Show(
+                $"Could not open snapshots folder:\n{ex.Message}",
+                "Challenge Lab — Store",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
         }

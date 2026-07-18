@@ -14,6 +14,7 @@ A separate challenge mode for **Microsoft Flight Simulator 2024**: hardcore land
 | Score when GS &lt; 50 knots | Yes |
 | Companion HUD with Normal / Free flight modes | Yes |
 | Highscores tab | Yes |
+| **STORE tab** — save & reload full flight-state snapshots | Yes |
 | Disasters (Sioux City, Swissair) | UI placeholders |
 | Admin UI for criteria | Later (JSON only for now) |
 
@@ -41,6 +42,29 @@ dotnet run --project src\ChallengeLab.App
 6. After touchdown, slow below **50 knots**. Score appears on the **Companion HUD** and under the **Session** tab.
 
 For a flight that is already in progress, select **Free** on the HUD instead. Challenge Lab warms nearby MSFS airport/runway facilities in the background, shows the best runway-aligned target as soon as the gear is down (immediately for fixed-gear aircraft), and refines it until evaluation begins. The closest field shown while scanning is reference-only and does not determine the selected runway. Scoring starts five seconds before the detected runway's glideslope reaches 2,000 ft above runway elevation. Free mode does not change the aircraft, time, weather, position, or pause state. **Reacquire** releases the current attempt and immediately detects the best aligned runway again with every nearby airport eligible.
+
+## STORE tab — save & reload flight states
+
+**Save flight state** captures the current moment in one shot: position, attitude, the exact
+body-axis speed vector, gear/flaps/spoilers/parking brake, trim, per-tank fuel, engine state,
+lights, autopilot (master, FD, autothrottle arm, HDG/NAV/ALT/VS/FLC/APR modes and the selected
+heading/altitude/speed/Mach/VS targets), zulu time/date and ambient weather. Snapshots are JSON files in
+`%LocalAppData%\ChallengeLab\snapshots\`, named with timestamp + name + nearest airport
+(offline OurAirports lookup, e.g. `LSZH Zurich (CH)`), and can be renamed or deleted in the list.
+
+**Load** puts the aircraft back into that state through the same safe-apply pipeline the
+challenges use (SET PAUSE + freeze → teleport → velocity inject → gear/flaps settle → verify —
+**no FlightLoad**, which crashes MSFS 2024 mid-session). Loading behaves identically whether you
+click it while flying, parked, in the ESC menu, or in active pause. The sim ends **PAUSED** with
+the state applied — click **Resume now** (or unpause in the sim) when ready; enable
+*Auto-resume after load* to skip the hold.
+
+Honest limits (sim API restrictions): you must already be flying the **same aircraft** (the app
+never swaps aircraft mid-session); addon avionics/FMS programming and routes are not captured;
+autopilot restores through the standard sim interface — addon "managed" FMGC modes are
+best-effort and NAV mode needs a flight plan loaded; live weather is rebuilt as a fixed
+approximate METAR; complex addons may ignore throttle/engine-state writes.
+Gear/flap surface animations may finish moving just after you resume — the handles are correct.
 
 ## Career Mode — classified promotion flights
 

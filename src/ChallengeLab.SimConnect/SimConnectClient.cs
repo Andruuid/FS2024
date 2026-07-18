@@ -11,7 +11,7 @@ namespace ChallengeLab.SimConnect;
 /// <summary>
 /// Managed SimConnect client for Challenge Lab. Requires a window handle for the message pump.
 /// </summary>
-public sealed class SimConnectClient : ISimBridge
+public sealed partial class SimConnectClient : ISimBridge
 {
     private const int WmUserSimConnect = 0x0402;
 
@@ -50,6 +50,13 @@ public sealed class SimConnectClient : ISimBridge
         PoseSet = 4,
         VelocitySet = 5,
         ContactPoints = 6,
+        SnapshotCapture = 7,
+        FuelSet = 8,
+        TrimSet = 9,
+        ThrottleSet = 10,
+        LightsSet = 11,
+        CombustionSet = 12,
+        PistonControlsSet = 13,
         AirportFacility = 100
     }
 
@@ -61,6 +68,8 @@ public sealed class SimConnectClient : ISimBridge
         ContactPoints = 4,
         /// <summary>Low-rate continuous TITLE stream so Free Flight always knows the live type.</summary>
         AircraftTitleStream = 5,
+        /// <summary>One-shot full-state read for STORE tab snapshots.</summary>
+        SnapshotCapture = 6,
         Airports = 100
     }
 
@@ -101,7 +110,37 @@ public sealed class SimConnectClient : ISimBridge
         SpoilersArmSet = 21,
         SpoilersOn = 22,
         GearSet = 23,
-        PauseStateEx1 = 24
+        PauseStateEx1 = 24,
+        SimRateIncr = 25,
+        SimRateDecr = 26,
+        // Autopilot restore (mapped tolerantly in EnsureSnapshotEvents, partial file).
+        AutopilotOn = 27,
+        AutopilotOff = 28,
+        AutoThrottleArm = 29,
+        ToggleFlightDirector = 30,
+        HeadingBugSet = 31,
+        ApAltVarSet = 32,
+        ApSpdVarSet = 33,
+        ApMachVarSet = 34,
+        ApVsVarSet = 35,
+        ApHdgHoldOn = 36,
+        ApHdgHoldOff = 37,
+        ApAltHoldOn = 38,
+        ApAltHoldOff = 39,
+        ApNav1HoldOn = 40,
+        ApNav1HoldOff = 41,
+        ApAprHoldOn = 42,
+        ApAprHoldOff = 43,
+        ApAirspeedOn = 44,
+        ApAirspeedOff = 45,
+        ApMachOn = 46,
+        ApMachOff = 47,
+        ApPanelVsOn = 48,
+        ApPanelVsOff = 49,
+        FlightLevelChangeOn = 50,
+        FlightLevelChangeOff = 51,
+        YawDamperOn = 52,
+        YawDamperOff = 53
     }
 
     private enum Groups
@@ -1861,6 +1900,25 @@ public sealed class SimConnectClient : ISimBridge
             return;
         }
 
+        if (data.dwRequestID == (uint)Requests.SnapshotCapture)
+        {
+            try
+            {
+                var capture = (SnapshotCaptureStruct)data.dwData[0];
+                _snapshotCaptureTcs?.TrySetResult(capture);
+            }
+            catch (Exception ex)
+            {
+                Log($"Snapshot capture parse: {ex.Message}");
+                _snapshotCaptureTcs?.TrySetException(ex);
+            }
+            finally
+            {
+                _snapshotCaptureTcs = null;
+            }
+            return;
+        }
+
         if (data.dwRequestID == (uint)Requests.ContactPoints)
         {
             try
@@ -2389,6 +2447,8 @@ public sealed class SimConnectClient : ISimBridge
         _sim.RegisterFacilityDataDefineStruct<VasiFacilityStruct>(
             SIMCONNECT_FACILITY_DATA_TYPE.VASI);
 
+        RegisterSnapshotDefinitions();
+
         _defsRegistered = true;
     }
 
@@ -2419,6 +2479,8 @@ public sealed class SimConnectClient : ISimBridge
             _sim.MapClientEventToSimEvent(Events.ParkingBrakeSet, "PARKING_BRAKE_SET");
             _sim.MapClientEventToSimEvent(Events.ActivePauseOn, "ACTIVE_PAUSE_ON");
             _sim.MapClientEventToSimEvent(Events.ActivePauseOff, "ACTIVE_PAUSE_OFF");
+            _sim.MapClientEventToSimEvent(Events.SimRateIncr, "SIM_RATE_INCR");
+            _sim.MapClientEventToSimEvent(Events.SimRateDecr, "SIM_RATE_DECR");
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.GearDown, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.GearUp, false);
             _sim.AddClientEventToNotificationGroup(Groups.Input, Events.GearSet, false);
@@ -2515,6 +2577,8 @@ public sealed class SimConnectClient : ISimBridge
 
         _sim = null;
         _defsRegistered = false;
+        _snapshotDefsRegistered = false;
+        _snapshotEventsMapped = false;
         _eventsMapped = false;
         lock (_pauseStateLock)
         {
@@ -2532,6 +2596,8 @@ public sealed class SimConnectClient : ISimBridge
         _cachedAircraftTitle = null;
         _titleTcs?.TrySetResult(null);
         _titleTcs = null;
+        _snapshotCaptureTcs?.TrySetCanceled();
+        _snapshotCaptureTcs = null;
         _airportCatalogTcs?.TrySetException(new InvalidOperationException("SimConnect disconnected."));
         _airportCatalogTcs = null;
         _airportCatalogPackets.Clear();

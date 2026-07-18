@@ -205,7 +205,7 @@ public sealed class OurAirportsRunwayCatalog
         return Empty("Bundled OurAirports airports.csv/runways.csv were not found.", null);
     }
 
-    private static IEnumerable<string> DefaultDirectories()
+    internal static IEnumerable<string> DefaultDirectories()
     {
         var baseDir = AppContext.BaseDirectory;
         yield return Path.Combine(baseDir, "data", "ourairports");
@@ -300,7 +300,7 @@ public sealed class OurAirportsRunwayCatalog
         return NormalizeHeading(Math.Atan2(y, x) * 180.0 / Math.PI);
     }
 
-    private static IEnumerable<CsvRow> ReadTable(string path)
+    internal static IEnumerable<CsvRow> ReadTable(string path)
     {
         using var records = CsvRecords(path).GetEnumerator();
         if (!records.MoveNext())
@@ -398,7 +398,7 @@ public sealed class OurAirportsRunwayCatalog
     private static string NormalizeCountry(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "" : value.Trim().ToUpperInvariant();
 
-    private static double? ParseFinite(string value) =>
+    internal static double? ParseFinite(string value) =>
         double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
         && double.IsFinite(parsed) ? parsed : null;
 
@@ -406,12 +406,12 @@ public sealed class OurAirportsRunwayCatalog
         ? parsed
         : null;
 
-    private static double? ParseLatitude(string value) => ParseFinite(value) is { } parsed
+    internal static double? ParseLatitude(string value) => ParseFinite(value) is { } parsed
                                                          && parsed is >= -90 and <= 90
         ? parsed
         : null;
 
-    private static double? ParseLongitude(string value) => ParseFinite(value) is { } parsed
+    internal static double? ParseLongitude(string value) => ParseFinite(value) is { } parsed
                                                           && parsed is >= -180 and <= 180
         ? parsed
         : null;
@@ -443,7 +443,7 @@ public sealed class OurAirportsRunwayCatalog
         double? ElevationFeet,
         HashSet<string> Aliases);
 
-    private readonly record struct CsvRow(
+    internal readonly record struct CsvRow(
         IReadOnlyDictionary<string, int> Headers,
         IReadOnlyList<string> Fields)
     {

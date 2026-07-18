@@ -1,5 +1,19 @@
 # Challenge Lab — agent notes
 
+## STORE tab — flight-state snapshots (BUILD 2238+)
+
+Save/restore full flight state (position, exact body velocities, gear/flaps/spoilers,
+trim, fuel, engines, lights, autopilot modes + targets, zulu time, ambient weather →
+fixed METAR). Autopilot restore = values first, then modes (`ApplyAutopilotSnapshotAsync`);
+toggle-only FD/A-THR fire on read-back mismatch; addon FMGC managed modes best-effort. Restore goes
+through the **same safe-apply pipeline as challenges** — `RestoreSnapshotAsync` in
+`SimConnectClient.Snapshot.cs` mirrors `LoadScenarioAsync` (entry normalized via
+`NormalizeLoadEntryAsync`, TITLE gate, pause+freeze hold, release ordering copied).
+**Never FlightLoad snapshots** — same CTD rule as below. Snapshot files:
+`%LocalAppData%\ChallengeLab\snapshots\` (`SnapshotStore`, atomic writes, rename keeps
+stamp+guid). Default end state after Load = SET PAUSE + "Resume when ready" (user choice).
+Ground restores use INITPOSITION `OnGround=1` (the plain `Teleport` hardcodes air).
+
 ## Start Challenge / MSFS CTD (critical)
 
 ### Do NOT mid-session FlightLoad for aircraft swap

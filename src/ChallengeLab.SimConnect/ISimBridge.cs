@@ -1,6 +1,7 @@
 using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Facilities;
 using ChallengeLab.Core.Models;
+using ChallengeLab.Core.Snapshots;
 
 namespace ChallengeLab.SimConnect;
 
@@ -57,4 +58,22 @@ public interface ISimBridge : IDisposable
     /// HUD "Go" — pilot does not need ESC → Resume.
     /// </summary>
     void ResumeFlight();
+
+    /// <summary>
+    /// STORE tab: one-shot full flight-state capture (pose, exact velocities, gear/flaps/
+    /// spoilers, trim, fuel, engines, lights, zulu time, ambient weather). Null when the
+    /// sim is not delivering data (menu / load screen / disconnected).
+    /// </summary>
+    Task<FlightStateSnapshot?> CaptureSnapshotAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// STORE tab: restore a snapshot via the safe-apply pipeline (no FlightLoad). Entry is
+    /// normalized so flying / ground / ESC pause / active pause all behave identically.
+    /// Throws AircraftMismatchException when the live aircraft differs from the snapshot.
+    /// </summary>
+    Task<SpawnApplyResult> RestoreSnapshotAsync(
+        FlightStateSnapshot snapshot,
+        SnapshotRestoreOptions options,
+        IProgress<string>? progress = null,
+        CancellationToken ct = default);
 }

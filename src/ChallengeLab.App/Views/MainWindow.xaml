@@ -1076,6 +1076,156 @@
                     </Border>
                 </Grid>
             </TabItem>
+
+            <TabItem Header="STORE">
+                <Grid Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="1.3*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Border Style="{StaticResource CardBorder}" Padding="12">
+                        <StackPanel>
+                            <TextBlock Text="SAVE FLIGHT STATE" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource BrushTextMuted}"/>
+                            <TextBlock Margin="0,6,0,0" TextWrapping="Wrap"
+                                       Foreground="{StaticResource BrushTextPrimary}"
+                                       Text="Stores position, attitude, exact speed vector, gear, flaps, spoilers, trim, parking brake, fuel, engines, lights, autopilot (modes + targets), time of day and ambient weather — so you can come back to this exact moment."/>
+                            <TextBlock Text="{Binding SnapshotsFolderPath}" FontFamily="{StaticResource MonoFont}"
+                                       FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"
+                                       Foreground="{StaticResource BrushAccentCyan}"/>
+
+                            <TextBlock Text="NAME (OPTIONAL PREFIX)" FontSize="10" FontWeight="Bold"
+                                       Foreground="{StaticResource BrushTextMuted}" Margin="0,14,0,4"/>
+                            <TextBox Text="{Binding SnapshotNameInput, UpdateSourceTrigger=PropertyChanged}"
+                                     Background="#FF0B1020" Foreground="#FFF2F6FF" CaretBrush="#FFF2F6FF"
+                                     BorderBrush="#33FFFFFF" BorderThickness="1" Padding="8,6"/>
+
+                            <Button Content="Save flight state" Command="{Binding SaveSnapshotCommand}"
+                                    Style="{StaticResource PrimaryButton}"
+                                    Padding="14,8" Margin="0,12,0,0" HorizontalAlignment="Left"/>
+
+                            <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" FontSize="11"
+                                       Foreground="{StaticResource BrushTextMuted}"
+                                       Text="Not captured: addon avionics / FMS programming and routes (no safe sim API), exact live-weather clouds. Autopilot restores via the standard interface — addon 'managed' FMGC modes are best-effort, NAV mode needs a flight plan. Live weather is stored as an approximate fixed METAR. Loading requires the same aircraft."/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="2" Style="{StaticResource CardBorder}" Padding="12">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                                <TextBlock Text="STORED FLIGHTS" FontSize="11" FontWeight="Bold"
+                                           Foreground="{StaticResource BrushTextMuted}"/>
+                                <TextBlock Text="{Binding StoreStatus}" TextWrapping="Wrap" Margin="0,8,0,0"
+                                           Foreground="{StaticResource BrushAccentAmber}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                    <Button Content="Load" Command="{Binding LoadSnapshotCommand}"
+                                            Style="{StaticResource PrimaryButton}"
+                                            Padding="14,6" Margin="0,0,8,0"/>
+                                    <Button Content="Resume now" Command="{Binding ResumeNowCommand}"
+                                            Style="{StaticResource AmberButton}"
+                                            Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="Rename" Command="{Binding RenameSnapshotCommand}"
+                                            Style="{StaticResource GhostButton}"
+                                            Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="Delete" Command="{Binding DeleteSnapshotCommand}"
+                                            Style="{StaticResource GhostButton}"
+                                            Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="Refresh" Command="{Binding RefreshSnapshotsCommand}"
+                                            Style="{StaticResource GhostButton}"
+                                            Padding="12,6" Margin="0,0,8,0"/>
+                                    <Button Content="Open folder" Command="{Binding OpenSnapshotsFolderCommand}"
+                                            Style="{StaticResource GhostButton}"
+                                            Padding="12,6"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <CheckBox Content="Restore weather (approx.)"
+                                              IsChecked="{Binding RestoreWeatherEnabled}"
+                                              Foreground="{StaticResource BrushTextPrimary}"/>
+                                    <CheckBox Content="Restore autopilot"
+                                              IsChecked="{Binding RestoreAutopilotEnabled}"
+                                              Margin="16,0,0,0"
+                                              Foreground="{StaticResource BrushTextPrimary}"/>
+                                    <CheckBox Content="Auto-resume after load"
+                                              IsChecked="{Binding AutoResumeAfterRestore}"
+                                              Margin="16,0,0,0"
+                                              Foreground="{StaticResource BrushTextPrimary}"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0"
+                                        Visibility="{Binding IsRenamingSnapshot, Converter={StaticResource BoolToVis}}">
+                                <TextBox Text="{Binding RenameText, UpdateSourceTrigger=PropertyChanged}"
+                                         Width="320" Background="#FF0B1020" Foreground="#FFF2F6FF"
+                                         CaretBrush="#FFF2F6FF" BorderBrush="#33FFFFFF" BorderThickness="1"
+                                         Padding="8,6" VerticalAlignment="Center"/>
+                                <Button Content="OK" Command="{Binding ConfirmRenameSnapshotCommand}"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Padding="12,6" Margin="8,0,0,0"/>
+                                <Button Content="Cancel" Command="{Binding CancelRenameSnapshotCommand}"
+                                        Style="{StaticResource GhostButton}"
+                                        Padding="12,6" Margin="8,0,0,0"/>
+                            </StackPanel>
+
+                            <ListBox ItemsSource="{Binding Snapshots}"
+                                     SelectedItem="{Binding SelectedSnapshot}"
+                                     DisplayMemberPath="DisplayName"
+                                     Background="#FF0B1020"
+                                     Foreground="#FFF2F6FF"
+                                     BorderBrush="#33FFFFFF"
+                                     BorderThickness="1"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Foreground" Value="#FFF2F6FF"/>
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Setter Property="Padding" Value="10,8"/>
+                                        <Setter Property="Margin" Value="0,0,0,2"/>
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <Border x:Name="Bd"
+                                                            Background="{TemplateBinding Background}"
+                                                            BorderBrush="Transparent"
+                                                            BorderThickness="1"
+                                                            CornerRadius="6"
+                                                            Padding="{TemplateBinding Padding}"
+                                                            SnapsToDevicePixels="True">
+                                                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                                          VerticalAlignment="Center"
+                                                                          TextElement.Foreground="{TemplateBinding Foreground}"/>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="Bd" Property="Background" Value="#FF223054"/>
+                                                            <Setter Property="Foreground" Value="#FFFFFFFF"/>
+                                                        </Trigger>
+                                                        <Trigger Property="IsSelected" Value="True">
+                                                            <Setter TargetName="Bd" Property="Background" Value="#332DE2E6"/>
+                                                            <Setter TargetName="Bd" Property="BorderBrush" Value="#662DE2E6"/>
+                                                            <Setter Property="Foreground" Value="#FFFFFFFF"/>
+                                                        </Trigger>
+                                                        <MultiTrigger>
+                                                            <MultiTrigger.Conditions>
+                                                                <Condition Property="IsSelected" Value="True"/>
+                                                                <Condition Property="IsMouseOver" Value="True"/>
+                                                            </MultiTrigger.Conditions>
+                                                            <Setter TargetName="Bd" Property="Background" Value="#442DE2E6"/>
+                                                            <Setter Property="Foreground" Value="#FFFFFFFF"/>
+                                                        </MultiTrigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                            </ListBox>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
         </TabControl>
 
         <Border Grid.Row="2" Background="{StaticResource BrushBgPanel}" Padding="20,10">
