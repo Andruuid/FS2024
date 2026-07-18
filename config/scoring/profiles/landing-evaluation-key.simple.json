@@ -1,0 +1,39 @@
+{
+  "phases": [
+    {
+      "id": "touchdown",
+      "displayName": "Touchdown",
+      "weightPercent": 70,
+      "metrics": [
+        { "id": "touchdown_impact", "displayName": "Touchdown impact", "importancePercent": 50 },
+        { "id": "touchdown_point", "displayName": "Touchdown point", "importancePercent": 20 },
+        { "id": "flare_efficiency", "displayName": "Flare and float efficiency", "importancePercent": 8 },
+        { "id": "airspeed", "displayName": "IAS versus touchdown target", "importancePercent": 10 },
+        { "id": "centerline", "displayName": "Centerline offset", "importancePercent": 5 },
+        { "id": "bank", "displayName": "Bank at touchdown", "importancePercent": 2 },
+        { "id": "crab_angle", "displayName": "Crab angle", "importancePercent": 5 }
+      ]
+    },
+    {
+      "id": "approach",
+      "displayName": "Approach",
+      "weightPercent": 25,
+      "metrics": [
+        { "id": "approach_glideslope", "displayName": "Average glideslope match", "importancePercent": 26.67 },
+        { "id": "approach_vertical_steady", "displayName": "Vertical steadiness", "importancePercent": 26.67 },
+        { "id": "approach_lateral_steady", "displayName": "Lateral steadiness", "importancePercent": 26.66 },
+        { "id": "approach_bank_stability", "displayName": "Bank angle stability", "importancePercent": 20 }
+      ]
+    },
+    {
+      "id": "rollout",
+      "displayName": "Rollout",
+      "weightPercent": 5,
+      "metrics": [
+        { "id": "rollout_path", "displayName": "Rollout centerline path", "importancePercent": 33.34 },
+        { "id": "rollout_weave", "displayName": "Rollout weave (S-turns)", "importancePercent": 33.33 },
+        { "id": "max_centerline", "displayName": "Max lateral deviation (rollout)", "importancePercent": 33.33 }
+      ]
+    }
+  ]
+}

@@ -183,6 +183,34 @@ public sealed class FreeFlightRunwayInferenceTests
     }
 
     [Fact]
+    public void Update_ClosestLfbgIsReferenceOnlyAndResetReacquiresAlignedLfsb()
+    {
+        var inference = new FreeFlightRunwayInference();
+        var sample = Sample(longitude: -.15, heading: 90);
+        var lfbg = new AirportFacility("LFGB", "LF", .01, -.149, 0);
+        var lfsb = new AirportFacility("LFSB", "LF", 0, 0, 0);
+        var lfbgDetail = new AirportRunwayFacility(lfbg, [], []);
+        var lfsbDetail = new AirportRunwayFacility(
+            lfsb,
+            [Runway() with { PrimaryDesignator = 0, SecondaryDesignator = 0 }],
+            [new RunwayStartFacility(0, 0, 0, 90, 9, 0, 1)]);
+        var nearby = inference.RankNearbyAirports(sample, [lfbg, lfsb]);
+
+        var first = inference.Update(sample, nearby, [lfbgDetail, lfsbDetail]);
+
+        Assert.Equal("LFGB", first.NearestAirport!.Airport.Icao);
+        Assert.Equal("LFSB", first.ProvisionalTarget!.Runway.Airport.Icao);
+        Assert.Equal("09", first.ProvisionalTarget.Runway.RunwayId);
+
+        inference.Reset();
+        var reacquired = inference.Update(sample, nearby, [lfbgDetail, lfsbDetail]);
+
+        Assert.Equal("LFGB", reacquired.NearestAirport!.Airport.Icao);
+        Assert.Equal("LFSB", reacquired.ProvisionalTarget!.Runway.Airport.Icao);
+        Assert.Equal("09", reacquired.ProvisionalTarget.Runway.RunwayId);
+    }
+
+    [Fact]
     public void Update_ChoosesBestParallelRunwayByCrossTrack()
     {
         var inference = new FreeFlightRunwayInference();

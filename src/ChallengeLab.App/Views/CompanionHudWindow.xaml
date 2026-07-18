@@ -286,9 +286,9 @@
                         FontWeight="Bold" FontSize="14" Padding="22,10" MinWidth="72"
                         HorizontalAlignment="Left"/>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="CleanButton" Content="Clear" Style="{StaticResource GhostButton}"
+                    <Button x:Name="CleanButton" Content="{Binding CleanActionLabel}" Style="{StaticResource GhostButton}"
                             Command="{Binding CleanMetricsCommand}"
-                            ToolTip="Clear this attempt. In Free mode, also release the runway and detect again in place."
+                            ToolTip="{Binding CleanActionToolTip}"
                             Padding="12,8" Margin="0,0,8,0"/>
                     <Button x:Name="RestartButton" Content="Restart" Style="{StaticResource GhostButton}"
                             Command="{Binding RestartCommand}"

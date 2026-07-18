@@ -40,7 +40,7 @@ dotnet run --project src\ChallengeLab.App
 5. Start the revealed assignment or default challenge — watch the progress bar, then fly the landing.
 6. After touchdown, slow below **50 knots**. Score appears on the **Companion HUD** and under the **Session** tab.
 
-For a flight that is already in progress, select **Free** on the HUD instead. Challenge Lab warms nearby MSFS airport/runway facilities in the background, shows the most likely target as soon as the gear is down (immediately for fixed-gear aircraft), and refines it until evaluation begins. Scoring starts five seconds before the detected runway's glideslope reaches 2,000 ft above runway elevation. Free mode does not change the aircraft, time, weather, position, or pause state. **Clear** temporarily rejects the current airport and immediately searches for the next likely target without requiring another gear cycle.
+For a flight that is already in progress, select **Free** on the HUD instead. Challenge Lab warms nearby MSFS airport/runway facilities in the background, shows the best runway-aligned target as soon as the gear is down (immediately for fixed-gear aircraft), and refines it until evaluation begins. The closest field shown while scanning is reference-only and does not determine the selected runway. Scoring starts five seconds before the detected runway's glideslope reaches 2,000 ft above runway elevation. Free mode does not change the aircraft, time, weather, position, or pause state. **Reacquire** releases the current attempt and immediately detects the best aligned runway again with every nearby airport eligible.
 
 ## Career Mode — classified promotion flights
 

@@ -94,7 +94,6 @@ public sealed class FreeFlightRunwayInference
         TelemetrySample sample,
         IReadOnlyList<AirportDistance> nearbyAirports,
         IEnumerable<AirportRunwayFacility> detailedAirports,
-        IReadOnlySet<string>? excludedAirportIcaos = null,
         bool advanceStability = true)
     {
         var nearest = nearbyAirports.OrderBy(a => a.DistanceNm).FirstOrDefault();
@@ -104,8 +103,6 @@ public sealed class FreeFlightRunwayInference
             && nearbyAirports.Count > 0)
         {
             provisional = detailedAirports
-                .Where(detail => excludedAirportIcaos is null
-                                 || !excludedAirportIcaos.Contains(detail.Airport.Icao))
                 .SelectMany(RunwayFacilityGeometry.BuildEnds)
                 .Select(end => EvaluateCandidate(sample, end))
                 .Where(x => x is not null)

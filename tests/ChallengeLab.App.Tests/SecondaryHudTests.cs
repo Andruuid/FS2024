@@ -54,6 +54,17 @@ public sealed class SecondaryHudTests
             Assert.False(monitor.IsCollecting);
             Assert.Empty(monitor.GraphPoints);
             Assert.Equal(30, monitor.GraphHorizonSeconds);
+
+            monitor.ShowFreeRunwaySearch(
+                gearDown: true,
+                "Closest field LFGB · 1.4 NM (reference only) · runway data 4/12 · scanning aligned runways");
+            Assert.Equal("Detecting aligned runway", monitor.TargetLabel);
+            Assert.Equal("TARGETING", monitor.PhaseLabel);
+            Assert.Contains("reference only", monitor.MonitorStatus, StringComparison.Ordinal);
+
+            monitor.ShowFreeRunwaySearch(gearDown: false, "Lower gear to select an aligned runway");
+            Assert.Equal("Runway selection paused", monitor.TargetLabel);
+            Assert.Equal("WAITING FOR GEAR", monitor.PhaseLabel);
         });
     }
 

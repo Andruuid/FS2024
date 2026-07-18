@@ -160,6 +160,13 @@ public sealed class SecondaryHudViewModel : ViewModelBase
         MonitorStatus = status;
     }
 
+    public void ShowFreeRunwaySearch(bool gearDown, string status)
+    {
+        TargetLabel = gearDown ? "Detecting aligned runway" : "Runway selection paused";
+        PhaseLabel = gearDown ? "TARGETING" : "WAITING FOR GEAR";
+        MonitorStatus = status;
+    }
+
     public void SetDisconnected()
     {
         ResetAttempt();

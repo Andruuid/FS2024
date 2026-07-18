@@ -107,10 +107,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private readonly Dictionary<string, AirportRunwayFacility> _freeAirportDetails =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _freeAirportDetailLoads = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _freeExcludedAirportIcaos = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<AirportFacility>? _freeAirportCatalog;
     private bool _freeGearDownActive;
-    private string _freeTargetMonitorStatus = "Target acquired · waiting for evaluation start";
+    private string _freeTargetMonitorStatus = "Runway data warming · lower gear to select an aligned runway";
     private bool _isSecondaryHudVisible;
 
     // Post-spawn GO gate: wait until IAS + surfaces match challenge before enabling GO.
@@ -315,12 +314,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             SetProperty(ref _hudOperatingMode, value);
             RaisePropertyChanged(nameof(IsNormalMode));
             RaisePropertyChanged(nameof(IsFreeMode));
+            RaisePropertyChanged(nameof(CleanActionLabel));
+            RaisePropertyChanged(nameof(CleanActionToolTip));
             RaiseModeCommandStates();
         }
     }
 
     public bool IsNormalMode => OperatingMode == HudOperatingMode.Normal;
     public bool IsFreeMode => OperatingMode == HudOperatingMode.Free;
+    public string CleanActionLabel => IsFreeMode ? "Reacquire" : "Clear";
+    public string CleanActionToolTip => IsFreeMode
+        ? "Release this Free Mode attempt and reacquire the best aligned runway. Every nearby airport remains eligible."
+        : "Clear this attempt's landing metrics and re-arm scoring in place.";
 
     public string FreeAirportStatus
     {
@@ -352,7 +357,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand AcceptCareerAssignmentCommand { get; }
     public ICommand StartCareerAssignmentCommand { get; }
     public ICommand RestartCommand { get; }
-    /// <summary>Wipe landing metrics only (no re-spawn); preview returns to 100%.</summary>
+    /// <summary>Reacquire the Free runway, or wipe Normal/Career metrics without a re-spawn.</summary>
     public ICommand CleanMetricsCommand { get; }
     public ICommand NormalModeCommand { get; }
     public ICommand FreeModeCommand { get; }
@@ -990,7 +995,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         SecondaryHud.ResetAttempt();
         DetachSession();
         StopFreeInference(resetTarget: true);
-        _freeExcludedAirportIcaos.Clear();
         _freeGearDownActive = false;
         _activeChallenge = null;
         SetAttemptOrigin(LandingAttemptOrigin.DefaultChallenge);
@@ -1008,6 +1012,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             FreeAirportStatus = HasValidFreeScoringConfiguration
                 ? "Detecting airport and runway..."
                 : "Detecting unavailable · generic scoring profile is invalid";
+            ShowFreeRunwaySearch("Runway data warming · lower gear to select an aligned runway");
             _freeFlightCts = new CancellationTokenSource();
             _freeInferenceTimer.Start();
             RequestShowHud?.Invoke();
@@ -1073,8 +1078,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             var nearby = _freeInference.RankNearbyAirports(sample, airports);
             if (nearby.Count == 0)
             {
-                FreeAirportStatus = "Detecting · no airport ahead within 30 NM";
+                FreeAirportStatus = "No airport within 30 NM · scanning will continue";
                 PhaseLabel = _freeGearDownActive ? "Targeting" : "Waiting for gear";
+                ShowFreeRunwaySearch(FreeAirportStatus);
                 return;
             }
 
@@ -1092,6 +1098,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             if (!IsCurrentFreeScan(cts)) return;
             PhaseLabel = "Detecting";
             FreeAirportStatus = "Detecting · facility data temporarily unavailable";
+            ShowFreeRunwaySearch(FreeAirportStatus);
             if (!string.Equals(_lastFreeInferenceError, ex.Message, StringComparison.Ordinal))
             {
                 _lastFreeInferenceError = ex.Message;
@@ -1172,25 +1179,25 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             sample,
             nearby,
             details,
-            _freeExcludedAirportIcaos,
             advanceStability);
-        var nearestText = inference.NearestAirport is { } nearest
-            ? $"Nearest {nearest.Airport.Icao} · {nearest.DistanceNm:0.0} NM"
-            : "Nearest airport unavailable";
+        var closestText = inference.NearestAirport is { } nearest
+            ? $"Closest field {nearest.Airport.Icao} · {nearest.DistanceNm:0.0} NM (reference only)"
+            : "Closest field unavailable";
+        var progressText = $"runway data {details.Count}/{nearby.Count}";
 
         if (!_freeGearDownActive)
         {
             PhaseLabel = "Waiting for gear";
-            FreeAirportStatus = $"{nearestText} · lower gear to acquire landing runway";
+            FreeAirportStatus = $"{closestText} · {progressText} · lower gear to select an aligned runway";
+            ShowFreeRunwaySearch(FreeAirportStatus);
             return;
         }
 
         if (inference.ProvisionalTarget is not { } provisional)
         {
             PhaseLabel = "Targeting";
-            FreeAirportStatus = details.Count == 0
-                ? $"{nearestText} · loading runway data"
-                : $"{nearestText} · searching approach runways";
+            FreeAirportStatus = $"{closestText} · {progressText} · scanning aligned runways";
+            ShowFreeRunwaySearch(FreeAirportStatus);
             return;
         }
 
@@ -1206,17 +1213,17 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 ? "evaluation start reached"
                 : $"evaluation starts at {start.TriggerDistanceNm:0.0} NM";
         var candidateText =
-            $"Likely {provisional.Runway.Airport.Icao} RWY {provisional.Runway.RunwayId}" +
+            $"Best aligned {provisional.Runway.Airport.Icao} RWY {provisional.Runway.RunwayId}" +
             $" · {FormatFreePathAngle(provisional.Runway)} · {start.CurrentApproachDistanceNm:0.0} NM";
 
         PhaseLabel = "Targeting";
-        FreeAirportStatus = $"{candidateText} · {stableText} · {timingText}";
-        HudTip = $"{candidateText} · target may refine until evaluation begins.";
+        FreeAirportStatus = $"{candidateText} · {stableText} · {timingText} · {progressText}";
+        HudTip = $"{candidateText} · selected by runway alignment; target may refine until evaluation begins.";
+        _freeTargetMonitorStatus = $"{stableText} · {timingText} · {progressText}";
         SecondaryHud.ShowProvisionalFreeTarget(
             provisional.Runway.Airport.Icao,
             provisional.Runway.RunwayId,
-            timingText);
-        _freeTargetMonitorStatus = timingText;
+            _freeTargetMonitorStatus);
 
         var target = inference.StableTarget;
         var lateAcquisition = false;
@@ -1241,6 +1248,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private static string FreeAirportCacheKey(AirportFacility airport) =>
         $"{airport.Icao}|{airport.Region}";
+
+    private void ShowFreeRunwaySearch(string status)
+    {
+        _freeTargetMonitorStatus = status;
+        SecondaryHud.ShowFreeRunwaySearch(_freeGearDownActive, status);
+    }
 
     private bool ArmFreeFlightSession(
         FreeFlightTarget target,
@@ -1920,8 +1933,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// HUD "Clear": zero all metrics from this landing at this moment only.
-    /// No spawn, weather, or aircraft change — scoring re-arms and preview → 100%.
+    /// HUD action: Free Mode releases and reacquires the best aligned runway; Normal/Career
+    /// zero landing metrics at this moment. No simulator state is changed.
     /// </summary>
     private void CleanMetrics()
     {
@@ -1932,34 +1945,22 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
         if (IsFreeMode)
         {
-            var rejectedAirport = _freeGearDownActive
-                ? _activeChallenge?.Runway.AirportIcao
-                  ?? _freeInference.ProvisionalTarget?.Runway.Airport.Icao
-                : null;
-            if (string.IsNullOrWhiteSpace(rejectedAirport))
-                _freeExcludedAirportIcaos.Clear();
-            else
-                _freeExcludedAirportIcaos.Add(rejectedAirport.Trim());
-
             DetachSession();
             _activeChallenge = null;
             LastScore = null;
             ResultVisible = false;
             StopFreeInference(resetTarget: true);
             PhaseLabel = _freeGearDownActive ? "Targeting" : "Waiting for gear";
-            HudTip = string.IsNullOrWhiteSpace(rejectedAirport)
-                ? "Cleared · retrying all airports from your current position."
-                : $"Cleared · skipping {rejectedAirport.Trim().ToUpperInvariant()} and finding the next likely airport.";
+            HudTip = "Reacquiring best aligned runway from your current position · all nearby airports eligible.";
             FreeAirportStatus = _freeGearDownActive
-                ? "Cleared · scanning for the next likely airport and runway..."
-                : "Cleared · airport data warming until gear is down";
+                ? "Reacquiring best aligned runway · all nearby airports eligible"
+                : "Reacquire requested · runway data warming; lower gear to select an aligned runway";
+            ShowFreeRunwaySearch(FreeAirportStatus);
             SpeedTargetInfo = "Optimal landing speed: —";
             _freeFlightCts = new CancellationTokenSource();
             _freeInferenceTimer.Start();
             _ = RunFreeInferenceAsync();
-            AppendLog(string.IsNullOrWhiteSpace(rejectedAirport)
-                ? "Free Clear: no target active; airport exclusions reset and detection restarted in place."
-                : $"Free Clear: {rejectedAirport.Trim().ToUpperInvariant()} temporarily excluded; detection restarted in place.");
+            AppendLog("Free Reacquire: attempt and runway released; all nearby airports remain eligible; detection restarted in place.");
             (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
             return;
         }
@@ -2109,8 +2110,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 HudTip = "UNRANKED — required telemetry was unavailable. See Session for details.";
             }
             PhaseLabel = "Scored";
-            if (IsFreeMode)
-                _freeExcludedAirportIcaos.Clear();
             ScoreComputed?.Invoke(result);
             RequestShowHud?.Invoke();
             AppendLog(result.IsRanked
@@ -2164,13 +2163,19 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 PreviewScorePercent,
                 _session?.Phase ?? LandingPhase.Idle,
                 _sim.IsConnected);
-            if (IsFreeMode && _session is null && _freeGearDownActive
-                && _freeInference.ProvisionalTarget is { } provisional)
+            if (IsFreeMode && _session is null)
             {
-                SecondaryHud.ShowProvisionalFreeTarget(
-                    provisional.Runway.Airport.Icao,
-                    provisional.Runway.RunwayId,
-                    _freeTargetMonitorStatus);
+                if (_freeGearDownActive && _freeInference.ProvisionalTarget is { } provisional)
+                {
+                    SecondaryHud.ShowProvisionalFreeTarget(
+                        provisional.Runway.Airport.Icao,
+                        provisional.Runway.RunwayId,
+                        _freeTargetMonitorStatus);
+                }
+                else
+                {
+                    SecondaryHud.ShowFreeRunwaySearch(_freeGearDownActive, _freeTargetMonitorStatus);
+                }
             }
         });
     }
@@ -2186,8 +2191,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             // Once evaluation starts, gear changes are part of scoring and never release
             // the frozen airport/runway target.
             _freeGearDownActive = gearDown;
-            if (!gearDown)
-                _freeExcludedAirportIcaos.Clear();
             return;
         }
 
@@ -2197,16 +2200,17 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _freeGearDownActive = gearDown;
         if (!gearDown)
         {
-            _freeExcludedAirportIcaos.Clear();
             _freeInference.Reset();
             PhaseLabel = "Waiting for gear";
-            FreeAirportStatus = "Airport data warming · lower gear to acquire landing runway";
+            FreeAirportStatus = "Runway data warming · lower gear to select an aligned runway";
             SecondaryHud.ResetAttempt();
+            ShowFreeRunwaySearch(FreeAirportStatus);
             return;
         }
 
         PhaseLabel = "Targeting";
-        FreeAirportStatus = "Gear down · scanning likely airport and runway...";
+        FreeAirportStatus = "Gear down · scanning aligned runways · all nearby airports eligible";
+        ShowFreeRunwaySearch(FreeAirportStatus);
         _ = RunFreeInferenceAsync();
     }
 
@@ -2239,16 +2243,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void RestartFreeDetection(string hudTip, string logMessage)
     {
-        _freeExcludedAirportIcaos.Clear();
         SecondaryHud.ResetAttempt();
         DetachSession();
         _activeChallenge = null;
         LastScore = null;
         ResultVisible = false;
         StopFreeInference(resetTarget: true);
-        PhaseLabel = "Detecting";
+        PhaseLabel = _freeGearDownActive ? "Targeting" : "Waiting for gear";
         HudTip = hudTip;
-        FreeAirportStatus = "Detecting airport and runway...";
+        FreeAirportStatus = _freeGearDownActive
+            ? "Reacquiring best aligned runway · all nearby airports eligible"
+            : "Runway data warming · lower gear to select an aligned runway";
+        ShowFreeRunwaySearch(FreeAirportStatus);
         SpeedTargetInfo = "Optimal landing speed: —";
         _freeFlightCts = new CancellationTokenSource();
         _freeInferenceTimer.Start();
@@ -2556,13 +2562,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 {
                     _freeAirportCatalog = null;
                     _freeAirportDetails.Clear();
-                    _freeExcludedAirportIcaos.Clear();
                     _freeGearDownActive = false;
                     StopFreeInference(resetTarget: true);
                     DetachSession();
                     _activeChallenge = null;
                     PhaseLabel = "Detecting";
                     FreeAirportStatus = "Detecting airport and runway...";
+                    ShowFreeRunwaySearch("Runway data warming · lower gear to select an aligned runway");
                     _freeFlightCts = new CancellationTokenSource();
                     _freeInferenceTimer.Start();
                     _ = RunFreeInferenceAsync();
@@ -2574,7 +2580,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 if (!IsFreeMode) return;
                 _freeAirportCatalog = null;
                 _freeAirportDetails.Clear();
-                _freeExcludedAirportIcaos.Clear();
                 _freeGearDownActive = false;
                 StopFreeInference(resetTarget: true);
                 DetachSession();

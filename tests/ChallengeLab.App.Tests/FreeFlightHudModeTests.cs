@@ -21,7 +21,7 @@ namespace ChallengeLab.App.Tests;
 [Collection("Wpf")]
 public sealed class FreeFlightHudModeTests
 {
-    private static void VerifyIncrementalFacilityLoadingAndClear()
+    private static void VerifyIncrementalFacilityLoadingAndReacquire()
     {
             var scorePath = Path.Combine(Path.GetTempPath(), $"challenge-lab-{Guid.NewGuid():N}.json");
             var careerPath = Path.Combine(Path.GetTempPath(), $"challenge-lab-career-{Guid.NewGuid():N}.json");
@@ -54,19 +54,26 @@ public sealed class FreeFlightHudModeTests
                     gearHandlePosition: 1));
 
                 WaitUntil(
-                    () => vm.FreeAirportStatus.Contains("Likely GOOD RWY 09", StringComparison.Ordinal),
+                    () => vm.FreeAirportStatus.Contains("Best aligned GOOD RWY 09", StringComparison.Ordinal),
                     TimeSpan.FromSeconds(3));
-                Assert.Contains("Likely GOOD RWY 09", vm.FreeAirportStatus, StringComparison.Ordinal);
+                Assert.Contains("Best aligned GOOD RWY 09", vm.FreeAirportStatus, StringComparison.Ordinal);
+                Assert.Contains("runway data 2/3", vm.FreeAirportStatus, StringComparison.Ordinal);
                 Assert.Contains("BLOCK", sim.RequestedAirportDetails);
                 Assert.Contains("GOOD", sim.RequestedAirportDetails);
+                Assert.Equal("Reacquire", vm.CleanActionLabel);
                 AssertNoSimulatorMutation(sim);
 
                 vm.CleanMetricsCommand.Execute(null);
 
                 WaitUntil(
-                    () => vm.FreeAirportStatus.Contains("Likely ALT RWY 09", StringComparison.Ordinal),
+                    () => vm.FreeAirportStatus.Contains("Best aligned GOOD RWY 09", StringComparison.Ordinal),
                     TimeSpan.FromSeconds(3));
-                Assert.Contains("Likely ALT RWY 09", vm.FreeAirportStatus, StringComparison.Ordinal);
+                Assert.Contains("Best aligned GOOD RWY 09", vm.FreeAirportStatus, StringComparison.Ordinal);
+                Assert.DoesNotContain("skip", vm.HudTip, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("excluded", vm.LogText, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("all nearby airports remain eligible", vm.LogText, StringComparison.OrdinalIgnoreCase);
+                Assert.Equal("GOOD  ·  RWY 09", vm.SecondaryHud.TargetLabel);
+                Assert.Equal("TARGETING", vm.SecondaryHud.PhaseLabel);
                 AssertNoSimulatorMutation(sim);
             }
             finally
@@ -84,7 +91,7 @@ public sealed class FreeFlightHudModeTests
         {
             var app = new ChallengeLab.App.App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             app.InitializeComponent();
-            VerifyIncrementalFacilityLoadingAndClear();
+            VerifyIncrementalFacilityLoadingAndReacquire();
             var bindingErrors = new BindingErrorListener();
             PresentationTraceSources.DataBindingSource.Listeners.Add(bindingErrors);
             var scorePath = Path.Combine(Path.GetTempPath(), $"challenge-lab-{Guid.NewGuid():N}.json");
@@ -136,16 +143,18 @@ public sealed class FreeFlightHudModeTests
                 Assert.NotEqual("Detecting", vm.PhaseLabel);
 
                 sim.EmitTelemetry(ApproachSample("Cessna 172 Skyhawk Asobo"));
-                Assert.Equal("Detecting", vm.PhaseLabel);
+                Assert.Equal("Targeting", vm.PhaseLabel);
                 Assert.Contains("Aircraft changed", vm.HudTip, StringComparison.Ordinal);
                 Assert.Contains("Cessna 172 Skyhawk Asobo", vm.HudTip, StringComparison.Ordinal);
                 Assert.StartsWith("Optimal landing speed:", vm.SpeedTargetInfo, StringComparison.Ordinal);
+                Assert.Equal("Detecting aligned runway", vm.SecondaryHud.TargetLabel);
+                Assert.Equal("TARGETING", vm.SecondaryHud.PhaseLabel);
                 AssertNoSimulatorMutation(sim);
 
                 hud = new CompanionHudWindow(vm);
                 hud.Show();
                 hud.UpdateLayout();
-                Assert.Equal("Clear", ((Button)hud.FindName("CleanButton")).Content);
+                Assert.Equal("Reacquire", ((Button)hud.FindName("CleanButton")).Content);
                 Assert.Equal(Visibility.Collapsed, ((Button)hud.FindName("GoButton")).Visibility);
                 Assert.Equal(Visibility.Collapsed, ((Button)hud.FindName("RestartButton")).Visibility);
                 Assert.Equal(Color.FromRgb(0x2D, 0xE2, 0xE6), FindButton(hud, "Free").Background is SolidColorBrush freeBrush
@@ -214,6 +223,8 @@ public sealed class FreeFlightHudModeTests
 
                 Assert.True(vm.IsNormalMode);
                 Assert.Equal("Idle", vm.PhaseLabel);
+                hud.UpdateLayout();
+                Assert.Equal("Clear", ((Button)hud.FindName("CleanButton")).Content);
                 Assert.Equal(Visibility.Visible, ((Button)hud.FindName("GoButton")).Visibility);
                 Assert.Equal(Visibility.Visible, ((Button)hud.FindName("RestartButton")).Visibility);
                 Assert.Equal(Color.FromRgb(0x2D, 0xE2, 0xE6), FindButton(hud, "Normal").Background is SolidColorBrush normalBrush
