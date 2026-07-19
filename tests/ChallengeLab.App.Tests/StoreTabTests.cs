@@ -52,6 +52,7 @@ public sealed class StoreTabTests
 
                 vm.IsConnected = true;
                 Assert.True(vm.LoadSnapshotCommand.CanExecute(null));
+                Assert.False(vm.ResumeNowCommand.CanExecute(null));
 
                 vm.RestoreWeatherEnabled = false;
                 vm.RestoreAutopilotEnabled = true;
@@ -68,6 +69,43 @@ public sealed class StoreTabTests
                 Assert.Contains("Restored", vm.StoreStatus, StringComparison.Ordinal);
                 Assert.Contains("PAUSED", vm.StoreStatus, StringComparison.Ordinal);
                 Assert.False(vm.IsRestoringSnapshot);
+                Assert.True(vm.IsSnapshotResumeReady);
+                Assert.True(vm.ResumeNowCommand.CanExecute(null));
+
+                vm.ResumeNowCommand.Execute(null);
+                Assert.Equal(1, env.Sim.ResumeCalls);
+                Assert.False(vm.IsSnapshotResumeReady);
+                Assert.False(vm.ResumeNowCommand.CanExecute(null));
+            }
+            finally
+            {
+                vm.Dispose();
+            }
+        });
+    }
+
+    [Fact]
+    public void LoadCommand_FailedReadinessKeepsResumeDisabled()
+    {
+        RunSta(() =>
+        {
+            using var env = new TestEnv();
+            env.Sim.RestoreResult = SpawnApplyResult.Fail(
+                "Stored state is not fully ready — gear=down 42% want down fully.");
+            var vm = env.CreateViewModel();
+            try
+            {
+                env.SnapshotStore.Save(BuildSnapshot("Not ready"));
+                vm.RefreshSnapshotsCommand.Execute(null);
+                vm.SelectedSnapshot = vm.Snapshots[0];
+                vm.IsConnected = true;
+
+                vm.LoadSnapshotCommand.Execute(null);
+
+                Assert.False(vm.IsRestoringSnapshot);
+                Assert.False(vm.IsSnapshotResumeReady);
+                Assert.False(vm.ResumeNowCommand.CanExecute(null));
+                Assert.Contains("Restore failed", vm.StoreStatus, StringComparison.Ordinal);
             }
             finally
             {
@@ -168,6 +206,8 @@ public sealed class StoreTabTests
         Assert.Contains("ItemsSource=\"{Binding Snapshots}\"", mainXaml, StringComparison.Ordinal);
         Assert.Contains("SelectedItem=\"{Binding SelectedSnapshot}\"", mainXaml, StringComparison.Ordinal);
         Assert.Contains("IsRenamingSnapshot", mainXaml, StringComparison.Ordinal);
+        Assert.Contains("IsRestoringSnapshot", mainXaml, StringComparison.Ordinal);
+        Assert.Contains("IsSnapshotResumeReady", mainViewModel, StringComparison.Ordinal);
         Assert.Contains("public const int StoreTabIndex = 5;", mainViewModel, StringComparison.Ordinal);
     }
 
@@ -231,6 +271,7 @@ public sealed class StoreTabTests
             SpawnApplyResult.Ok("restored", 0, 0, 140, 47.4647, 8.5492, 4200, false);
         public int CaptureCalls { get; private set; }
         public int RestoreCalls { get; private set; }
+        public int ResumeCalls { get; private set; }
         public FlightStateSnapshot? LastRestoredSnapshot { get; private set; }
         public SnapshotRestoreOptions? LastRestoreOptions { get; private set; }
 
@@ -268,7 +309,7 @@ public sealed class StoreTabTests
         public void ApplyWeather(WeatherConfig weather) { }
         public void ApplyTimeOfDay(TimeOfDayConfig? timeOfDay) { }
         public void Teleport(SpawnConfig spawn) { }
-        public void ResumeFlight() { }
+        public void ResumeFlight() => ResumeCalls++;
 
         public Task<FlightStateSnapshot?> CaptureSnapshotAsync(CancellationToken ct = default)
         {

@@ -109,6 +109,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _storeStatus = "Save the current flight state, or load a stored one.";
     private bool _isCapturingSnapshot;
     private bool _isRestoringSnapshot;
+    private bool _isSnapshotResumeReady;
     private bool _isRenamingSnapshot;
     private string _renameText = "";
     private bool _restoreWeatherEnabled = true;
@@ -257,7 +258,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             SelectedSnapshot is not null && !IsRestoringSnapshot);
         RefreshSnapshotsCommand = new RelayCommand(RefreshSnapshots);
         OpenSnapshotsFolderCommand = new RelayCommand(OpenSnapshotsFolder);
-        ResumeNowCommand = new RelayCommand(() => _sim.ResumeFlight(), () => IsConnected);
+        ResumeNowCommand = new RelayCommand(ResumeRestoredSnapshot, () =>
+            IsConnected && IsSnapshotResumeReady && !IsRestoringSnapshot);
         OpenMenuCommand = new RelayCommand(() =>
         {
             ResultVisible = false;
@@ -680,6 +682,21 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             (LoadSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (RenameSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (DeleteSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (ResumeNowCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    /// True only after strict read-back confirms the stored speed and aircraft config.
+    /// </summary>
+    public bool IsSnapshotResumeReady
+    {
+        get => _isSnapshotResumeReady;
+        private set
+        {
+            if (_isSnapshotResumeReady == value) return;
+            SetProperty(ref _isSnapshotResumeReady, value);
+            (ResumeNowCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
@@ -865,6 +882,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         set
         {
             SetProperty(ref _isConnected, value);
+            if (!value)
+                IsSnapshotResumeReady = false;
             (StartChallengeCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (SaveSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
@@ -2628,6 +2647,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             var previousSample = _lastTelemetry;
             _lastTelemetry = sample;
+            if (IsSnapshotResumeReady
+                && sample.PauseStateAvailable
+                && !sample.NormalPauseActive
+                && !sample.ActivePauseActive)
+            {
+                IsSnapshotResumeReady = false;
+                StoreStatus = "Stored flight was resumed in the simulator — flying.";
+                AppendLog("Stored flight pause was released in the simulator; Resume now locked.");
+            }
             // Session tab keeps the strip; scored HUD swaps to Peak G / touchdown VS cards.
             LiveStats =
                 $"IAS {sample.AirspeedKts:0} kt  ·  GS {sample.GroundSpeedKts:0} kt  ·  " +
@@ -3409,6 +3437,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        IsSnapshotResumeReady = false;
         IsRestoringSnapshot = true;
         StoreStatus = $"Loading '{snapshot.Name}'…";
         AppendLog($"Snapshot restore requested: '{snapshot.Name}' (safe apply, no FlightLoad).");
@@ -3436,6 +3465,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
             if (result.Success)
             {
+                IsSnapshotResumeReady = !AutoResumeAfterRestore;
                 AppendLog(
                     $"Snapshot restored: '{snapshot.Name}' · horiz={result.HorizontalErrorM:0} m · " +
                     $"altErr={result.AltErrorFeet:0} ft · onGround={result.ReportedOnGround}.");
@@ -3476,6 +3506,17 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             IsRestoringSnapshot = false;
             RestartObservationAfterSnapshotRestore();
         }
+    }
+
+    private void ResumeRestoredSnapshot()
+    {
+        if (!IsConnected || !IsSnapshotResumeReady || IsRestoringSnapshot) return;
+
+        // Lock immediately so a double-click cannot issue a second pause-off sequence.
+        IsSnapshotResumeReady = false;
+        _sim.ResumeFlight();
+        StoreStatus = "Stored flight resumed — flying.";
+        AppendLog("Stored flight resumed after strict state readiness check.");
     }
 
     /// <summary>Re-arm Free observation (or Idle in Normal) after a snapshot teleport.</summary>

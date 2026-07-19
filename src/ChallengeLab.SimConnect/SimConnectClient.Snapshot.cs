@@ -19,6 +19,9 @@ public sealed partial class SimConnectClient
 
     /// <summary>Extended settle when a ground restore has to move the gear down first.</summary>
     private const int MaxGearSettleMs = 25000;
+    /// <summary>Final strict read-back after the last INITPOSITION write.</summary>
+    private const int MaxSnapshotReadinessMs = 15000;
+    private const int RequiredSnapshotReadySamples = 2;
 
     // Tank order is fixed — capture struct, write struct and dictionary keys must agree.
     private static readonly string[] FuelTankNames =
@@ -257,7 +260,9 @@ public sealed partial class SimConnectClient
             Add(Definitions.SnapshotCapture, "ROTATION VELOCITY BODY Z", "radians per second");
             Add(Definitions.SnapshotCapture, "GEAR HANDLE POSITION", "bool");
             Add(Definitions.SnapshotCapture, "IS GEAR RETRACTABLE", "bool");
-            Add(Definitions.SnapshotCapture, "GEAR TOTAL PCT EXTENDED", "percent over 100");
+            // This SimVar is documented as "percent" (unlike the individual gear
+            // position SimVars). Requesting "percent over 100" made fully-down read 0.01.
+            Add(Definitions.SnapshotCapture, "GEAR TOTAL PCT EXTENDED", "percent");
             Add(Definitions.SnapshotCapture, "FLAPS HANDLE INDEX", "number");
             Add(Definitions.SnapshotCapture, "FLAPS NUM HANDLE POSITIONS", "number");
             Add(Definitions.SnapshotCapture, "SPOILERS HANDLE POSITION", "percent over 100");
@@ -574,7 +579,8 @@ public sealed partial class SimConnectClient
 
             GearHandleDown = raw.GearHandle > 0.5,
             IsGearRetractable = raw.IsGearRetractable > 0.5,
-            GearTotalPctExtended = raw.GearTotalPctExtended,
+            GearTotalPctExtended = SnapshotRestoreReadiness.NormalizeGearExtension01(
+                raw.GearTotalPctExtended),
             FlapsHandleIndex = (int)Math.Round(raw.FlapsIndex),
             FlapsHandleCount = (int)Math.Round(raw.FlapsCount),
             SpoilersHandle01 = raw.SpoilersHandle,
@@ -743,6 +749,7 @@ public sealed partial class SimConnectClient
 
         var spawn = SpawnFromSnapshot(snapshot);
         var result = SpawnApplyResult.Fail("Snapshot restore did not complete.");
+        var finalHoldWritten = false;
 
         try
         {
@@ -812,9 +819,28 @@ public sealed partial class SimConnectClient
 
                 await NormalizeSimRateAsync(ct);
 
+                // This is the final INITPOSITION write. It must happen before the strict
+                // readiness read-back because another teleport can reset addon gear/config.
+                ForceSetPauseOn();
+                FreezePose(true);
+                TeleportSnapshot(snapshot);
+                SetPoseDirect(spawn);
+                SetVelocitySnapshot(snapshot);
+                ApplySnapshotConfigCommands(snapshot);
+                ForceSetPauseOn();
+                FreezePose(true);
+                finalHoldWritten = true;
+                await Task.Delay(250, ct);
+
                 result = await VerifySnapshotAsync(snapshot, ct);
-                if (!result.Success)
+                if (result.Success)
+                {
+                    result = await VerifySnapshotReadinessAsync(snapshot, spawn, progress, ct);
+                }
+                else
+                {
                     Log($"Snapshot post-config re-verify: {result.Message}");
+                }
             }
             else
             {
@@ -825,23 +851,9 @@ public sealed partial class SimConnectClient
         finally
         {
             // Release ordering from LoadScenarioAsync: hold SET PAUSE, final pose write,
-            // only then release FREEZE. Unfreeze-before-pause = freefall / snap-to-ground.
-            if (options.AutoResume)
-            {
-                EnsureActivePauseOff();
-                try
-                {
-                    TeleportSnapshot(snapshot);
-                    SetPoseDirect(spawn);
-                    SetVelocitySnapshot(snapshot);
-                }
-                catch { /* best effort */ }
-
-                FreezePose(false);
-                PauseSim(false);
-                PauseSim(false);
-            }
-            else
+            // only then release FREEZE. The successful path wrote and verified its final
+            // pose above; never teleport again after the strict configuration read-back.
+            if (!finalHoldWritten)
             {
                 ForceSetPauseOn();
                 try
@@ -849,9 +861,20 @@ public sealed partial class SimConnectClient
                     TeleportSnapshot(snapshot);
                     SetPoseDirect(spawn);
                     SetVelocitySnapshot(snapshot);
+                    ApplySnapshotConfigCommands(snapshot);
                 }
                 catch { /* best effort */ }
+            }
 
+            if (options.AutoResume && result.Success)
+            {
+                EnsureActivePauseOff();
+                FreezePose(false);
+                PauseSim(false);
+                PauseSim(false);
+            }
+            else
+            {
                 ForceSetPauseOn();
                 FreezePose(false);
                 ForceSetPauseOn();
@@ -1104,13 +1127,13 @@ public sealed partial class SimConnectClient
         // "sim must wait until the gear is out" case.
         var preSample = await RequestSnapshotStateOnceAsync(ct);
         var gearNeedsChange = snapshot.IsGearRetractable
-                              && preSample is not null
-                              && (preSample.Value.GearHandle > 0.5) != snapshot.GearHandleDown;
+                              && (preSample is null
+                                  || !EvaluateSnapshotReadiness(snapshot, preSample.Value).GearReady);
         var maxSettleMs = snapshot.OnGround && snapshot.GearHandleDown && gearNeedsChange
             ? MaxGearSettleMs
             : MaxConfigSettleMs;
 
-        if (snapshot.SpoilersHandle01 <= 0.05)
+        if (SnapshotSpoilersTarget01(snapshot) <= 0.05)
         {
             // Clear lever↔surface desync before commanding the stowed position.
             TeleportSnapshot(snapshot);
@@ -1133,7 +1156,7 @@ public sealed partial class SimConnectClient
             FreezePose(true);
             Log($"Snapshot config pulse {i}/{ConfigPulseCount} " +
                 $"(gear={(snapshot.GearHandleDown ? "down" : "up")} flaps={snapshot.FlapsHandleIndex} " +
-                $"spoilers={snapshot.SpoilersHandle01:0%} parkBrake={snapshot.ParkingBrakeOn})");
+                $"spoilers={SnapshotSpoilersTarget01(snapshot):0%} parkBrake={snapshot.ParkingBrakeOn})");
             await Task.Delay(ConfigPulseDelayMs, ct);
         }
 
@@ -1157,7 +1180,27 @@ public sealed partial class SimConnectClient
             var sample = await RequestSnapshotStateOnceAsync(ct);
             if (sample is not null)
             {
-                matched = SnapshotConfigMatches(snapshot, sample.Value, out lastDetail);
+                var readiness = EvaluateSnapshotReadiness(snapshot, sample.Value);
+                matched = readiness.ConfigurationReady;
+                lastDetail = readiness.Detail;
+
+                // A matching handle is not enough: wait for the actual gear extension.
+                // Re-send the discrete command about once per second if the mechanism is
+                // still short of the stored state (the requested "notch").
+                if (!matched && poll % 3 == 0)
+                {
+                    if (!readiness.GearReady && snapshot.IsGearRetractable)
+                    {
+                        progress?.Report(snapshot.GearHandleDown
+                            ? "Gear is not fully down yet — nudging it down…"
+                            : "Gear is not fully up yet — nudging it up…");
+                        Log($"Snapshot gear nudge: {readiness.Detail}");
+                    }
+
+                    ApplySnapshotConfigCommands(snapshot);
+                    ForceSetPauseOn();
+                    FreezePose(true);
+                }
 
                 var driftedToGround = !snapshot.OnGround && sample.Value.SimOnGround > 0.5;
                 var altErr = Math.Abs(sample.Value.AltitudeFeet - snapshot.AltitudeFeet);
@@ -1190,9 +1233,9 @@ public sealed partial class SimConnectClient
         }
         else
         {
-            // Soft-fail (existing philosophy): surfaces may finish moving after resume.
-            progress?.Report("Config timeout — check gear/surfaces after resume.");
-            Log($"Snapshot config soft-fail after settle: {lastDetail ?? "no telemetry"}");
+            // The final readiness gate below remains locked and continues checking.
+            progress?.Report("Configuration is still moving — continuing safety checks…");
+            Log($"Snapshot config not settled yet: {lastDetail ?? "no telemetry"}");
         }
     }
 
@@ -1214,14 +1257,15 @@ public sealed partial class SimConnectClient
             _sim.TransmitClientEvent(MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.FlapsSet, flapsValue,
                 Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
 
-            if (snapshot.SpoilersHandle01 <= 0.05)
+            var spoilerTarget01 = SnapshotSpoilersTarget01(snapshot);
+            if (spoilerTarget01 <= 0.05)
             {
                 CommandSpoilersFullyRetracted();
             }
             else
             {
                 var spoilerValue = (uint)Math.Clamp(
-                    (int)Math.Round(snapshot.SpoilersHandle01 * 16383.0), 0, 16383);
+                    (int)Math.Round(spoilerTarget01 * 16383.0), 0, 16383);
                 _sim.TransmitClientEvent(MsfsSc.SIMCONNECT_OBJECT_ID_USER, Events.SpoilersSet, spoilerValue,
                     Groups.Input, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY);
             }
@@ -1239,30 +1283,154 @@ public sealed partial class SimConnectClient
         }
     }
 
-    private static bool SnapshotConfigMatches(
+    private static double SnapshotSpoilersTarget01(FlightStateSnapshot snapshot) => Math.Clamp(
+        Math.Max(snapshot.SpoilersHandle01, Math.Max(snapshot.SpoilersLeft01, snapshot.SpoilersRight01)),
+        0,
+        1);
+
+    /// <summary>
+    /// Final strict gate after the last teleport. Resume is allowed only after speed,
+    /// physical gear extension, flap handle, spoiler surfaces and parking brake all
+    /// match for consecutive samples. Mismatches are actively re-commanded while held.
+    /// </summary>
+    private async Task<SpawnApplyResult> VerifySnapshotReadinessAsync(
         FlightStateSnapshot snapshot,
-        in SnapshotCaptureStruct s,
-        out string detail)
+        SpawnConfig spawn,
+        IProgress<string>? progress,
+        CancellationToken ct)
     {
-        var gearDown = s.GearHandle > 0.5;
-        var flaps = (int)Math.Round(s.FlapsIndex);
-        var spoilersOut = Math.Max(s.SpoilersLeft, s.SpoilersRight) > 0.15;
-        var wantSpoilersOut = snapshot.SpoilersHandle01 > 0.15;
-        var parkOn = s.ParkingBrake > 0.5;
+        progress?.Report("Checking restored speed, gear, flaps and surfaces…");
 
-        var gearOk = !snapshot.IsGearRetractable || gearDown == snapshot.GearHandleDown;
-        var flapsOk = flaps == Math.Clamp(snapshot.FlapsHandleIndex, 0, Math.Max(1, snapshot.FlapsHandleCount));
-        var spoilersOk = wantSpoilersOut || !spoilersOut;
-        var parkOk = parkOn == snapshot.ParkingBrakeOn;
+        var started = DateTimeOffset.UtcNow;
+        var poll = 0;
+        var consecutiveReady = 0;
+        SnapshotCaptureStruct? lastSample = null;
+        string lastDetail = "waiting for simulator read-back";
 
-        detail =
-            $"gear={(gearDown ? "down" : "up")}({(gearOk ? "ok" : "want " + (snapshot.GearHandleDown ? "down" : "up"))}) " +
-            $"gearPct={s.GearTotalPctExtended:0%} " +
-            $"flaps={flaps}({(flapsOk ? "ok" : "want " + snapshot.FlapsHandleIndex)}) " +
-            $"spoilers={Math.Max(s.SpoilersLeft, s.SpoilersRight):0%}({(spoilersOk ? "ok" : "want in")}) " +
-            $"park={(parkOn ? "on" : "off")}({(parkOk ? "ok" : "want " + (snapshot.ParkingBrakeOn ? "on" : "off"))})";
+        while ((DateTimeOffset.UtcNow - started).TotalMilliseconds < MaxSnapshotReadinessMs)
+        {
+            poll++;
+            ForceSetPauseOn();
+            FreezePose(true);
 
-        return gearOk && flapsOk && spoilersOk && parkOk;
+            var sample = await RequestSnapshotStateOnceAsync(ct);
+            if (sample is null)
+            {
+                consecutiveReady = 0;
+                progress?.Report("Checking restored state — waiting for telemetry…");
+                await Task.Delay(ConfigPollMs, ct);
+                continue;
+            }
+
+            lastSample = sample.Value;
+            var s = sample.Value;
+            var readiness = EvaluateSnapshotReadiness(snapshot, s);
+            var horizM = HaversineMeters(snapshot.Latitude, snapshot.Longitude, s.Latitude, s.Longitude);
+            var altErr = Math.Abs(s.AltitudeFeet - snapshot.AltitudeFeet);
+            var onGround = s.SimOnGround > 0.5;
+            var positionReady = snapshot.OnGround
+                ? horizM <= 150 && onGround
+                : horizM <= MaxHorizontalErrorM
+                  && altErr <= MaxAltitudeErrorFeet
+                  && !(onGround && snapshot.AglFeet > 200);
+
+            lastDetail = $"{readiness.Detail} · pos={(positionReady ? "ok" : "not ready")}";
+
+            if (readiness.Ready && positionReady)
+            {
+                consecutiveReady++;
+                progress?.Report(
+                    $"Final safety check {consecutiveReady}/{RequiredSnapshotReadySamples} — {lastDetail}");
+
+                if (consecutiveReady >= RequiredSnapshotReadySamples)
+                {
+                    Log($"Snapshot final readiness verified: {lastDetail}");
+                    return SpawnApplyResult.Ok(
+                        "Snapshot state fully verified.",
+                        altErr,
+                        horizM,
+                        s.IasKts,
+                        s.Latitude,
+                        s.Longitude,
+                        s.AltitudeFeet,
+                        onGround);
+                }
+            }
+            else
+            {
+                consecutiveReady = 0;
+                var action = !readiness.GearReady && snapshot.IsGearRetractable
+                    ? snapshot.GearHandleDown
+                        ? $"Gear {SnapshotRestoreReadiness.NormalizeGearExtension01(s.GearTotalPctExtended):0%} — nudging down"
+                        : $"Gear {SnapshotRestoreReadiness.NormalizeGearExtension01(s.GearTotalPctExtended):0%} — nudging up"
+                    : "Checking restored state";
+                progress?.Report($"{action}… {lastDetail}");
+
+                // Re-pulse at roughly 1 Hz. In particular, GEAR_SET plus discrete
+                // GEAR_DOWN/UP pulses gives reluctant addon gear another notch.
+                if (poll % 3 == 0)
+                {
+                    if (!positionReady)
+                    {
+                        TeleportSnapshot(snapshot);
+                        SetPoseDirect(spawn);
+                    }
+
+                    if (!readiness.SpeedReady || !positionReady)
+                        SetVelocitySnapshot(snapshot);
+
+                    if (!readiness.ConfigurationReady)
+                        ApplySnapshotConfigCommands(snapshot);
+
+                    ForceSetPauseOn();
+                    FreezePose(true);
+                    Log($"Snapshot readiness correction: {lastDetail}");
+                }
+            }
+
+            await Task.Delay(ConfigPollMs, ct);
+        }
+
+        if (lastSample is { } last)
+        {
+            var horizM = HaversineMeters(
+                snapshot.Latitude, snapshot.Longitude, last.Latitude, last.Longitude);
+            var altErr = Math.Abs(last.AltitudeFeet - snapshot.AltitudeFeet);
+            var onGround = last.SimOnGround > 0.5;
+            var message = $"Stored state is not fully ready — {lastDetail}. Resume remains disabled; try Load again.";
+            Log($"Snapshot final readiness FAILED: {message}");
+            return SpawnApplyResult.Fail(
+                message,
+                altErr,
+                horizM,
+                last.IasKts,
+                onGround,
+                last.Latitude,
+                last.Longitude,
+                last.AltitudeFeet);
+        }
+
+        const string noTelemetry =
+            "Stored state could not be verified because telemetry stopped. Resume remains disabled; try Load again.";
+        Log($"Snapshot final readiness FAILED: {noTelemetry}");
+        return SpawnApplyResult.Fail(noTelemetry);
+    }
+
+    private static SnapshotRestoreReadinessResult EvaluateSnapshotReadiness(
+        FlightStateSnapshot snapshot,
+        in SnapshotCaptureStruct s)
+    {
+        return SnapshotRestoreReadiness.Evaluate(
+            snapshot,
+            new SnapshotRestoreReadback(
+                s.IasKts,
+                s.GroundSpeedKts,
+                s.GearHandle > 0.5,
+                SnapshotRestoreReadiness.NormalizeGearExtension01(s.GearTotalPctExtended),
+                (int)Math.Round(s.FlapsIndex),
+                s.SpoilersLeft,
+                s.SpoilersRight,
+                s.ParkingBrake > 0.5));
     }
 
     private async Task RePinSnapshotAsync(
