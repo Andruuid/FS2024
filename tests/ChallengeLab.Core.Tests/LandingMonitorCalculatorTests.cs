@@ -145,6 +145,23 @@ public sealed class LandingMonitorCalculatorTests
         Assert.InRange(atAim, Runway.ElevationFeet - 0.01, Runway.ElevationFeet + 0.01);
     }
 
+    [Fact]
+    public void Calculate_UsesGroundTrackForClosingSpeedDuringLargeCrab()
+    {
+        var sample = SampleAtDistance(
+            2,
+            3,
+            heading: 50,
+            groundSpeed: 100,
+            verticalSpeed: -530,
+            groundTrack: 90);
+
+        var reading = LandingMonitorCalculator.Calculate(sample, Runway, 135, .2, 4.5);
+
+        Assert.Equal(100, reading.ClosingSpeedKts!.Value, 6);
+        Assert.InRange(reading.TargetVerticalSpeedFpm!.Value, -531, -530);
+    }
+
     private static TelemetrySample SampleAtDistance(
         double distanceNm,
         double angleDeg,
@@ -152,7 +169,8 @@ public sealed class LandingMonitorCalculatorTests
         double groundSpeed = 100,
         double airspeed = 135,
         double verticalSpeed = -700,
-        bool onGround = false)
+        bool onGround = false,
+        double? groundTrack = null)
     {
         var distanceMeters = distanceNm * RunwayPathGeometry.MetersPerNauticalMile;
         var longitude = -distanceMeters / RunwayPathGeometry.EarthRadiusMeters * 180 / Math.PI;
@@ -171,6 +189,7 @@ public sealed class LandingMonitorCalculatorTests
             AirspeedKts = airspeed,
             GroundSpeedKts = groundSpeed,
             HeadingTrueDeg = heading,
+            GroundTrackTrueDeg = groundTrack,
             VerticalSpeedFpm = verticalSpeed,
             SimOnGround = onGround
         };

@@ -101,17 +101,9 @@ public static class LandingMonitorCalculator
             glideslopeStatus = ClassifyGlideslope(glideslope.Value, targetGlideslopeDeg);
         }
 
-        double? closingSpeed = null;
-        if (double.IsFinite(sample.GroundSpeedKts)
-            && sample.GroundSpeedKts >= 0
-            && double.IsFinite(sample.HeadingTrueDeg)
-            && double.IsFinite(runway.HeadingTrueDeg))
-        {
-            var headingErrorRadians = NormalizeSignedDegrees(
-                    sample.HeadingTrueDeg - runway.HeadingTrueDeg)
-                * Math.PI / 180.0;
-            closingSpeed = sample.GroundSpeedKts * Math.Cos(headingErrorRadians);
-        }
+        var closingSpeed = GroundMotionResolver.ProjectGroundSpeedAlong(
+            sample,
+            runway.HeadingTrueDeg);
 
         double? descentAngle = null;
         double? targetVerticalSpeed = null;

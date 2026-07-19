@@ -33,11 +33,16 @@ public sealed class LandingGuidanceHoldTests
                 138,
                 1,
                 true,
-                "A320neo V2"));
+                "A320neo V2",
+                GroundMotionResolver.GpsGroundTrackSource,
+                -17.3));
 
             var line = Assert.Single(File.ReadAllLines(path));
             Assert.Contains("\"event\":\"lock-acquired\"", line, StringComparison.Ordinal);
             Assert.Contains("\"lockedKey\":\"LSZH:34\"", line, StringComparison.Ordinal);
+            Assert.Contains("\"courseErrorDeg\":0.1", line, StringComparison.Ordinal);
+            Assert.Contains("\"courseSource\":\"GPS GROUND TRUE TRACK\"", line, StringComparison.Ordinal);
+            Assert.Contains("\"crabAngleDeg\":-17.3", line, StringComparison.Ordinal);
         }
         finally
         {

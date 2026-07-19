@@ -67,6 +67,23 @@ public sealed class FreeFlightEvaluationStartTests
         Assert.Null(away.SecondsUntilStart);
     }
 
+    [Fact]
+    public void ClosingSpeedUsesGroundTrackDuringLargeCrab()
+    {
+        var alignedTrack = FreeFlightEvaluationStartCalculator.Calculate(
+            Sample(longitude: -.1, heading: 50, groundSpeed: 140, groundTrack: 90),
+            Runway(glideslope: 3),
+            Policy);
+        var crossingTrack = FreeFlightEvaluationStartCalculator.Calculate(
+            Sample(longitude: -.1, heading: 90, groundSpeed: 140, groundTrack: 180),
+            Runway(glideslope: 3),
+            Policy);
+
+        Assert.Equal(140, alignedTrack.ClosingSpeedKts, 6);
+        Assert.Equal(0, crossingTrack.ClosingSpeedKts, 6);
+        Assert.False(crossingTrack.IsReady);
+    }
+
     private static RunwayEndFacility Runway(double glideslope, double elevationFeet = 0) =>
         new(Airport, "09", 0, 0, elevationFeet, 90, 2_000, 45, 4, false, glideslope);
 
@@ -74,12 +91,14 @@ public sealed class FreeFlightEvaluationStartTests
         double longitude,
         double heading,
         double groundSpeed,
-        double altitudeFeet = 2_000) => new()
+        double altitudeFeet = 2_000,
+        double? groundTrack = null) => new()
     {
         Latitude = 0,
         Longitude = longitude,
         AltitudeFeet = altitudeFeet,
         HeadingTrueDeg = heading,
+        GroundTrackTrueDeg = groundTrack,
         GroundSpeedKts = groundSpeed,
         SimOnGround = false
     };

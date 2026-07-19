@@ -105,7 +105,7 @@ public sealed class HudVisual : FrameworkElement
             DrawDescentAngle(drawingContext, _frame);
         }
         DrawVerticalSpeed(drawingContext, _frame.Guidance);
-        DrawAirspeed(drawingContext, _frame.Guidance);
+        DrawAirspeed(drawingContext, _frame);
 
         drawingContext.Pop();
         drawingContext.Pop();
@@ -118,8 +118,10 @@ public sealed class HudVisual : FrameworkElement
 
         if (crabAngleDeg is { } crab)
         {
-            DrawText(dc, CrabAnglePresentation.Format(crab), 14, LabelBrush,
+            DrawText(dc, CrabAnglePresentation.FormatDirection(crab), 12, LabelBrush,
                 760, 68, TextAlignment.Left, semibold: true);
+            DrawText(dc, CrabAnglePresentation.FormatMagnitude(crab), 21, WindBrush,
+                827, 62, TextAlignment.Left, mono: true);
         }
 
         if (wind.IsAvailable)
@@ -179,11 +181,15 @@ public sealed class HudVisual : FrameworkElement
         DrawText(dc, "VSpeed", 11, LabelBrush, 1118, 415, TextAlignment.Left, semibold: true);
     }
 
-    private void DrawAirspeed(DrawingContext dc, LandingMonitorReading guidance)
+    private void DrawAirspeed(DrawingContext dc, HudPresentationFrame frame)
     {
+        var guidance = frame.Guidance;
         var value = guidance.AirspeedKts is { } airspeed ? $"{airspeed:0}" : "—";
-        var color = StatusBrush(guidance.AirspeedStatus);
-        DrawText(dc, "IAS", 10, LabelBrush, 724, 650, TextAlignment.Left, semibold: true);
+        var color = StatusBrush(frame.ApproachSpeed.Status);
+        var label = frame.ApproachSpeed.VappKts is { } vapp
+            ? $"IAS   VAPP {vapp:0}"
+            : "IAS   VAPP —";
+        DrawText(dc, label, 10, LabelBrush, 724, 650, TextAlignment.Left, semibold: true);
         DrawText(dc, value, 37, color, 800, 658, TextAlignment.Center, mono: true);
         DrawText(dc, "KT", 10, LabelBrush, 874, 677, TextAlignment.Right, semibold: true);
     }

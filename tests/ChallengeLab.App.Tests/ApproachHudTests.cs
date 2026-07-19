@@ -51,6 +51,43 @@ public sealed class ApproachHudTests
         Assert.Equal(-2.4, left!.Value, 6);
         Assert.Equal("CRAB R 2.4°", CrabAnglePresentation.Format(right!.Value));
         Assert.Equal("CRAB L 2.4°", CrabAnglePresentation.Format(left!.Value));
+        Assert.Equal("CRAB R", CrabAnglePresentation.FormatDirection(right.Value));
+        Assert.Equal("2.4°", CrabAnglePresentation.FormatMagnitude(right.Value));
+    }
+
+    [Theory]
+    [InlineData(-16.1, LandingMonitorStatus.Red)]
+    [InlineData(-16, LandingMonitorStatus.Orange)]
+    [InlineData(-8.1, LandingMonitorStatus.Orange)]
+    [InlineData(-8, LandingMonitorStatus.Green)]
+    [InlineData(5, LandingMonitorStatus.Green)]
+    [InlineData(5.1, LandingMonitorStatus.Orange)]
+    [InlineData(10, LandingMonitorStatus.Orange)]
+    [InlineData(10.1, LandingMonitorStatus.Red)]
+    public void BothHudAirspeedBands_AreAsymmetricAroundVapp(
+        double deltaKts,
+        LandingMonitorStatus expected)
+    {
+        var speed = ApproachSpeedPresentation.Calculate(140 + deltaKts, 140);
+
+        Assert.Equal(140, speed.VappKts);
+        Assert.Equal(deltaKts, speed.DeltaKts!.Value, 6);
+        Assert.Equal(expected, speed.Status);
+    }
+
+    [Fact]
+    public void BothHudFramesUseVappForTheLiveIasToneAndLabel()
+    {
+        var sample = Sample(airspeedKts: 146);
+        var guidance = LandingMonitorCalculator.Calculate(sample, Runway(), 135, .2, 4.5);
+        var hudFrame = HudPresentationFrame.FromGuidance(sample, true, 1, Runway(), guidance, 140);
+        var aetherFrame = AetherMapper.FromGuidance(sample, true, 1, Runway(), guidance, 140);
+
+        Assert.Equal(LandingMonitorStatus.Orange, hudFrame.ApproachSpeed.Status);
+        Assert.Equal(140, hudFrame.ApproachSpeed.VappKts);
+        Assert.Equal(AetherTone.Caution, aetherFrame.Energy.IasTone);
+        Assert.Equal(140, aetherFrame.Energy.VappKts);
+        Assert.Equal(6, aetherFrame.Energy.IasDeltaKts);
     }
 
     [Fact]
@@ -369,6 +406,7 @@ public sealed class ApproachHudTests
         int? cameraViewType = 1,
         double headingTrueDeg = 0,
         double? groundTrackTrueDeg = null,
+        double airspeedKts = 135,
         double windSpeedKts = 20,
         double windDirectionDeg = 90) => new()
         {
@@ -380,7 +418,7 @@ public sealed class ApproachHudTests
             HeadingTrueDeg = headingTrueDeg,
             GroundTrackTrueDeg = groundTrackTrueDeg,
             PitchDeg = 0,
-            AirspeedKts = 135,
+            AirspeedKts = airspeedKts,
             GroundSpeedKts = 130,
             VerticalSpeedFpm = -700,
             WindDirectionDeg = windDirectionDeg,

@@ -176,6 +176,66 @@ public sealed class FreeFlightHudModeTests
         }
     }
 
+    private static void VerifyManualReacquireBypassesGearGateWithLargeCrab()
+    {
+        var scorePath = Path.Combine(Path.GetTempPath(), $"challenge-lab-{Guid.NewGuid():N}.json");
+        var careerPath = Path.Combine(Path.GetTempPath(), $"challenge-lab-career-{Guid.NewGuid():N}.json");
+        var airport = new AirportFacility("LSZH", "LS", 0, 0, 0);
+        var sim = new FakeSimBridge
+        {
+            Airports = [airport],
+            AirportDetails = new Dictionary<string, AirportRunwayFacility>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["LSZH"] = Detail(airport),
+            },
+        };
+        var vm = new MainViewModel(
+            sim,
+            new ConfigLoader(FindConfig()),
+            new HighscoreStore(scorePath),
+            new CareerProgressStore(careerPath));
+
+        try
+        {
+            sim.SetState(SimConnectionState.Connected);
+            sim.EmitTelemetry(ApproachSample(
+                "A320neo V2",
+                longitude: -.05,
+                heading: 55,
+                groundTrackTrueDeg: 90,
+                gearHandlePosition: 0,
+                airspeedKts: 148,
+                groundSpeedKts: 149,
+                altitudeFeet: 2_500));
+
+            WaitUntil(
+                () => sim.RequestedAirportDetails.Contains("LSZH"),
+                TimeSpan.FromSeconds(3));
+            Assert.Null(vm.FreeTargetLockForDiagnostics);
+            Assert.Equal("WAITING FOR GEAR", vm.SecondaryHud.PhaseLabel);
+            Assert.Contains("lower gear", vm.FreeAirportStatus, StringComparison.OrdinalIgnoreCase);
+
+            vm.CleanMetricsCommand.Execute(null);
+
+            WaitUntil(
+                () => vm.FreeTargetLockForDiagnostics is not null,
+                TimeSpan.FromSeconds(5));
+            var target = Assert.IsType<FreeFlightTargetLock>(vm.FreeTargetLockForDiagnostics).Target;
+            Assert.Equal("LSZH", target.Runway.Airport.Icao);
+            Assert.Equal(0, target.CourseErrorDeg, 6);
+            Assert.Equal(35, target.HeadingErrorDeg!.Value, 6);
+            Assert.Equal(GroundMotionResolver.GpsGroundTrackSource, target.CourseSource);
+            Assert.Contains("gear-up ground-track acquisition enabled", vm.LogText, StringComparison.OrdinalIgnoreCase);
+            AssertNoSimulatorMutation(sim);
+        }
+        finally
+        {
+            vm.Dispose();
+            if (File.Exists(scorePath)) File.Delete(scorePath);
+            if (File.Exists(careerPath)) File.Delete(careerPath);
+        }
+    }
+
     [Fact]
     public void ModeTransitions_CancelDetectionAndNeverMutateSimulator()
     {
@@ -185,6 +245,7 @@ public sealed class FreeFlightHudModeTests
             app.InitializeComponent();
             VerifyIncrementalFacilityLoadingAndReacquire();
             VerifyStickyTargetRetention();
+            VerifyManualReacquireBypassesGearGateWithLargeCrab();
             var bindingErrors = new BindingErrorListener();
             PresentationTraceSources.DataBindingSource.Listeners.Add(bindingErrors);
             var scorePath = Path.Combine(Path.GetTempPath(), $"challenge-lab-{Guid.NewGuid():N}.json");
@@ -461,6 +522,7 @@ public sealed class FreeFlightHudModeTests
         string? aircraftTitle = null,
         double longitude = -.04,
         double heading = 110,
+        double? groundTrackTrueDeg = null,
         double gearHandlePosition = 1,
         DateTimeOffset? timestamp = null,
         double airspeedKts = 90,
@@ -476,6 +538,7 @@ public sealed class FreeFlightHudModeTests
         AirspeedKts = airspeedKts,
         GroundSpeedKts = groundSpeedKts,
         HeadingTrueDeg = heading,
+        GroundTrackTrueDeg = groundTrackTrueDeg,
         SimOnGround = false,
         DesignSpeedVs0Kts = 45,
         AircraftTitle = aircraftTitle,

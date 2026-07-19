@@ -75,7 +75,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private bool _isLoading;
     private double _loadProgress;
     private string _loadStatus = "";
-    private string _hudTip = "Free mode observes this flight and detects the runway from position and aircraft heading.";
+    private string _hudTip = "Free mode observes this flight and detects the runway from position and true ground track.";
     private string _phaseLabel = "Detecting";
     private string _liveStats = "—";
     private string _speedTargetInfo = "Optimal landing speed: —";
@@ -129,6 +129,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private readonly HashSet<string> _freeAirportDetailLoads = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<AirportFacility>? _freeAirportCatalog;
     private bool _freeGearDownActive;
+    private bool _freeManualReacquireActive;
     private FreeFlightTargetLock? _freeTargetLock;
     private FreeFlightTarget? _lastLoggedFreeCandidate;
     private string? _pendingFreeAircraftTitle;
@@ -444,7 +445,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public bool IsFreeMode => OperatingMode == HudOperatingMode.Free;
     public string CleanActionLabel => IsFreeMode ? "Reacquire" : "Clear";
     public string CleanActionToolTip => IsFreeMode
-        ? "Release this Free Mode attempt and reacquire the best aligned runway. Every nearby airport remains eligible."
+        ? "Release this Free Mode attempt and reacquire by true ground track, even with the gear up. Every nearby airport remains eligible."
         : "Clear this attempt's landing metrics and re-arm scoring in place.";
 
     public string FreeAirportStatus
@@ -1251,6 +1252,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         ReleaseFreeTargetLock("operating mode changed", _lastTelemetry);
         StopFreeInference(resetTarget: true);
         _freeGearDownActive = false;
+        _freeManualReacquireActive = false;
         _activeChallenge = null;
         SetAttemptOrigin(LandingAttemptOrigin.DefaultChallenge);
         LastScore = null;
@@ -1262,7 +1264,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         if (mode == HudOperatingMode.Free)
         {
             PhaseLabel = "Detecting";
-            HudTip = "Free mode observes this flight and detects the runway from position and aircraft heading.";
+            HudTip = "Free mode observes this flight and detects the runway from position and true ground track.";
             SpeedTargetInfo = "Optimal landing speed: —";
             FreeAirportStatus = HasValidFreeScoringConfiguration
                 ? "Detecting airport and runway..."
@@ -1308,6 +1310,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _freeFlightCts?.Dispose();
         _freeFlightCts = null;
         _freeAirportDetailLoads.Clear();
+        _freeManualReacquireActive = false;
         if (resetTarget)
         {
             _freeInference.Reset();
@@ -1343,8 +1346,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             var nearby = _freeInference.RankNearbyAirports(sample, airports);
             if (nearby.Count == 0)
             {
-                FreeAirportStatus = "No airport within 30 NM · scanning will continue";
-                PhaseLabel = _freeGearDownActive ? "Targeting" : "Waiting for gear";
+                FreeAirportStatus = _freeManualReacquireActive
+                    ? "Manual Reacquire · scanning by ground track · no airport within 30 NM"
+                    : "No airport within 30 NM · scanning will continue";
+                PhaseLabel = IsFreeAcquisitionEnabled ? "Targeting" : "Waiting for gear";
                 ShowFreeRunwaySearch(FreeAirportStatus);
                 return;
             }
@@ -1451,7 +1456,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             : "Closest field unavailable";
         var progressText = $"runway data {details.Count}/{nearby.Count}";
 
-        if (!_freeGearDownActive)
+        if (!IsFreeAcquisitionEnabled)
         {
             PhaseLabel = "Waiting for gear";
             FreeAirportStatus = $"{closestText} · {progressText} · lower gear to select an aligned runway";
@@ -1462,7 +1467,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         if (inference.ProvisionalTarget is not { } provisional)
         {
             PhaseLabel = "Targeting";
-            FreeAirportStatus = $"{closestText} · {progressText} · scanning aligned runways";
+            FreeAirportStatus = _freeManualReacquireActive
+                ? $"Manual Reacquire · scanning by ground track · {closestText} · {progressText}"
+                : $"{closestText} · {progressText} · scanning aligned runways by ground track";
             ShowFreeRunwaySearch(FreeAirportStatus);
             return;
         }
@@ -1480,11 +1487,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 : $"evaluation starts at {start.TriggerDistanceNm:0.0} NM";
         var candidateText =
             $"Best aligned {provisional.Runway.Airport.Icao} RWY {provisional.Runway.RunwayId}" +
-            $" · {FormatFreePathAngle(provisional.Runway)} · {start.CurrentApproachDistanceNm:0.0} NM";
+            $" · course {provisional.CourseErrorDeg:0.0}° · {FormatFreePathAngle(provisional.Runway)}" +
+            $" · {start.CurrentApproachDistanceNm:0.0} NM";
 
         PhaseLabel = "Targeting";
-        FreeAirportStatus = $"{candidateText} · {stableText} · {timingText} · {progressText}";
-        HudTip = $"{candidateText} · selected by runway alignment; target may refine until evaluation begins.";
+        var manualPrefix = _freeManualReacquireActive ? "Manual Reacquire · " : "";
+        FreeAirportStatus = $"{manualPrefix}{candidateText} · {stableText} · {timingText} · {progressText}";
+        HudTip = $"{manualPrefix}{candidateText} · selected by true ground track; target may refine until evaluation begins.";
         _freeTargetMonitorStatus = $"{stableText} · {timingText} · {progressText}";
         SecondaryHud.ShowProvisionalFreeTarget(
             provisional.Runway.Airport.Icao,
@@ -1511,6 +1520,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private static string FreeAirportCacheKey(AirportFacility airport) =>
         $"{airport.Icao}|{airport.Region}";
 
+    private bool IsFreeAcquisitionEnabled =>
+        _freeGearDownActive || _freeManualReacquireActive;
+
     private void ShowFreeRunwaySearch(string status)
     {
         if (_freeTargetLock is { } targetLock)
@@ -1523,7 +1535,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
 
         _freeTargetMonitorStatus = status;
-        SecondaryHud.ShowFreeRunwaySearch(_freeGearDownActive, status);
+        SecondaryHud.ShowFreeRunwaySearch(IsFreeAcquisitionEnabled, status);
     }
 
     private void AcquireFreeTargetLock(
@@ -1539,6 +1551,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             sample,
             _runwayReferenceResolver,
             lateAcquisition);
+        _freeManualReacquireActive = false;
         _landingGuidanceHold.Reset();
         var airport = _freeTargetLock.Runway.AirportIcao;
         var runway = _freeTargetLock.Runway.RunwayId;
@@ -1556,8 +1569,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             target);
         AppendLog(
             $"Free target locked: {airport} RWY {runway} · " +
-            $"distance {target.ThresholdDistanceNm:0.00} NM · heading {target.HeadingErrorDeg:0.0}° · " +
-            $"cross-track {target.CrossTrackNm:0.00} NM. Automatic candidate changes are now ignored.");
+            $"distance {target.ThresholdDistanceNm:0.00} NM · {FormatFreeAlignment(target)}. " +
+            "Automatic candidate changes are now ignored.");
     }
 
     private void ReleaseFreeTargetLock(string reason, TelemetrySample? sample)
@@ -1605,13 +1618,34 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         TelemetrySample sample,
         FreeFlightTarget? candidate)
     {
-        double? trackError = null;
-        if (candidate is not null
-            && sample.GroundTrackTrueDeg is { } track
-            && double.IsFinite(track))
+        double? headingError = null;
+        double? courseError = null;
+        double? crabAngle = null;
+        string? courseSource = null;
+        if (candidate is not null)
         {
-            trackError = Math.Abs(LandingMonitorCalculator.NormalizeSignedDegrees(
-                track - candidate.Runway.HeadingTrueDeg));
+            if (double.IsFinite(sample.HeadingTrueDeg))
+            {
+                headingError = Math.Abs(GroundMotionResolver.NormalizeSigned(
+                    sample.HeadingTrueDeg - candidate.Runway.HeadingTrueDeg));
+            }
+
+            if (GroundMotionResolver.TryResolveCourse(sample, out var course))
+            {
+                courseError = Math.Abs(GroundMotionResolver.NormalizeSigned(
+                    course.Degrees - candidate.Runway.HeadingTrueDeg));
+                courseSource = course.Source;
+                if (double.IsFinite(sample.HeadingTrueDeg))
+                {
+                    crabAngle = GroundMotionResolver.NormalizeSigned(
+                        sample.HeadingTrueDeg - course.Degrees);
+                }
+            }
+            else
+            {
+                courseError = candidate.CourseErrorDeg;
+                courseSource = candidate.CourseSource;
+            }
         }
 
         _freeInferenceLog.Append(new FreeFlightInferenceLogEntry(
@@ -1621,8 +1655,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             candidate?.Runway.Key,
             _freeTargetLock?.Key,
             candidate?.ThresholdDistanceNm,
-            candidate?.HeadingErrorDeg,
-            trackError,
+            headingError ?? candidate?.HeadingErrorDeg,
+            courseError ?? candidate?.CourseErrorDeg,
             candidate?.CrossTrackNm,
             sample.Latitude,
             sample.Longitude,
@@ -1631,7 +1665,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             sample.GroundSpeedKts,
             sample.GearHandlePosition,
             _sim.IsConnected,
-            sample.AircraftTitle));
+            sample.AircraftTitle,
+            courseSource ?? candidate?.CourseSource,
+            crabAngle));
     }
 
     private void EvaluateLockedFreeTarget(
@@ -1774,7 +1810,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             $"Free armed{(lateAcquisition ? " (late acquisition)" : "")}: " +
             $"{airport} RWY {runway} · {FormatFreePathAngle(target.Runway)} · " +
             $"{target.ThresholdDistanceNm:0.0} NM · " +
-            $"heading error {target.HeadingErrorDeg:0.0}° · cross-track {target.CrossTrackNm:0.00} NM · " +
+            $"{FormatFreeAlignment(target)} · " +
             $"aiming marker start {aimingStartFeet:0} ft · " +
             $"ideal band {idealNearFeet:0}-{idealFarFeet:0} ft · " +
             $"source {challenge.Runway.RunwayDataSource}/{challenge.Runway.AimingMarkerConfidence} · " +
@@ -1791,6 +1827,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             ? GlideslopeAngleResolver.SourceDefault
             : runway.GlideslopeSource.Trim();
         return $"{deg:0.##}° {source}";
+    }
+
+    private static string FormatFreeAlignment(FreeFlightTarget target)
+    {
+        var heading = target.HeadingErrorDeg is { } headingError
+            ? $"heading error {headingError:0.0}°"
+            : "heading unavailable";
+        return $"course error {target.CourseErrorDeg:0.0}° ({target.CourseSource}) · " +
+               $"{heading} · cross-track {target.CrossTrackNm:0.00} NM";
     }
 
     private async Task StartChallengeAsync()
@@ -2404,17 +2449,16 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             LastScore = null;
             ResultVisible = false;
             StopFreeInference(resetTarget: true);
-            PhaseLabel = _freeGearDownActive ? "Targeting" : "Waiting for gear";
-            HudTip = "Reacquiring best aligned runway from your current position · all nearby airports eligible.";
-            FreeAirportStatus = _freeGearDownActive
-                ? "Reacquiring best aligned runway · all nearby airports eligible"
-                : "Reacquire requested · runway data warming; lower gear to select an aligned runway";
+            _freeManualReacquireActive = true;
+            PhaseLabel = "Targeting";
+            HudTip = "Manual Reacquire · searching by true ground track from your current position · gear-up acquisition enabled.";
+            FreeAirportStatus = "Manual Reacquire · scanning by ground track · all nearby airports eligible";
             ShowFreeRunwaySearch(FreeAirportStatus);
             SpeedTargetInfo = "Optimal landing speed: —";
             _freeFlightCts = new CancellationTokenSource();
             _freeInferenceTimer.Start();
             _ = RunFreeInferenceAsync();
-            AppendLog("Free Reacquire: attempt and runway released; all nearby airports remain eligible; detection restarted in place.");
+            AppendLog("Free Reacquire: attempt and runway released; gear-up ground-track acquisition enabled; all nearby airports remain eligible.");
             (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
             return;
         }
@@ -2598,14 +2642,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 return;
 
             double? targetTouchdownIas = null;
+            double? vappKts = null;
             var sessionSettings = CurrentSessionSettings;
             var guidanceChallenge = CurrentGuidanceChallenge;
             if (guidanceChallenge is not null && sessionSettings is not null)
             {
                 UpdateSpeedTargetInfo(guidanceChallenge, sample, sample.AirspeedKts);
-                targetTouchdownIas = SpeedTargetCalculator
-                    .Resolve(guidanceChallenge, sessionSettings, sample)
-                    .TargetTouchdownIasKts;
+                var speedTarget = SpeedTargetCalculator.Resolve(guidanceChallenge, sessionSettings, sample);
+                targetTouchdownIas = speedTarget.TargetTouchdownIasKts;
+                vappKts = speedTarget.VappKts;
             }
 
             var rawGuidance = LandingMonitorCalculator.Calculate(
@@ -2636,9 +2681,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 sharedGuidance,
                 evaluationArmed: _session is not null);
             if (IsFighterHudVisible)
-                PushFighterHudPresentation(sample, sharedGuidance: sharedGuidance);
+                PushFighterHudPresentation(sample, sharedGuidance: sharedGuidance, vappKts: vappKts);
             if (IsAetherHudVisible)
-                PushAetherPresentation(sample, sharedGuidance: sharedGuidance);
+                PushAetherPresentation(sample, sharedGuidance: sharedGuidance, vappKts: vappKts);
             if (IsFreeMode && _session is null)
             {
                 if (_freeTargetLock is { } targetLock)
@@ -2648,7 +2693,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                         targetLock.Runway.RunwayId,
                         _freeTargetMonitorStatus);
                 }
-                else if (_freeGearDownActive && _freeInference.ProvisionalTarget is { } provisional)
+                else if (IsFreeAcquisitionEnabled && _freeInference.ProvisionalTarget is { } provisional)
                 {
                     SecondaryHud.ShowProvisionalFreeTarget(
                         provisional.Runway.Airport.Icao,
@@ -2657,7 +2702,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 }
                 else
                 {
-                    SecondaryHud.ShowFreeRunwaySearch(_freeGearDownActive, _freeTargetMonitorStatus);
+                    SecondaryHud.ShowFreeRunwaySearch(IsFreeAcquisitionEnabled, _freeTargetMonitorStatus);
                 }
             }
         });
@@ -2690,6 +2735,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _freeGearDownActive = gearDown;
         if (!gearDown)
         {
+            if (_freeManualReacquireActive)
+            {
+                PhaseLabel = "Targeting";
+                FreeAirportStatus = "Manual Reacquire · scanning by ground track · gear-up acquisition enabled";
+                ShowFreeRunwaySearch(FreeAirportStatus);
+                _ = RunFreeInferenceAsync();
+                return;
+            }
+
             _freeInference.Reset();
             PhaseLabel = "Waiting for gear";
             FreeAirportStatus = "Runway data warming · lower gear to select an aligned runway";
@@ -2699,7 +2753,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
 
         PhaseLabel = "Targeting";
-        FreeAirportStatus = "Gear down · scanning aligned runways · all nearby airports eligible";
+        FreeAirportStatus = _freeManualReacquireActive
+            ? "Manual Reacquire · scanning by ground track · all nearby airports eligible"
+            : "Gear down · scanning aligned runways by ground track · all nearby airports eligible";
         ShowFreeRunwaySearch(FreeAirportStatus);
         _ = RunFreeInferenceAsync();
     }
@@ -3738,7 +3794,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void PushFighterHudPresentation(
         ChallengeLab.Core.Models.TelemetrySample? sample = null,
         bool? connected = null,
-        LandingMonitorReading? sharedGuidance = null)
+        LandingMonitorReading? sharedGuidance = null,
+        double? vappKts = null)
     {
         if (!IsFighterHudVisible)
             return;
@@ -3757,9 +3814,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         double? targetTouchdownIas = null;
         if (guidanceChallenge is not null && settings is not null)
         {
-            targetTouchdownIas = SpeedTargetCalculator
-                .Resolve(guidanceChallenge, settings, sample)
-                .TargetTouchdownIasKts;
+            var speedTarget = SpeedTargetCalculator.Resolve(guidanceChallenge, settings, sample);
+            targetTouchdownIas = speedTarget.TargetTouchdownIasKts;
+            vappKts ??= speedTarget.VappKts;
         }
 
         var guidance = sharedGuidance ?? LandingMonitorCalculator.Calculate(
@@ -3782,13 +3839,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             isConnected,
             _fighterHudSequence,
             guidanceChallenge?.Runway,
-            guidance));
+            guidance,
+            vappKts));
     }
 
     private void PushAetherPresentation(
         ChallengeLab.Core.Models.TelemetrySample? sample = null,
         bool? connected = null,
-        LandingMonitorReading? sharedGuidance = null)
+        LandingMonitorReading? sharedGuidance = null,
+        double? vappKts = null)
     {
         if (!IsAetherHudVisible)
             return;
@@ -3807,9 +3866,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         double? targetTouchdownIas = null;
         if (guidanceChallenge is not null && settings is not null)
         {
-            targetTouchdownIas = SpeedTargetCalculator
-                .Resolve(guidanceChallenge, settings, sample)
-                .TargetTouchdownIasKts;
+            var speedTarget = SpeedTargetCalculator.Resolve(guidanceChallenge, settings, sample);
+            targetTouchdownIas = speedTarget.TargetTouchdownIasKts;
+            vappKts ??= speedTarget.VappKts;
         }
 
         var guidance = sharedGuidance ?? LandingMonitorCalculator.Calculate(
@@ -3832,7 +3891,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             isConnected,
             _aetherHudSequence,
             guidanceChallenge?.Runway,
-            guidance));
+            guidance,
+            vappKts));
     }
 
     private void AppendLog(string line)

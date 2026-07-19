@@ -49,7 +49,7 @@ internal sealed record FreeFlightInferenceLogEntry(
     string? LockedKey,
     double? ThresholdDistanceNm,
     double? HeadingErrorDeg,
-    double? TrackErrorDeg,
+    double? CourseErrorDeg,
     double? CrossTrackNm,
     double Latitude,
     double Longitude,
@@ -58,4 +58,6 @@ internal sealed record FreeFlightInferenceLogEntry(
     double GroundSpeedKts,
     double GearHandlePosition,
     bool IsConnected,
-    string? AircraftTitle);
+    string? AircraftTitle,
+    string? CourseSource = null,
+    double? CrabAngleDeg = null);

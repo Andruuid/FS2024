@@ -79,7 +79,7 @@ internal readonly record struct AetherPath(
 
 internal readonly record struct AetherEnergy(
     double? IasKts,
-    double? TargetIasKts,
+    double? VappKts,
     double? IasDeltaKts,
     AetherTone IasTone,
     double? VerticalSpeedFpm,

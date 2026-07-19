@@ -213,8 +213,11 @@ public sealed class AetherSurface : FrameworkElement
 
         if (wind.CrabAngleDeg is { } crab)
         {
-            DrawText(dc, CrabAnglePresentation.Format(crab), 10, AetherTheme.Violet,
+            var x = center.X + radius + 18;
+            DrawText(dc, CrabAnglePresentation.FormatDirection(crab), 10, AetherTheme.Violet,
                 center.X + radius + 18, center.Y - 38, TextAlignment.Left, AetherTheme.Micro);
+            DrawText(dc, CrabAnglePresentation.FormatMagnitude(crab), 17, AetherTheme.Cyan,
+                x + 54, center.Y - 43, TextAlignment.Left, AetherTheme.Mono);
         }
 
         var ringPen = new Pen(AetherTheme.GlassStrokeSoft, 1.5) { DashStyle = DashStyles.Dot };
@@ -272,6 +275,9 @@ public sealed class AetherSurface : FrameworkElement
         DrawGlassCard(dc, rect);
         DrawText(dc, "IAS", 11, AetherTheme.TextMuted,
             rect.X + 12, rect.Y + 10, TextAlignment.Left, AetherTheme.Micro);
+        var vapp = energy.VappKts is { } vappKts ? $"VAPP {vappKts:0}" : "VAPP —";
+        DrawText(dc, vapp, 10, AetherTheme.TextMuted,
+            rect.Right - 12, rect.Y + 10, TextAlignment.Right, AetherTheme.Micro);
 
         var tone = AetherTheme.ToneBrush(energy.IasTone);
         var value = energy.IasKts is { } ias ? $"{Math.Round(_smoothIas):0}" : "—";
@@ -290,7 +296,7 @@ public sealed class AetherSurface : FrameworkElement
 
         // Vertical tape with target chevron
         var tape = new Rect(rect.X + 18, rect.Y + 120, rect.Width - 36, rect.Height - 150);
-        DrawVerticalTape(dc, tape, energy.IasKts, energy.TargetIasKts, 40, true, tone);
+        DrawVerticalTape(dc, tape, energy.IasKts, energy.VappKts, 40, true, tone);
 
         // Sparkline
         var spark = new Rect(rect.X + 14, rect.Bottom - 34, rect.Width - 28, 22);

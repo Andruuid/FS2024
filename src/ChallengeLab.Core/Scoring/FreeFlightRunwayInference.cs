@@ -7,10 +7,10 @@ public sealed record FreeFlightInferenceSettings(
     int NearbyAirportCount = 12,
     double NearbyAirportRadiusNm = 30,
     double ProvisionalMaximumThresholdDistanceNm = 20,
-    double ProvisionalMaximumHeadingErrorDeg = 60,
+    double ProvisionalMaximumCourseErrorDeg = 60,
     double ProvisionalMaximumCrossTrackNm = 3,
     double ConfirmationMaximumThresholdDistanceNm = 12,
-    double ConfirmationMaximumHeadingErrorDeg = 30,
+    double ConfirmationMaximumCourseErrorDeg = 30,
     double ConfirmationMaximumCrossTrackNm = 1.5,
     double MinimumGroundSpeedKts = 30,
     int StableSamplesToConfirm = 3);
@@ -20,8 +20,10 @@ public sealed record AirportDistance(AirportFacility Airport, double DistanceNm)
 public sealed record FreeFlightTarget(
     RunwayEndFacility Runway,
     double ThresholdDistanceNm,
-    double HeadingErrorDeg,
-    double CrossTrackNm);
+    double CourseErrorDeg,
+    double CrossTrackNm,
+    double? HeadingErrorDeg = null,
+    string CourseSource = GroundMotionResolver.HeadingFallbackSource);
 
 public sealed record FreeFlightInferenceResult(
     AirportDistance? NearestAirport,
@@ -31,7 +33,7 @@ public sealed record FreeFlightInferenceResult(
 
 /// <summary>
 /// Pure, deterministic airport/runway inference using position, runway geometry,
-/// and aircraft heading. A relaxed target is available immediately; only a target
+/// and aircraft course over the ground. A relaxed target is available immediately; only a target
 /// inside the tighter confirmation envelope accumulates stable samples.
 /// </summary>
 public sealed class FreeFlightRunwayInference
@@ -143,7 +145,7 @@ public sealed class FreeFlightRunwayInference
 
     public bool IsInsideConfirmationEnvelope(FreeFlightTarget target) =>
         target.ThresholdDistanceNm <= _settings.ConfirmationMaximumThresholdDistanceNm
-        && target.HeadingErrorDeg <= _settings.ConfirmationMaximumHeadingErrorDeg
+        && target.CourseErrorDeg <= _settings.ConfirmationMaximumCourseErrorDeg
         && target.CrossTrackNm <= _settings.ConfirmationMaximumCrossTrackNm;
 
     public void Reset()
@@ -168,18 +170,32 @@ public sealed class FreeFlightRunwayInference
             sample.Longitude,
             end.ThresholdLatitude,
             end.ThresholdLongitude) / 1852.0;
-        var headingError = Math.Abs(NormalizeSigned(sample.HeadingTrueDeg - end.HeadingTrueDeg));
+        if (!GroundMotionResolver.TryResolveCourse(sample, out var course))
+            return null;
+
+        var courseError = Math.Abs(GroundMotionResolver.NormalizeSigned(
+            course.Degrees - end.HeadingTrueDeg));
+        double? headingError = double.IsFinite(sample.HeadingTrueDeg)
+            ? Math.Abs(GroundMotionResolver.NormalizeSigned(
+                sample.HeadingTrueDeg - end.HeadingTrueDeg))
+            : null;
         var crossTrackNm = Math.Abs(state.LateralMeters) / 1852.0;
 
         if (thresholdDistanceNm > _settings.ProvisionalMaximumThresholdDistanceNm
-            || headingError > _settings.ProvisionalMaximumHeadingErrorDeg
+            || courseError > _settings.ProvisionalMaximumCourseErrorDeg
             || crossTrackNm > _settings.ProvisionalMaximumCrossTrackNm)
             return null;
 
-        var rank = headingError / _settings.ProvisionalMaximumHeadingErrorDeg
+        var rank = courseError / _settings.ProvisionalMaximumCourseErrorDeg
                    + crossTrackNm / _settings.ProvisionalMaximumCrossTrackNm
                    + thresholdDistanceNm / _settings.ProvisionalMaximumThresholdDistanceNm;
-        return (new FreeFlightTarget(end, thresholdDistanceNm, headingError, crossTrackNm), rank);
+        return (new FreeFlightTarget(
+            end,
+            thresholdDistanceNm,
+            courseError,
+            crossTrackNm,
+            headingError,
+            course.Source), rank);
     }
 
     private static double BearingErrorDeg(TelemetrySample sample, AirportFacility airport)
@@ -195,7 +211,9 @@ public sealed class FreeFlightRunwayInference
         var x = Math.Cos(lat1) * Math.Sin(lat2)
                 - Math.Sin(lat1) * Math.Cos(lat2) * Math.Cos(deltaLon);
         var bearing = Math.Atan2(y, x) * 180.0 / Math.PI;
-        return Math.Abs(NormalizeSigned(sample.HeadingTrueDeg - bearing));
+        return GroundMotionResolver.TryResolveCourse(sample, out var course)
+            ? Math.Abs(GroundMotionResolver.NormalizeSigned(course.Degrees - bearing))
+            : 180;
     }
 
     private static bool IsFinitePosition(double latitude, double longitude)
@@ -203,10 +221,4 @@ public sealed class FreeFlightRunwayInference
                                      && latitude is >= -90 and <= 90
                                      && longitude is >= -180 and <= 180;
 
-    private static double NormalizeSigned(double deg)
-    {
-        while (deg > 180) deg -= 360;
-        while (deg < -180) deg += 360;
-        return deg;
-    }
 }

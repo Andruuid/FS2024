@@ -13,7 +13,8 @@ internal static class AetherMapper
         bool isConnected,
         long sequence,
         RunwayConfig? runway,
-        LandingMonitorReading guidance)
+        LandingMonitorReading guidance,
+        double? vappKts = null)
     {
         var flightActive = isConnected && (
             !string.IsNullOrWhiteSpace(sample.AircraftTitle)
@@ -53,11 +54,12 @@ internal static class AetherMapper
             ProgressPercent: guidance.ProgressPercent,
             InsideCollectionWindow: guidance.IsInsideCollectionWindow);
 
+        var approachSpeed = ApproachSpeedPresentation.Calculate(guidance.AirspeedKts, vappKts);
         var energy = new AetherEnergy(
             IasKts: guidance.AirspeedKts,
-            TargetIasKts: guidance.TargetAirspeedKts,
-            IasDeltaKts: guidance.AirspeedDeltaKts,
-            IasTone: MapTone(guidance.AirspeedStatus),
+            VappKts: approachSpeed.VappKts,
+            IasDeltaKts: approachSpeed.DeltaKts,
+            IasTone: MapTone(approachSpeed.Status),
             VerticalSpeedFpm: guidance.VerticalSpeedFpm,
             TargetVerticalSpeedFpm: guidance.TargetVerticalSpeedFpm,
             VerticalSpeedTone: MapTone(guidance.DescentAngleStatus));

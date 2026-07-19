@@ -148,7 +148,9 @@ public sealed class FreeFlightRunwayInferenceTests
         Assert.Null(second.StableTarget);
         var locked = Assert.IsType<FreeFlightTarget>(third.StableTarget);
         Assert.Equal("09L", locked.Runway.RunwayId);
-        Assert.Equal(30, locked.HeadingErrorDeg, 6);
+        Assert.Equal(30, locked.CourseErrorDeg, 6);
+        Assert.Equal(30, locked.HeadingErrorDeg!.Value, 6);
+        Assert.Equal(GroundMotionResolver.HeadingFallbackSource, locked.CourseSource);
 
         var moved = Sample(longitude: .04, heading: 270);
         var immutable = inference.Update(
@@ -157,6 +159,78 @@ public sealed class FreeFlightRunwayInferenceTests
             []);
         Assert.Null(immutable.StableTarget);
         Assert.Null(immutable.ProvisionalTarget);
+    }
+
+    [Fact]
+    public void Update_UsesGroundTrackAndLocksWithFortyDegreeCrab()
+    {
+        var inference = new FreeFlightRunwayInference();
+        var detail = Detail(starts: [new RunwayStartFacility(0, 0, 0, 90, 9, 1, 1)]);
+        var sample = Sample(longitude: -.04, heading: 50, groundTrack: 90);
+        var nearby = inference.RankNearbyAirports(sample, [Airport]);
+
+        inference.Update(sample, nearby, [detail]);
+        inference.Update(sample, nearby, [detail]);
+        var result = inference.Update(sample, nearby, [detail]);
+
+        var locked = Assert.IsType<FreeFlightTarget>(result.StableTarget);
+        Assert.Equal(0, locked.CourseErrorDeg, 6);
+        Assert.Equal(40, locked.HeadingErrorDeg!.Value, 6);
+        Assert.Equal(GroundMotionResolver.GpsGroundTrackSource, locked.CourseSource);
+    }
+
+    [Fact]
+    public void Update_DoesNotConfirmAlignedNoseWhenGroundTrackIsOutsideConfirmationEnvelope()
+    {
+        var inference = new FreeFlightRunwayInference();
+        var detail = Detail(starts: [new RunwayStartFacility(0, 0, 0, 90, 9, 1, 1)]);
+        var sample = Sample(longitude: -.04, heading: 90, groundTrack: 130);
+        var nearby = inference.RankNearbyAirports(sample, [Airport]);
+
+        FreeFlightInferenceResult result = default!;
+        for (var index = 0; index < 4; index++)
+            result = inference.Update(sample, nearby, [detail]);
+
+        Assert.Equal(40, result.ProvisionalTarget!.CourseErrorDeg, 6);
+        Assert.Equal(0, result.ProvisionalTarget.HeadingErrorDeg!.Value, 6);
+        Assert.Null(result.StableTarget);
+        Assert.Equal(0, result.StableSamples);
+    }
+
+    [Fact]
+    public void Update_LszhLikeLargeCrabUsesNearZeroTrackError()
+    {
+        var inference = new FreeFlightRunwayInference();
+        var detail = Detail(starts: [new RunwayStartFacility(0, 0, 0, 90, 9, 1, 1)]);
+        var sample = Sample(
+            longitude: -.05,
+            heading: 72.735,
+            latitude: .00002,
+            groundTrack: 89.521);
+        var nearby = inference.RankNearbyAirports(sample, [Airport]);
+
+        var result = inference.Update(sample, nearby, [detail]);
+
+        Assert.InRange(result.ProvisionalTarget!.CourseErrorDeg, .478, .480);
+        Assert.InRange(result.ProvisionalTarget.HeadingErrorDeg!.Value, 17.264, 17.266);
+        Assert.InRange(result.ProvisionalTarget.CrossTrackNm, 0, .002);
+    }
+
+    [Fact]
+    public void RankNearbyAirports_UsesGroundTrackForTheForwardShortlist()
+    {
+        var inference = new FreeFlightRunwayInference(
+            new FreeFlightInferenceSettings(NearbyAirportCount: 2));
+        var sample = Sample(longitude: 0, heading: 270, groundTrack: 90);
+        var nearestBehind = new AirportFacility("NEAR", "ZZ", 0, -.01, 0);
+        var ahead = new AirportFacility("AHEAD", "ZZ", 0, .2, 0);
+        var fartherBehind = new AirportFacility("BACK", "ZZ", 0, -.02, 0);
+
+        var ranked = inference.RankNearbyAirports(sample, [nearestBehind, ahead, fartherBehind]);
+
+        Assert.Equal("NEAR", ranked[0].Airport.Icao);
+        Assert.Contains(ranked, item => item.Airport.Icao == "AHEAD");
+        Assert.DoesNotContain(ranked, item => item.Airport.Icao == "BACK");
     }
 
     [Fact]
@@ -548,7 +622,8 @@ public sealed class FreeFlightRunwayInferenceTests
         bool wheels = false,
         bool floats = false,
         double groundSpeed = 100,
-        bool onGround = false) => new()
+        bool onGround = false,
+        double? groundTrack = null) => new()
     {
         Latitude = latitude,
         Longitude = longitude,
@@ -556,6 +631,7 @@ public sealed class FreeFlightRunwayInferenceTests
         AglFeet = 1000,
         RadioHeightFeet = 1000,
         HeadingTrueDeg = heading,
+        GroundTrackTrueDeg = groundTrack,
         GroundSpeedKts = groundSpeed,
         AirspeedKts = 100,
         SimOnGround = onGround,

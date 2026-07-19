@@ -12,6 +12,7 @@ internal sealed record HudPresentationFrame(
     bool IsConnected,
     bool IsFlightActive,
     LandingMonitorReading Guidance,
+    ApproachSpeedReading ApproachSpeed,
     RelativeWindReading Wind,
     double? CrabAngleDeg,
     double? TargetGlideslopeDeg,
@@ -24,6 +25,7 @@ internal sealed record HudPresentationFrame(
         IsFlightActive: false,
         EmptyGuidance,
         default,
+        default,
         null,
         null,
         default);
@@ -35,7 +37,8 @@ internal sealed record HudPresentationFrame(
         RunwayConfig? runway,
         double? targetAirspeedKts,
         double approachPathMinDistNm,
-        double approachPathMaxDistNm)
+        double approachPathMaxDistNm,
+        double? vappKts = null)
     {
         var guidance = LandingMonitorCalculator.Calculate(
             sample,
@@ -43,7 +46,7 @@ internal sealed record HudPresentationFrame(
             targetAirspeedKts,
             approachPathMinDistNm,
             approachPathMaxDistNm);
-        return FromGuidance(sample, isConnected, sequence, runway, guidance);
+        return FromGuidance(sample, isConnected, sequence, runway, guidance, vappKts);
     }
 
     public static HudPresentationFrame FromGuidance(
@@ -51,7 +54,8 @@ internal sealed record HudPresentationFrame(
         bool isConnected,
         long sequence,
         RunwayConfig? runway,
-        LandingMonitorReading guidance)
+        LandingMonitorReading guidance,
+        double? vappKts = null)
     {
         var flightActive = isConnected && (
             !string.IsNullOrWhiteSpace(sample.AircraftTitle)
@@ -65,6 +69,7 @@ internal sealed record HudPresentationFrame(
             isConnected,
             flightActive,
             guidance,
+            ApproachSpeedPresentation.Calculate(guidance.AirspeedKts, vappKts),
             RelativeWindCalculator.Calculate(sample, isConnected),
             CrabAnglePresentation.FromSample(sample),
             runway is null

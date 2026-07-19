@@ -29,7 +29,12 @@ internal static class CrabAnglePresentation
 
     public static string Format(double crabAngleDegrees)
     {
-        var side = crabAngleDegrees >= 0 ? "R" : "L";
-        return $"CRAB {side} {Math.Abs(crabAngleDegrees):0.0}°";
+        return $"{FormatDirection(crabAngleDegrees)} {FormatMagnitude(crabAngleDegrees)}";
     }
+
+    public static string FormatDirection(double crabAngleDegrees) =>
+        $"CRAB {(crabAngleDegrees >= 0 ? "R" : "L")}";
+
+    public static string FormatMagnitude(double crabAngleDegrees) =>
+        $"{Math.Abs(crabAngleDegrees):0.0}°";
 }

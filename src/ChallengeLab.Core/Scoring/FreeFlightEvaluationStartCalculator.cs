@@ -32,9 +32,11 @@ public static class FreeFlightEvaluationStartCalculator
             policy.HeightAboveRunwayFeet / feetPerNm
             - RunwayPathGeometry.GlideslopeAimPointOffsetNm);
 
-        var headingError = NormalizeSigned(sample.HeadingTrueDeg - runway.HeadingTrueDeg);
-        var closingSpeedKts = double.IsFinite(sample.GroundSpeedKts)
-            ? Math.Max(0, sample.GroundSpeedKts * Math.Cos(headingError * Math.PI / 180.0))
+        var projectedGroundSpeed = GroundMotionResolver.ProjectGroundSpeedAlong(
+            sample,
+            runway.HeadingTrueDeg);
+        var closingSpeedKts = projectedGroundSpeed is > 0.01
+            ? projectedGroundSpeed.Value
             : 0;
         var leadDistanceNm = closingSpeedKts * Math.Max(0, policy.LeadSeconds) / 3_600.0;
         var triggerDistanceNm = interceptDistanceNm + leadDistanceNm;
@@ -66,12 +68,5 @@ public static class FreeFlightEvaluationStartCalculator
             secondsUntilStart,
             pastStart,
             ready);
-    }
-
-    private static double NormalizeSigned(double degrees)
-    {
-        while (degrees > 180) degrees -= 360;
-        while (degrees < -180) degrees += 360;
-        return degrees;
     }
 }
