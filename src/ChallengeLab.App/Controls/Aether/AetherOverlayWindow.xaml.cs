@@ -45,7 +45,7 @@ public partial class AetherOverlayWindow : Window
         _placeTimer.Start();
         ApplyScale(1.0);
         ApplyOpacity(0.96);
-        ApplyFontScale(1.0);
+        ApplyFontScale(1.1);
     }
 
     internal event Action<double>? ScaleChanged;

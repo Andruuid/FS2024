@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
+using ChallengeLab.App.Controls;
 using ChallengeLab.Core.Scoring;
 using Brush = System.Windows.Media.Brush;
 using Color = System.Windows.Media.Color;
@@ -45,7 +46,7 @@ public sealed class HudVisual : FrameworkElement
     private HudPresentationFrame? _frame;
     private double _hudScale = 0.78;
     private double _hudOpacity = 0.95;
-    private double _fontScale = 1.0;
+    private double _fontScale = 1.1;
 
     public HudVisual()
     {
@@ -97,7 +98,7 @@ public sealed class HudVisual : FrameworkElement
         drawingContext.PushTransform(new ScaleTransform(scale, scale));
         drawingContext.PushOpacity(_hudOpacity);
 
-        DrawWind(drawingContext, _frame.Wind);
+        DrawWind(drawingContext, _frame.Wind, _frame.CrabAngleDeg);
         if (_frame.View.HasRunwayTarget && _frame.TargetGlideslopeDeg is not null)
         {
             DrawPathPosition(drawingContext, _frame);
@@ -111,9 +112,15 @@ public sealed class HudVisual : FrameworkElement
         drawingContext.Pop();
     }
 
-    private void DrawWind(DrawingContext dc, RelativeWindReading wind)
+    private void DrawWind(DrawingContext dc, RelativeWindReading wind, double? crabAngleDeg)
     {
         var center = new Point(706, 120);
+
+        if (crabAngleDeg is { } crab)
+        {
+            DrawText(dc, CrabAnglePresentation.Format(crab), 14, LabelBrush,
+                760, 68, TextAlignment.Left, semibold: true);
+        }
 
         if (wind.IsAvailable)
             DrawWindArrow(dc, center, wind.RelativeFromAngleDeg);

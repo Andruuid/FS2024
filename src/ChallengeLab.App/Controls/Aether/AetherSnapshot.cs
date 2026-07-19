@@ -38,7 +38,8 @@ internal readonly record struct AetherWind(
     double SpeedKts,
     double RelativeFromDeg,
     double CrosswindKts,
-    double HeadwindKts)
+    double HeadwindKts,
+    double? CrabAngleDeg)
 {
     public static AetherWind Empty => default;
 

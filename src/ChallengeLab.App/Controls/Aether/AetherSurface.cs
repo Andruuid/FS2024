@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
+using ChallengeLab.App.Controls;
 using Brush = System.Windows.Media.Brush;
 using Pen = System.Windows.Media.Pen;
 using Point = System.Windows.Point;
@@ -20,7 +21,7 @@ public sealed class AetherSurface : FrameworkElement
     private AetherSnapshot? _snapshot;
     private double _displayScale = 1.0;
     private double _displayOpacity = 0.96;
-    private double _fontScale = 1.0;
+    private double _fontScale = 1.1;
 
     private double _smoothPathError;
     private double _smoothDescentError;
@@ -209,6 +210,12 @@ public sealed class AetherSurface : FrameworkElement
     private void DrawWindDisc(DrawingContext dc, Point center, double radius, AetherWind wind)
     {
         DrawGlassCard(dc, new Rect(center.X - radius - 70, center.Y - radius - 8, radius * 2 + 140, radius * 2 + 28));
+
+        if (wind.CrabAngleDeg is { } crab)
+        {
+            DrawText(dc, CrabAnglePresentation.Format(crab), 10, AetherTheme.Violet,
+                center.X + radius + 18, center.Y - 38, TextAlignment.Left, AetherTheme.Micro);
+        }
 
         var ringPen = new Pen(AetherTheme.GlassStrokeSoft, 1.5) { DashStyle = DashStyles.Dot };
         ringPen.Freeze();

@@ -1,3 +1,4 @@
+using ChallengeLab.App.Controls;
 using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scoring;
@@ -21,14 +22,13 @@ internal static class AetherMapper
             || !sample.SimOnGround);
 
         var windReading = RelativeWindCalculator.Calculate(sample, isConnected);
-        var wind = windReading.IsAvailable
-            ? new AetherWind(
-                Available: true,
-                SpeedKts: windReading.WindSpeedKts,
-                RelativeFromDeg: windReading.RelativeFromAngleDeg,
-                CrosswindKts: windReading.CrosswindKts,
-                HeadwindKts: windReading.LongitudinalKts)
-            : AetherWind.Empty;
+        var wind = new AetherWind(
+            Available: windReading.IsAvailable,
+            SpeedKts: windReading.WindSpeedKts,
+            RelativeFromDeg: windReading.RelativeFromAngleDeg,
+            CrosswindKts: windReading.CrosswindKts,
+            HeadwindKts: windReading.LongitudinalKts,
+            CrabAngleDeg: CrabAnglePresentation.FromSample(sample));
 
         double? targetAngle = runway is null
             ? null

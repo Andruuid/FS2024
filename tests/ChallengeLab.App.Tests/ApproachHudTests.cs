@@ -2,6 +2,7 @@ using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using ChallengeLab.App.Controls;
 using ChallengeLab.App.Controls.Aether;
 using ChallengeLab.App.Controls.Hud;
 using ChallengeLab.Core.Config;
@@ -27,6 +28,45 @@ public sealed class ApproachHudTests
         Assert.Equal(expectedWind, frame.Wind);
         Assert.Equal(17, frame.Sequence);
         Assert.Equal(3, frame.TargetGlideslopeDeg);
+    }
+
+    [Fact]
+    public void CrabAnglePresentation_UsesHeadingMinusTrackAndRequiresMoreThanHalfDegree()
+    {
+        Assert.Null(CrabAnglePresentation.FromSample(Sample(
+            headingTrueDeg: 10,
+            groundTrackTrueDeg: 9.5)));
+        Assert.Null(CrabAnglePresentation.FromSample(Sample(
+            headingTrueDeg: 10,
+            groundTrackTrueDeg: null)));
+
+        var right = CrabAnglePresentation.FromSample(Sample(
+            headingTrueDeg: 12.4,
+            groundTrackTrueDeg: 10));
+        var left = CrabAnglePresentation.FromSample(Sample(
+            headingTrueDeg: 7.6,
+            groundTrackTrueDeg: 10));
+
+        Assert.Equal(2.4, right!.Value, 6);
+        Assert.Equal(-2.4, left!.Value, 6);
+        Assert.Equal("CRAB R 2.4°", CrabAnglePresentation.Format(right!.Value));
+        Assert.Equal("CRAB L 2.4°", CrabAnglePresentation.Format(left!.Value));
+    }
+
+    [Fact]
+    public void BothHudFramesReceiveTheSameLiveCrabAngle()
+    {
+        var sample = Sample(headingTrueDeg: 3, groundTrackTrueDeg: 1);
+        var hudFrame = Frame(sample, Runway());
+        var aetherFrame = AetherMapper.FromGuidance(
+            sample,
+            isConnected: true,
+            sequence: 1,
+            runway: Runway(),
+            guidance: hudFrame.Guidance);
+
+        Assert.Equal(2, hudFrame.CrabAngleDeg!.Value, 6);
+        Assert.Equal(2, aetherFrame.Wind.CrabAngleDeg!.Value, 6);
     }
 
     [Fact]
@@ -149,6 +189,23 @@ public sealed class ApproachHudTests
     }
 
     [Fact]
+    public void ViewGate_UsesStricterHysteresisWhenLookingDownAtThePanel()
+    {
+        var gate = new HudViewGate();
+        var runway = Runway(latitude: .01, longitude: 0);
+
+        Assert.True(gate.ShouldShow(Frame(Sample(), runway)));
+        Assert.True(gate.ShouldShow(Frame(Sample(
+            cameraPitchRadians: Degrees(-(HudViewGate.ExitDownwardDegrees - 1))), runway)));
+        Assert.False(gate.ShouldShow(Frame(Sample(
+            cameraPitchRadians: Degrees(-(HudViewGate.ExitDownwardDegrees + 1))), runway)));
+        Assert.False(gate.ShouldShow(Frame(Sample(
+            cameraPitchRadians: Degrees(-(HudViewGate.EnterDownwardDegrees + 1))), runway)));
+        Assert.True(gate.ShouldShow(Frame(Sample(
+            cameraPitchRadians: Degrees(-(HudViewGate.EnterDownwardDegrees - 1))), runway)));
+    }
+
+    [Fact]
     public void ViewGate_StaysVisibleThroughThresholdCrossingInAForwardCockpitView()
     {
         var gate = new HudViewGate();
@@ -240,6 +297,7 @@ public sealed class ApproachHudTests
         RunSta(() =>
         {
             var surface = new AetherSurface();
+            Assert.Equal(1.1, surface.FontScale);
             surface.SetDisplayScale(0.9);
 
             surface.SetFontScale(0.1);
@@ -249,6 +307,25 @@ public sealed class ApproachHudTests
             surface.SetFontScale(2);
             Assert.Equal(1.35, surface.FontScale);
             Assert.Equal(0.9, surface.DisplayScale);
+        });
+    }
+
+    [Fact]
+    public void Hud1FontScale_ClampsIndependentlyFromInstrumentScale()
+    {
+        RunSta(() =>
+        {
+            var visual = new HudVisual();
+            Assert.Equal(1.1, visual.FontScale);
+            visual.UpdateScale(0.9);
+
+            visual.UpdateFontScale(0.1);
+            Assert.Equal(0.75, visual.FontScale);
+            Assert.Equal(0.9, visual.HudScale);
+
+            visual.UpdateFontScale(2);
+            Assert.Equal(1.35, visual.FontScale);
+            Assert.Equal(0.9, visual.HudScale);
         });
     }
 
@@ -291,6 +368,7 @@ public sealed class ApproachHudTests
         int? cameraSubstate = null,
         int? cameraViewType = 1,
         double headingTrueDeg = 0,
+        double? groundTrackTrueDeg = null,
         double windSpeedKts = 20,
         double windDirectionDeg = 90) => new()
         {
@@ -300,6 +378,7 @@ public sealed class ApproachHudTests
             AltitudeFeet = 0,
             AglFeet = 1_000,
             HeadingTrueDeg = headingTrueDeg,
+            GroundTrackTrueDeg = groundTrackTrueDeg,
             PitchDeg = 0,
             AirspeedKts = 135,
             GroundSpeedKts = 130,

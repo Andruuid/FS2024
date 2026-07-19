@@ -13,6 +13,7 @@ internal sealed record HudPresentationFrame(
     bool IsFlightActive,
     LandingMonitorReading Guidance,
     RelativeWindReading Wind,
+    double? CrabAngleDeg,
     double? TargetGlideslopeDeg,
     HudViewContext View)
 {
@@ -23,6 +24,7 @@ internal sealed record HudPresentationFrame(
         IsFlightActive: false,
         EmptyGuidance,
         default,
+        null,
         null,
         default);
 
@@ -64,6 +66,7 @@ internal sealed record HudPresentationFrame(
             flightActive,
             guidance,
             RelativeWindCalculator.Calculate(sample, isConnected),
+            CrabAnglePresentation.FromSample(sample),
             runway is null
                 ? null
                 : RunwayPathGeometry.SanitizeGlideslopeDeg(runway.GlideslopeDeg),
@@ -127,8 +130,10 @@ internal sealed class HudViewGate
 {
     internal const double EnterHorizontalDegrees = CockpitLookVisibilityPolicy.EnterHorizontalDegrees;
     internal const double ExitHorizontalDegrees = CockpitLookVisibilityPolicy.ExitHorizontalDegrees;
-    internal const double EnterVerticalDegrees = CockpitLookVisibilityPolicy.EnterVerticalDegrees;
-    internal const double ExitVerticalDegrees = CockpitLookVisibilityPolicy.ExitVerticalDegrees;
+    internal const double EnterUpwardDegrees = CockpitLookVisibilityPolicy.EnterUpwardDegrees;
+    internal const double ExitUpwardDegrees = CockpitLookVisibilityPolicy.ExitUpwardDegrees;
+    internal const double EnterDownwardDegrees = CockpitLookVisibilityPolicy.EnterDownwardDegrees;
+    internal const double ExitDownwardDegrees = CockpitLookVisibilityPolicy.ExitDownwardDegrees;
     internal const double NearRunwayDistanceMeters = CockpitLookVisibilityPolicy.NearRunwayDistanceMeters;
 
     private readonly CockpitLookVisibilityPolicy _policy = new();

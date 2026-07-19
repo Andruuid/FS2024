@@ -104,7 +104,7 @@
                 Maximum="1.35"
                 SmallChange="0.05"
                 LargeChange="0.1"
-                Value="1.0"
+                Value="1.1"
                 ValueChanged="OnFontScaleChanged" />
       </Grid>
     </Border>

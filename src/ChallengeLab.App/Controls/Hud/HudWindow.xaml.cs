@@ -45,7 +45,7 @@ public partial class HudWindow : Window
         _placementTimer.Start();
         ApplyScale(0.78);
         ApplyOpacity(0.95);
-        ApplyFontScale(1.0);
+        ApplyFontScale(1.1);
     }
 
     internal event Action<double>? ScaleChanged;

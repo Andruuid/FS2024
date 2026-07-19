@@ -7,10 +7,12 @@ namespace ChallengeLab.App.Controls;
 /// </summary>
 internal sealed class CockpitLookVisibilityPolicy
 {
-    internal const double EnterHorizontalDegrees = 30;
-    internal const double ExitHorizontalDegrees = 38;
-    internal const double EnterVerticalDegrees = 20;
-    internal const double ExitVerticalDegrees = 28;
+    internal const double EnterHorizontalDegrees = 25;
+    internal const double ExitHorizontalDegrees = 33;
+    internal const double EnterUpwardDegrees = 20;
+    internal const double ExitUpwardDegrees = 28;
+    internal const double EnterDownwardDegrees = 10;
+    internal const double ExitDownwardDegrees = 10;
     internal const double NearRunwayDistanceMeters = 1_852;
     internal const double ZeroOrientationEpsilonDegrees = 0.5;
 
@@ -70,14 +72,18 @@ internal sealed class CockpitLookVisibilityPolicy
         var horizontalLimit = _wasVisible
             ? ExitHorizontalDegrees
             : EnterHorizontalDegrees;
-        var verticalLimit = _wasVisible
-            ? ExitVerticalDegrees
-            : EnterVerticalDegrees;
+        var upwardLimit = _wasVisible
+            ? ExitUpwardDegrees
+            : EnterUpwardDegrees;
+        var downwardLimit = _wasVisible
+            ? ExitDownwardDegrees
+            : EnterDownwardDegrees;
 
         // This local cone applies with or without a runway lock and keeps the overlay confined
         // to the main windshield instead of following deliberate side/downward cockpit looks.
         if (Math.Abs(cameraYawDegrees) > horizontalLimit
-            || Math.Abs(cameraPitchDegrees) > verticalLimit)
+            || cameraPitchDegrees > upwardLimit
+            || cameraPitchDegrees < -downwardLimit)
         {
             return Hide();
         }
@@ -99,7 +105,7 @@ internal sealed class CockpitLookVisibilityPolicy
         var horizontalError = Math.Abs(NormalizeSigned(targetBearing - lookHeading));
         var verticalError = Math.Abs(targetElevation - lookPitch);
 
-        return horizontalError <= horizontalLimit && verticalError <= verticalLimit
+        return horizontalError <= horizontalLimit && verticalError <= upwardLimit
             ? Show()
             : Hide();
     }
