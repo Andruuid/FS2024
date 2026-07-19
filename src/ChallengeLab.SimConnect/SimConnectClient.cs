@@ -57,6 +57,7 @@ public sealed partial class SimConnectClient : ISimBridge
         LightsSet = 11,
         CombustionSet = 12,
         PistonControlsSet = 13,
+        GearPositionSet = 14,
         AirportFacility = 100
     }
 
@@ -2608,6 +2609,7 @@ public sealed partial class SimConnectClient : ISimBridge
         _sim = null;
         _defsRegistered = false;
         _snapshotDefsRegistered = false;
+        _gearPositionSetRegistered = false;
         _snapshotEventsMapped = false;
         _eventsMapped = false;
         lock (_pauseStateLock)

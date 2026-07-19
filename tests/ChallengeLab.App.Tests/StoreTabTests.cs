@@ -211,6 +211,21 @@ public sealed class StoreTabTests
         Assert.Contains("public const int StoreTabIndex = 5;", mainViewModel, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void SnapshotRestore_HasFrozenPoseGearRecoveryAndNoFlightLoad()
+    {
+        var root = FindRepositoryRoot();
+        var snapshotBridge = File.ReadAllText(
+            Path.Combine(root, "src", "ChallengeLab.SimConnect", "SimConnectClient.Snapshot.cs"));
+
+        Assert.Contains("AdvanceSnapshotGearWhileFrozenAsync", snapshotBridge, StringComparison.Ordinal);
+        Assert.Contains("PauseSim(false)", snapshotBridge, StringComparison.Ordinal);
+        Assert.Contains("GroundGearClearanceFeet", snapshotBridge, StringComparison.Ordinal);
+        Assert.Contains("GEAR POSITION:0", snapshotBridge, StringComparison.Ordinal);
+        Assert.Contains("TrySetGearPositionsDirect", snapshotBridge, StringComparison.Ordinal);
+        Assert.DoesNotContain("FlightLoad(", snapshotBridge, StringComparison.Ordinal);
+    }
+
     private static FlightStateSnapshot BuildSnapshot(string name) => new()
     {
         CreatedUtc = new DateTimeOffset(2026, 7, 18, 14, 30, 0, TimeSpan.Zero),

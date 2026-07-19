@@ -16,12 +16,15 @@ public sealed partial class SimConnectClient
     private TaskCompletionSource<SnapshotCaptureStruct>? _snapshotCaptureTcs;
     private bool _snapshotDefsRegistered;
     private bool _snapshotEventsMapped;
+    private bool _gearPositionSetRegistered;
 
     /// <summary>Extended settle when a ground restore has to move the gear down first.</summary>
     private const int MaxGearSettleMs = 25000;
     /// <summary>Final strict read-back after the last INITPOSITION write.</summary>
     private const int MaxSnapshotReadinessMs = 15000;
     private const int RequiredSnapshotReadySamples = 2;
+    private const int GearAnimationWindowMs = 9000;
+    private const double GroundGearClearanceFeet = 20.0;
 
     // Tank order is fixed — capture struct, write struct and dictionary keys must agree.
     private static readonly string[] FuelTankNames =
@@ -226,6 +229,18 @@ public sealed partial class SimConnectClient
     }
 
     /// <summary>
+    /// Indexed GEAR POSITION write. The SDK's set values are 1=up and 2=down.
+    /// Kept separate because an unsupported direct write must not break normal snapshots.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
+    private struct GearPositionSetStruct
+    {
+        public double Center;
+        public double Left;
+        public double Right;
+    }
+
+    /// <summary>
     /// Register snapshot capture + write definitions. Failure is contained: the flag stays
     /// false and STORE capture/restore report unavailable, the rest of the app is unaffected.
     /// </summary>
@@ -370,6 +385,22 @@ public sealed partial class SimConnectClient
             for (var i = 1; i <= 4; i++)
                 Add(Definitions.PistonControlsSet, $"GENERAL ENG PROPELLER LEVER POSITION:{i}", "percent");
             _sim.RegisterDataDefineStruct<PistonControlsSetStruct>(Definitions.PistonControlsSet);
+
+            // Optional hard fallback. The documented GEAR POSITION set enum is
+            // 1=up / 2=down for indices 0=center, 1=left and 2=right.
+            try
+            {
+                Add(Definitions.GearPositionSet, "GEAR POSITION:0", "enum");
+                Add(Definitions.GearPositionSet, "GEAR POSITION:1", "enum");
+                Add(Definitions.GearPositionSet, "GEAR POSITION:2", "enum");
+                _sim.RegisterDataDefineStruct<GearPositionSetStruct>(Definitions.GearPositionSet);
+                _gearPositionSetRegistered = true;
+            }
+            catch (Exception ex)
+            {
+                _gearPositionSetRegistered = false;
+                Log($"Direct gear-position fallback unavailable: {ex.Message}");
+            }
 
             _snapshotDefsRegistered = true;
         }
@@ -827,6 +858,14 @@ public sealed partial class SimConnectClient
                 SetPoseDirect(spawn);
                 SetVelocitySnapshot(snapshot);
                 ApplySnapshotConfigCommands(snapshot);
+                // Config recovery has already tried normal animation. INITPOSITION can
+                // reset addon gear, so re-assert the documented physical position before
+                // the strict read-back and avoid a second unpause whenever possible.
+                if (snapshot.IsGearRetractable
+                    && (!snapshot.OnGround || snapshot.GearHandleDown))
+                {
+                    TrySetGearPositionsDirect(snapshot.GearHandleDown);
+                }
                 ForceSetPauseOn();
                 FreezePose(true);
                 finalHoldWritten = true;
@@ -917,7 +956,17 @@ public sealed partial class SimConnectClient
     };
 
     /// <summary>INITPOSITION honoring the snapshot's on-ground flag (Teleport hardcodes air).</summary>
-    private void TeleportSnapshot(FlightStateSnapshot snapshot)
+    private void TeleportSnapshot(FlightStateSnapshot snapshot) =>
+        TeleportSnapshot(snapshot, snapshot.OnGround, snapshot.AltitudeFeet);
+
+    /// <summary>
+    /// INITPOSITION variant used by gear recovery. A ground snapshot can be held a few feet
+    /// above the surface with OnGround=0 while its systems briefly run and the pose stays frozen.
+    /// </summary>
+    private void TeleportSnapshot(
+        FlightStateSnapshot snapshot,
+        bool onGround,
+        double altitudeFeet)
     {
         if (_sim is null) return;
 
@@ -929,11 +978,11 @@ public sealed partial class SimConnectClient
             {
                 Latitude = snapshot.Latitude,
                 Longitude = snapshot.Longitude,
-                Altitude = snapshot.AltitudeFeet,
+                Altitude = altitudeFeet,
                 Pitch = snapshot.PitchDeg,
                 Bank = snapshot.BankDeg,
                 Heading = snapshot.HeadingTrueDeg,
-                OnGround = snapshot.OnGround ? 1u : 0u,
+                OnGround = onGround ? 1u : 0u,
                 Airspeed = (uint)Math.Max(0, Math.Round(airspeed))
             };
 
@@ -1105,9 +1154,9 @@ public sealed partial class SimConnectClient
     }
 
     /// <summary>
-    /// Gear/flaps/spoilers/parking brake from the snapshot while SET-paused + frozen.
-    /// Gear only moves after the aircraft is verified at the target — the sim is never
-    /// asked to retract while it still thinks it is on a runway.
+    /// Gear/flaps/spoilers/parking brake from the snapshot. Initial commands are sent while
+    /// SET-paused + frozen; a stalled gear gets a controlled systems-running recovery window
+    /// while every pose axis remains frozen. Configuration starts only after position verify.
     /// </summary>
     private async Task RestoreConfigureAndSettleAsync(
         FlightStateSnapshot snapshot,
@@ -1158,6 +1207,18 @@ public sealed partial class SimConnectClient
                 $"(gear={(snapshot.GearHandleDown ? "down" : "up")} flaps={snapshot.FlapsHandleIndex} " +
                 $"spoilers={SnapshotSpoilersTarget01(snapshot):0%} parkBrake={snapshot.ParkingBrakeOn})");
             await Task.Delay(ConfigPulseDelayMs, ct);
+        }
+
+        // PAUSE_ON stops the physical gear animation even though the handle event is
+        // accepted. If it is still short, run only the systems while all pose axes remain
+        // frozen. Ground snapshots are lifted briefly so extending wheels have clearance.
+        var postPulseSample = await RequestSnapshotStateOnceAsync(ct);
+        if (snapshot.IsGearRetractable
+            && postPulseSample is not null
+            && !EvaluateSnapshotReadiness(snapshot, postPulseSample.Value).GearReady)
+        {
+            await AdvanceSnapshotGearWhileFrozenAsync(snapshot, spawn, progress, ct);
+            started = DateTimeOffset.UtcNow;
         }
 
         progress?.Report("Waiting for aircraft to settle…");
@@ -1239,6 +1300,163 @@ public sealed partial class SimConnectClient
         }
     }
 
+    /// <summary>
+    /// Let gear animation advance with simulation running but latitude/longitude, altitude,
+    /// and attitude frozen. For a ground restore wanting gear down, temporarily move the
+    /// aircraft 20 ft up with OnGround=0 so the wheels cannot intersect the terrain. The
+    /// original SET-paused pose is restored in finally on success, failure, or cancellation.
+    /// </summary>
+    private async Task<bool> AdvanceSnapshotGearWhileFrozenAsync(
+        FlightStateSnapshot snapshot,
+        SpawnConfig spawn,
+        IProgress<string>? progress,
+        CancellationToken ct)
+    {
+        if (_sim is null || !snapshot.IsGearRetractable)
+            return false;
+
+        var targetDown = snapshot.GearHandleDown;
+        var liftForClearance = snapshot.OnGround && targetDown;
+        var recoverySpawn = SpawnFromSnapshot(snapshot);
+        recoverySpawn.AltitudeFeet = snapshot.AltitudeFeet + GroundGearClearanceFeet;
+        var directFallbackUsed = false;
+        var mechanismMatched = false;
+        var lastExtension01 = double.NaN;
+        var started = DateTimeOffset.UtcNow;
+
+        progress?.Report(liftForClearance
+            ? "Freeing landing gear — lifting clear while position stays locked…"
+            : "Freeing landing gear while position stays locked…");
+
+        ForceSetPauseOn();
+        FreezePose(true);
+
+        try
+        {
+            if (liftForClearance)
+            {
+                TeleportSnapshot(snapshot, onGround: false, recoverySpawn.AltitudeFeet);
+                SetPoseDirect(recoverySpawn);
+                SetVelocitySnapshot(snapshot);
+                FreezePose(true);
+                await Task.Delay(200, ct);
+            }
+
+            CommandGear(targetDown);
+            EnsureActivePauseOff();
+            FreezePose(true);
+            PauseSim(false);
+            PauseSim(false);
+            Log(
+                $"Snapshot gear recovery: simulation running with pose frozen; " +
+                $"target={(targetDown ? "down" : "up")} clearanceLift={liftForClearance}.");
+
+            var poll = 0;
+            while ((DateTimeOffset.UtcNow - started).TotalMilliseconds < GearAnimationWindowMs)
+            {
+                ct.ThrowIfCancellationRequested();
+                poll++;
+
+                // FREEZE_* is set-style and can safely be reasserted without pausing systems.
+                FreezePose(true);
+                var sample = await RequestSnapshotStateOnceAsync(ct);
+                if (sample is not null)
+                {
+                    var readiness = EvaluateSnapshotReadiness(snapshot, sample.Value);
+                    lastExtension01 = SnapshotRestoreReadiness.NormalizeGearExtension01(
+                        sample.Value.GearTotalPctExtended);
+                    progress?.Report(
+                        $"Animating landing gear with position locked — {lastExtension01:0%}…");
+
+                    if (readiness.GearReady)
+                    {
+                        mechanismMatched = true;
+                        Log($"Snapshot gear recovery reached {lastExtension01:0%}.");
+                        break;
+                    }
+                }
+
+                // Re-send the documented handle commands about once a second. If the
+                // aircraft still stalls, use the SDK's indexed GEAR POSITION setter once.
+                if (poll % 3 == 0)
+                    CommandGear(targetDown);
+
+                var elapsedMs = (DateTimeOffset.UtcNow - started).TotalMilliseconds;
+                if (!directFallbackUsed && elapsedMs >= 3000)
+                    directFallbackUsed = TrySetGearPositionsDirect(targetDown);
+
+                await Task.Delay(ConfigPollMs, ct);
+            }
+        }
+        finally
+        {
+            // Never let a cancelled/failed restore leave the aircraft running or elevated.
+            ForceSetPauseOn();
+            FreezePose(true);
+
+            if (liftForClearance)
+            {
+                TeleportSnapshot(snapshot);
+                SetPoseDirect(spawn);
+                SetVelocitySnapshot(snapshot);
+                CommandGear(targetDown);
+                if (directFallbackUsed)
+                    TrySetGearPositionsDirect(targetDown);
+            }
+
+            ForceSetPauseOn();
+            FreezePose(true);
+        }
+
+        await Task.Delay(250, ct);
+        var finalSample = await RequestSnapshotStateOnceAsync(ct);
+        if (finalSample is not null)
+        {
+            var finalReady = EvaluateSnapshotReadiness(snapshot, finalSample.Value).GearReady;
+            lastExtension01 = SnapshotRestoreReadiness.NormalizeGearExtension01(
+                finalSample.Value.GearTotalPctExtended);
+            Log(
+                $"Snapshot gear recovery final: {(finalReady ? "ready" : "not ready")} " +
+                $"at {lastExtension01:0%}; animated={mechanismMatched} directFallback={directFallbackUsed}.");
+            return finalReady;
+        }
+
+        Log("Snapshot gear recovery final: no telemetry; strict resume gate remains active.");
+        return false;
+    }
+
+    /// <summary>
+    /// Last-resort SDK setter: GEAR POSITION indices 0/1/2 accept enum 1=up, 2=down.
+    /// Returns false when the aircraft or simulator does not expose the standard setter.
+    /// </summary>
+    private bool TrySetGearPositionsDirect(bool gearDown)
+    {
+        if (_sim is null || !_gearPositionSetRegistered)
+            return false;
+
+        try
+        {
+            var target = gearDown ? 2.0 : 1.0;
+            _sim.SetDataOnSimObject(
+                Definitions.GearPositionSet,
+                MsfsSc.SIMCONNECT_OBJECT_ID_USER,
+                SIMCONNECT_DATA_SET_FLAG.DEFAULT,
+                new GearPositionSetStruct
+                {
+                    Center = target,
+                    Left = target,
+                    Right = target
+                });
+            Log($"Snapshot gear recovery: direct indexed position fallback -> {(gearDown ? "down" : "up")}.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log($"Snapshot direct gear-position fallback rejected: {ex.Message}");
+            return false;
+        }
+    }
+
     private void ApplySnapshotConfigCommands(FlightStateSnapshot snapshot)
     {
         if (_sim is null) return;
@@ -1304,6 +1522,7 @@ public sealed partial class SimConnectClient
         var started = DateTimeOffset.UtcNow;
         var poll = 0;
         var consecutiveReady = 0;
+        var gearRecoveryAttempted = false;
         SnapshotCaptureStruct? lastSample = null;
         string lastDetail = "waiting for simulator read-back";
 
@@ -1359,6 +1578,18 @@ public sealed partial class SimConnectClient
             else
             {
                 consecutiveReady = 0;
+
+                if (!readiness.GearReady
+                    && snapshot.IsGearRetractable
+                    && !gearRecoveryAttempted)
+                {
+                    gearRecoveryAttempted = true;
+                    Log($"Snapshot final readiness starting gear recovery: {lastDetail}");
+                    await AdvanceSnapshotGearWhileFrozenAsync(snapshot, spawn, progress, ct);
+                    started = DateTimeOffset.UtcNow;
+                    continue;
+                }
+
                 var action = !readiness.GearReady && snapshot.IsGearRetractable
                     ? snapshot.GearHandleDown
                         ? $"Gear {SnapshotRestoreReadiness.NormalizeGearExtension01(s.GearTotalPctExtended):0%} — nudging down"
