@@ -64,6 +64,7 @@ internal static class AetherMapper
 
         var camera = new AetherCamera(
             sample.CameraState,
+            sample.CameraSubstate,
             sample.CameraViewType,
             sample.CameraGameplayPitchRadians,
             sample.CameraGameplayYawRadians,

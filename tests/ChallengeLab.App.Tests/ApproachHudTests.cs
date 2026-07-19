@@ -2,6 +2,7 @@ using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using ChallengeLab.App.Controls.Aether;
 using ChallengeLab.App.Controls.Hud;
 using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Models;
@@ -51,6 +52,82 @@ public sealed class ApproachHudTests
         Assert.True(new HudViewGate().ShouldShow(Frame(
             Sample(cameraPitchRadians: null, cameraYawRadians: null),
             Runway(latitude: .01, longitude: 0))));
+        Assert.False(new HudViewGate().ShouldShow(Frame(
+            Sample(
+                cameraPitchRadians: null,
+                cameraYawRadians: null,
+                cameraSubstate: 2),
+            Runway(latitude: .01, longitude: 0))));
+    }
+
+    [Fact]
+    public void ViewGate_HidesSideAndDownwardLooksWithoutRunwayTarget()
+    {
+        Assert.False(new HudViewGate().ShouldShow(Frame(
+            Sample(cameraYawRadians: Degrees(90)), runway: null)));
+        Assert.False(new HudViewGate().ShouldShow(Frame(
+            Sample(cameraPitchRadians: Degrees(-60)), runway: null)));
+    }
+
+    [Fact]
+    public void ViewGate_RequiresFarRunwayToRemainInsideTheForwardLandingCone()
+    {
+        var runway = Runway(latitude: .02, longitude: 0);
+
+        Assert.True(new HudViewGate().ShouldShow(Frame(Sample(headingTrueDeg: 0), runway)));
+        Assert.False(new HudViewGate().ShouldShow(Frame(Sample(headingTrueDeg: 90), runway)));
+    }
+
+    [Fact]
+    public void BothHudGates_HideStaleUnlockedControllerLookUntilCameraReset()
+    {
+        var hudGate = new HudViewGate();
+        var aetherGate = new AetherLookPolicy();
+        var unlocked = Sample(cameraSubstate: 2);
+        var unlockedFrame = Frame(unlocked, runway: null);
+        var unlockedAether = AetherMapper.FromGuidance(
+            unlocked,
+            isConnected: true,
+            sequence: 1,
+            runway: null,
+            unlockedFrame.Guidance);
+
+        Assert.False(hudGate.ShouldShow(unlockedFrame));
+        Assert.False(aetherGate.ShouldRender(unlockedAether));
+        Assert.False(hudGate.ShouldShow(unlockedFrame));
+        Assert.False(aetherGate.ShouldRender(unlockedAether));
+
+        var reset = Sample(cameraSubstate: 1);
+        var resetFrame = Frame(reset, runway: null);
+        var resetAether = AetherMapper.FromGuidance(
+            reset,
+            isConnected: true,
+            sequence: 2,
+            runway: null,
+            resetFrame.Guidance);
+
+        Assert.True(hudGate.ShouldShow(resetFrame));
+        Assert.True(aetherGate.ShouldRender(resetAether));
+    }
+
+    [Fact]
+    public void ViewGate_HidesQuickviewSmartAndInstrumentCameraModes()
+    {
+        Assert.False(new HudViewGate().ShouldShow(Frame(
+            Sample(cameraViewType: 3), Runway())));
+        Assert.False(new HudViewGate().ShouldShow(Frame(
+            Sample(cameraSubstate: 3), Runway())));
+        Assert.False(new HudViewGate().ShouldShow(Frame(
+            Sample(cameraSubstate: 4), Runway())));
+        Assert.False(new HudViewGate().ShouldShow(Frame(
+            Sample(cameraSubstate: 5), Runway())));
+    }
+
+    [Fact]
+    public void ViewGate_UsesUsableAnglesEvenWhenCameraIsUnlocked()
+    {
+        Assert.True(new HudViewGate().ShouldShow(Frame(
+            Sample(cameraSubstate: 2, cameraYawRadians: Degrees(1)), Runway())));
     }
 
     [Fact]
@@ -59,11 +136,16 @@ public sealed class ApproachHudTests
         var gate = new HudViewGate();
         var runway = Runway(latitude: .01, longitude: 0);
 
-        Assert.True(gate.ShouldShow(Frame(Sample(cameraYawRadians: Degrees(34)), runway)));
-        Assert.True(gate.ShouldShow(Frame(Sample(cameraYawRadians: Degrees(42)), runway)));
-        Assert.False(gate.ShouldShow(Frame(Sample(cameraYawRadians: Degrees(46)), runway)));
-        Assert.False(gate.ShouldShow(Frame(Sample(cameraYawRadians: Degrees(40)), runway)));
-        Assert.True(gate.ShouldShow(Frame(Sample(cameraYawRadians: Degrees(34)), runway)));
+        Assert.True(gate.ShouldShow(Frame(Sample(
+            cameraYawRadians: Degrees(HudViewGate.EnterHorizontalDegrees - 1)), runway)));
+        Assert.True(gate.ShouldShow(Frame(Sample(
+            cameraYawRadians: Degrees(HudViewGate.ExitHorizontalDegrees - 1)), runway)));
+        Assert.False(gate.ShouldShow(Frame(Sample(
+            cameraYawRadians: Degrees(HudViewGate.ExitHorizontalDegrees + 1)), runway)));
+        Assert.False(gate.ShouldShow(Frame(Sample(
+            cameraYawRadians: Degrees(HudViewGate.EnterHorizontalDegrees + 1)), runway)));
+        Assert.True(gate.ShouldShow(Frame(Sample(
+            cameraYawRadians: Degrees(HudViewGate.EnterHorizontalDegrees - 1)), runway)));
     }
 
     [Fact]
@@ -153,6 +235,24 @@ public sealed class ApproachHudTests
     }
 
     [Fact]
+    public void AetherFontScale_ClampsIndependentlyFromInstrumentScale()
+    {
+        RunSta(() =>
+        {
+            var surface = new AetherSurface();
+            surface.SetDisplayScale(0.9);
+
+            surface.SetFontScale(0.1);
+            Assert.Equal(0.75, surface.FontScale);
+            Assert.Equal(0.9, surface.DisplayScale);
+
+            surface.SetFontScale(2);
+            Assert.Equal(1.35, surface.FontScale);
+            Assert.Equal(0.9, surface.DisplayScale);
+        });
+    }
+
+    [Fact]
     public void Renderer_HidesRunwayGuidanceUntilAnAirportIsDetected()
     {
         RunSta(() =>
@@ -188,7 +288,9 @@ public sealed class ApproachHudTests
         double? cameraPitchRadians = 0,
         double? cameraYawRadians = 0,
         int? cameraState = 2,
+        int? cameraSubstate = null,
         int? cameraViewType = 1,
+        double headingTrueDeg = 0,
         double windSpeedKts = 20,
         double windDirectionDeg = 90) => new()
         {
@@ -197,7 +299,7 @@ public sealed class ApproachHudTests
             Longitude = 0,
             AltitudeFeet = 0,
             AglFeet = 1_000,
-            HeadingTrueDeg = 0,
+            HeadingTrueDeg = headingTrueDeg,
             PitchDeg = 0,
             AirspeedKts = 135,
             GroundSpeedKts = 130,
@@ -207,6 +309,7 @@ public sealed class ApproachHudTests
             SimOnGround = false,
             AircraftTitle = "Test Aircraft",
             CameraState = cameraState,
+            CameraSubstate = cameraSubstate,
             CameraViewType = cameraViewType,
             CameraGameplayPitchRadians = cameraPitchRadians,
             CameraGameplayYawRadians = cameraYawRadians,

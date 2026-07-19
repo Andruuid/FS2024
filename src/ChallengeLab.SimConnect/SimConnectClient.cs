@@ -211,6 +211,7 @@ public sealed partial class SimConnectClient : ISimBridge
         public double IniAutobrakeEngaged;
         public double SimulationRate;
         public double CameraState;
+        public double CameraSubstate;
         public double CameraGameplayPitch;
         public double CameraGameplayYaw;
         public double CameraViewType;
@@ -2101,6 +2102,9 @@ public sealed partial class SimConnectClient : ISimBridge
                 CameraState = t.CameraState > 0 && double.IsFinite(t.CameraState)
                     ? (int)Math.Round(t.CameraState)
                     : null,
+                CameraSubstate = t.CameraSubstate > 0 && double.IsFinite(t.CameraSubstate)
+                    ? (int)Math.Round(t.CameraSubstate)
+                    : null,
                 CameraGameplayPitchRadians = double.IsFinite(t.CameraGameplayPitch)
                     ? t.CameraGameplayPitch
                     : null,
@@ -2312,6 +2316,8 @@ public sealed partial class SimConnectClient : ISimBridge
         _sim.AddToDataDefinition(Definitions.Telemetry, "SIMULATION RATE", "number",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "CAMERA STATE", "Enum",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "CAMERA SUBSTATE", "Enum",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.Telemetry, "CAMERA GAMEPLAY PITCH YAW:0", "radians",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);

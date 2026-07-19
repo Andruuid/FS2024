@@ -37,6 +37,7 @@
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto" />
           <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto" />
@@ -72,6 +73,23 @@
                 LargeChange="0.1"
                 Value="0.95"
                 ValueChanged="OnOpacityChanged" />
+
+        <TextBlock Grid.Row="2"
+                   Margin="0,6,9,0"
+                   VerticalAlignment="Center"
+                   FontSize="9"
+                   Foreground="#A8B6C7"
+                   Text="FONT" />
+        <Slider x:Name="FontScaleSlider"
+                Grid.Row="2"
+                Grid.Column="1"
+                Margin="0,6,0,0"
+                Minimum="0.75"
+                Maximum="1.35"
+                SmallChange="0.05"
+                LargeChange="0.1"
+                Value="1.0"
+                ValueChanged="OnFontScaleChanged" />
       </Grid>
     </Border>
   </Grid>

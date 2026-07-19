@@ -133,6 +133,12 @@ public sealed class TelemetrySample
     public int? CameraState { get; init; }
 
     /// <summary>
+    /// MSFS <c>CAMERA SUBSTATE</c> enum. Locked is 1, unlocked/headlook is 2, quickview is 3,
+    /// smart camera is 4, and instrument view is 5. Null when unavailable.
+    /// </summary>
+    public int? CameraSubstate { get; init; }
+
+    /// <summary>
     /// Current gameplay-camera pitch and yaw relative to its gameplay reference, in radians.
     /// Null when the MSFS camera SimVars are unavailable.
     /// </summary>

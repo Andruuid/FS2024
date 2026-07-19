@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     private double _fighterHudOpacity = 0.95;
     private double _aetherHudScale = 1.0;
     private double _aetherHudOpacity = 0.96;
+    private double _aetherHudFontScale = 1.0;
 
     public MainWindow()
     {
@@ -755,8 +756,10 @@ public partial class MainWindow : Window
             _aetherHud = new AetherOverlayWindow();
             _aetherHud.ApplyScale(_aetherHudScale);
             _aetherHud.ApplyOpacity(_aetherHudOpacity);
+            _aetherHud.ApplyFontScale(_aetherHudFontScale);
             _aetherHud.ScaleChanged += scale => _aetherHudScale = scale;
             _aetherHud.OpacityChanged += opacity => _aetherHudOpacity = opacity;
+            _aetherHud.FontScaleChanged += scale => _aetherHudFontScale = scale;
             _aetherHud.Closed += (_, _) =>
             {
                 _aetherHud = null;

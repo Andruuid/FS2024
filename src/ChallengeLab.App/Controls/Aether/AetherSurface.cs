@@ -20,6 +20,7 @@ public sealed class AetherSurface : FrameworkElement
     private AetherSnapshot? _snapshot;
     private double _displayScale = 1.0;
     private double _displayOpacity = 0.96;
+    private double _fontScale = 1.0;
 
     private double _smoothPathError;
     private double _smoothDescentError;
@@ -36,6 +37,7 @@ public sealed class AetherSurface : FrameworkElement
 
     internal double DisplayScale => _displayScale;
     internal double DisplayOpacity => _displayOpacity;
+    internal double FontScale => _fontScale;
 
     internal void ApplySnapshot(AetherSnapshot? snapshot)
     {
@@ -63,6 +65,12 @@ public sealed class AetherSurface : FrameworkElement
     internal void SetDisplayOpacity(double opacity)
     {
         _displayOpacity = Math.Clamp(opacity, 0.2, 1.0);
+        InvalidateVisual();
+    }
+
+    internal void SetFontScale(double scale)
+    {
+        _fontScale = Math.Clamp(scale, 0.75, 1.35);
         InvalidateVisual();
     }
 
@@ -184,14 +192,14 @@ public sealed class AetherSurface : FrameworkElement
         dc.DrawRectangle(brush, null, new Rect(w * 0.94, 0, w * 0.06, h));
     }
 
-    private static void DrawDisconnected(DrawingContext dc, double w, double h)
+    private void DrawDisconnected(DrawingContext dc, double w, double h)
     {
         DrawGlassCard(dc, new Rect(w * 0.5 - 110, h * 0.5 - 28, 220, 56));
         DrawText(dc, "AETHER  ·  NO LINK", 14, AetherTheme.TextMuted,
             w * 0.5, h * 0.5 - 8, TextAlignment.Center, AetherTheme.Body);
     }
 
-    private static void DrawWaiting(DrawingContext dc, double w, double h)
+    private void DrawWaiting(DrawingContext dc, double w, double h)
     {
         DrawGlassCard(dc, new Rect(w * 0.5 - 120, h * 0.5 - 28, 240, 56));
         DrawText(dc, "AETHER  ·  STANDBY", 14, AetherTheme.Cyan,
@@ -376,7 +384,7 @@ public sealed class AetherSurface : FrameworkElement
         }
     }
 
-    private static void DrawProgressRail(DrawingContext dc, Rect rect, AetherPath path)
+    private void DrawProgressRail(DrawingContext dc, Rect rect, AetherPath path)
     {
         DrawGlassCard(dc, rect);
         var inner = new Rect(rect.X + 10, rect.Y + 10, rect.Width - 20, 8);
@@ -557,9 +565,9 @@ public sealed class AetherSurface : FrameworkElement
         }, geo);
     }
 
-    private static void DrawBadge(DrawingContext dc, Point anchor, string text, Brush brush, bool alignRight = true)
+    private void DrawBadge(DrawingContext dc, Point anchor, string text, Brush brush, bool alignRight = true)
     {
-        var ft = Format(text, 10, brush, AetherTheme.Micro, TextAlignment.Left);
+        var ft = Format(text, 10 * _fontScale, brush, AetherTheme.Micro, TextAlignment.Left);
         var width = ft.Width + 14;
         var height = ft.Height + 8;
         var x = alignRight ? anchor.X - width : anchor.X;
@@ -596,7 +604,7 @@ public sealed class AetherSurface : FrameworkElement
         return path.DescentErrorDeg > 0 ? "STEEP" : "SHALLOW";
     }
 
-    private static void DrawText(
+    private void DrawText(
         DrawingContext dc,
         string text,
         double size,
@@ -606,8 +614,9 @@ public sealed class AetherSurface : FrameworkElement
         TextAlignment align,
         Typeface typeface)
     {
-        var body = Format(text, size, brush, typeface, align);
-        var shadow = Format(text, size, AetherTheme.Shadow, typeface, align);
+        var scaledSize = size * _fontScale;
+        var body = Format(text, scaledSize, brush, typeface, align);
+        var shadow = Format(text, scaledSize, AetherTheme.Shadow, typeface, align);
         dc.DrawText(shadow, new Point(x + 1.2, y + 1.2));
         dc.DrawText(body, new Point(x, y));
     }

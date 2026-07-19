@@ -92,6 +92,7 @@ internal readonly record struct AetherEnergy(
 
 internal readonly record struct AetherCamera(
     int? CameraState,
+    int? CameraSubstate,
     int? CameraViewType,
     double? CameraPitchRadians,
     double? CameraYawRadians,

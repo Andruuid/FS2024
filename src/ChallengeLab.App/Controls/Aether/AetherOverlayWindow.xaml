@@ -43,6 +43,7 @@
           <RowDefinition Height="Auto" />
           <RowDefinition Height="Auto" />
           <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto" />
@@ -56,12 +57,14 @@
                    Foreground="#B388FF"
                    Text="AETHER CONTROLS" />
 
-        <TextBlock Margin="0,0,10,0"
+        <TextBlock Grid.Row="1"
+                   Margin="0,0,10,0"
                    VerticalAlignment="Center"
                    FontSize="9"
                    Foreground="#9BB0D0"
                    Text="SCALE" />
         <Slider x:Name="ScaleSlider"
+                Grid.Row="1"
                 Grid.Column="1"
                 Minimum="0.55"
                 Maximum="1.3"
@@ -70,14 +73,14 @@
                 Value="1.0"
                 ValueChanged="OnScaleChanged" />
 
-        <TextBlock Grid.Row="1"
+        <TextBlock Grid.Row="2"
                    Margin="0,8,10,0"
                    VerticalAlignment="Center"
                    FontSize="9"
                    Foreground="#9BB0D0"
                    Text="OPACITY" />
         <Slider x:Name="OpacitySlider"
-                Grid.Row="1"
+                Grid.Row="2"
                 Grid.Column="1"
                 Margin="0,8,0,0"
                 Minimum="0.2"
@@ -86,6 +89,23 @@
                 LargeChange="0.1"
                 Value="0.96"
                 ValueChanged="OnOpacityChanged" />
+
+        <TextBlock Grid.Row="3"
+                   Margin="0,8,10,0"
+                   VerticalAlignment="Center"
+                   FontSize="9"
+                   Foreground="#9BB0D0"
+                   Text="FONT" />
+        <Slider x:Name="FontScaleSlider"
+                Grid.Row="3"
+                Grid.Column="1"
+                Margin="0,8,0,0"
+                Minimum="0.75"
+                Maximum="1.35"
+                SmallChange="0.05"
+                LargeChange="0.1"
+                Value="1.0"
+                ValueChanged="OnFontScaleChanged" />
       </Grid>
     </Border>
   </Grid>

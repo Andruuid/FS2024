@@ -30,6 +30,7 @@ public partial class AetherOverlayWindow : Window
     private bool _hasShown;
     private bool _syncingScale;
     private bool _syncingOpacity;
+    private bool _syncingFontScale;
 
     public AetherOverlayWindow()
     {
@@ -44,10 +45,12 @@ public partial class AetherOverlayWindow : Window
         _placeTimer.Start();
         ApplyScale(1.0);
         ApplyOpacity(0.96);
+        ApplyFontScale(1.0);
     }
 
     internal event Action<double>? ScaleChanged;
     internal event Action<double>? OpacityChanged;
+    internal event Action<double>? FontScaleChanged;
 
     internal void SetUserVisible(bool visible)
     {
@@ -82,6 +85,21 @@ public partial class AetherOverlayWindow : Window
         finally
         {
             _syncingOpacity = false;
+        }
+    }
+
+    internal void ApplyFontScale(double scale)
+    {
+        var bounded = Math.Clamp(scale, FontScaleSlider.Minimum, FontScaleSlider.Maximum);
+        Surface.SetFontScale(bounded);
+        _syncingFontScale = true;
+        try
+        {
+            FontScaleSlider.Value = bounded;
+        }
+        finally
+        {
+            _syncingFontScale = false;
         }
     }
 
@@ -203,6 +221,14 @@ public partial class AetherOverlayWindow : Window
             return;
         Surface.SetDisplayOpacity(e.NewValue);
         OpacityChanged?.Invoke(e.NewValue);
+    }
+
+    private void OnFontScaleChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_syncingFontScale)
+            return;
+        Surface.SetFontScale(e.NewValue);
+        FontScaleChanged?.Invoke(e.NewValue);
     }
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]

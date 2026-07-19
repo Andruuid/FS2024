@@ -1,3 +1,4 @@
+using ChallengeLab.App.Controls;
 using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scoring;
@@ -88,6 +89,7 @@ internal sealed record HudPresentationFrame(
 
 internal readonly record struct HudViewContext(
     int? CameraState,
+    int? CameraSubstate,
     int? CameraViewType,
     double? CameraPitchRadians,
     double? CameraYawRadians,
@@ -103,6 +105,7 @@ internal readonly record struct HudViewContext(
 {
     public static HudViewContext FromSample(TelemetrySample sample, RunwayConfig? runway) => new(
         sample.CameraState,
+        sample.CameraSubstate,
         sample.CameraViewType,
         sample.CameraGameplayPitchRadians,
         sample.CameraGameplayYawRadians,
@@ -118,153 +121,43 @@ internal readonly record struct HudViewContext(
 }
 
 /// <summary>
-/// Stateful airport-direction visibility gate. Missing direction or runway data deliberately
-/// falls back to visible; known exterior and instrument views always hide the overlay.
+/// HUD adapter over the shared cockpit-look visibility policy.
 /// </summary>
 internal sealed class HudViewGate
 {
-    internal const double EnterHorizontalDegrees = 35;
-    internal const double ExitHorizontalDegrees = 45;
-    internal const double EnterVerticalDegrees = 25;
-    internal const double ExitVerticalDegrees = 35;
-    internal const double NearRunwayDistanceMeters = 1_852;
+    internal const double EnterHorizontalDegrees = CockpitLookVisibilityPolicy.EnterHorizontalDegrees;
+    internal const double ExitHorizontalDegrees = CockpitLookVisibilityPolicy.ExitHorizontalDegrees;
+    internal const double EnterVerticalDegrees = CockpitLookVisibilityPolicy.EnterVerticalDegrees;
+    internal const double ExitVerticalDegrees = CockpitLookVisibilityPolicy.ExitVerticalDegrees;
+    internal const double NearRunwayDistanceMeters = CockpitLookVisibilityPolicy.NearRunwayDistanceMeters;
 
-    private const int CockpitCameraState = 2;
-    private const int InstrumentViewType = 2;
-    private const double EarthRadiusMeters = 6_371_000;
-    private const double FeetPerMeter = 3.280839895013123;
-
-    private bool _wasDirectionVisible;
+    private readonly CockpitLookVisibilityPolicy _policy = new();
 
     public bool ShouldShow(HudPresentationFrame? frame)
     {
-        if (frame is null || !frame.IsConnected || !frame.IsFlightActive)
-        {
-            _wasDirectionVisible = false;
-            return false;
-        }
+        var view = frame?.View ?? default;
+        CockpitRunwayTarget? runway = view.HasRunwayTarget
+            ? new CockpitRunwayTarget(
+                view.RunwayLatitude,
+                view.RunwayLongitude,
+                view.RunwayElevationFeet)
+            : null;
+        var context = new CockpitLookContext(
+            view.CameraState,
+            view.CameraSubstate,
+            view.CameraViewType,
+            view.CameraPitchRadians,
+            view.CameraYawRadians,
+            view.AircraftLatitude,
+            view.AircraftLongitude,
+            view.AircraftAltitudeFeet,
+            view.AircraftHeadingDeg,
+            view.AircraftPitchDeg,
+            runway);
 
-        var view = frame.View;
-        if (view.CameraState is { } cameraState && cameraState != CockpitCameraState)
-        {
-            _wasDirectionVisible = false;
-            return false;
-        }
-
-        if (view.CameraViewType == InstrumentViewType)
-        {
-            _wasDirectionVisible = false;
-            return false;
-        }
-
-        if (!view.HasRunwayTarget
-            || view.CameraPitchRadians is not { } cameraPitch
-            || view.CameraYawRadians is not { } cameraYaw
-            || !TryGetTargetDirection(
-                view,
-                out var targetBearing,
-                out var targetElevation,
-                out var targetDistanceMeters))
-        {
-            _wasDirectionVisible = false;
-            return true;
-        }
-
-        var cameraYawDegrees = LandingMonitorCalculator.NormalizeSignedDegrees(
-            cameraYaw * 180.0 / Math.PI);
-        var cameraPitchDegrees = cameraPitch * 180.0 / Math.PI;
-
-        // Once close to the runway, its threshold rapidly moves below and then behind the
-        // aircraft during the flare. Keep a normal forward cockpit view visible there, while
-        // still rejecting deliberate side/downward looks such as looking at the flaps.
-        var nearHorizontalLimit = _wasDirectionVisible
-            ? ExitHorizontalDegrees
-            : EnterHorizontalDegrees;
-        var nearVerticalLimit = _wasDirectionVisible
-            ? ExitVerticalDegrees
-            : EnterVerticalDegrees;
-        if (targetDistanceMeters <= NearRunwayDistanceMeters)
-        {
-            _wasDirectionVisible = Math.Abs(cameraYawDegrees) <= nearHorizontalLimit
-                                   && Math.Abs(cameraPitchDegrees) <= nearVerticalLimit;
-            return _wasDirectionVisible;
-        }
-
-        // MSFS reports gameplay camera offsets in radians. Treat positive yaw as right and
-        // positive pitch as up, then combine them with aircraft attitude to get world look direction.
-        var lookHeading = NormalizeDirection(
-            view.AircraftHeadingDeg + cameraYawDegrees);
-        var lookPitch = view.AircraftPitchDeg + cameraPitchDegrees;
-        var horizontalError = Math.Abs(LandingMonitorCalculator.NormalizeSignedDegrees(
-            targetBearing - lookHeading));
-        var verticalError = Math.Abs(targetElevation - lookPitch);
-
-        var horizontalLimit = _wasDirectionVisible
-            ? ExitHorizontalDegrees
-            : EnterHorizontalDegrees;
-        var verticalLimit = _wasDirectionVisible
-            ? ExitVerticalDegrees
-            : EnterVerticalDegrees;
-        _wasDirectionVisible = horizontalError <= horizontalLimit
-                               && verticalError <= verticalLimit;
-        return _wasDirectionVisible;
-    }
-
-    private static bool TryGetTargetDirection(
-        HudViewContext view,
-        out double bearingDegrees,
-        out double elevationDegrees,
-        out double distanceMeters)
-    {
-        bearingDegrees = 0;
-        elevationDegrees = 0;
-        distanceMeters = 0;
-        if (!double.IsFinite(view.AircraftLatitude)
-            || !double.IsFinite(view.AircraftLongitude)
-            || !double.IsFinite(view.AircraftAltitudeFeet)
-            || !double.IsFinite(view.AircraftHeadingDeg)
-            || !double.IsFinite(view.AircraftPitchDeg)
-            || !double.IsFinite(view.RunwayLatitude)
-            || !double.IsFinite(view.RunwayLongitude)
-            || !double.IsFinite(view.RunwayElevationFeet))
-        {
-            return false;
-        }
-
-        var latitude1 = view.AircraftLatitude * Math.PI / 180.0;
-        var latitude2 = view.RunwayLatitude * Math.PI / 180.0;
-        var deltaLatitude = latitude2 - latitude1;
-        var deltaLongitude = (view.RunwayLongitude - view.AircraftLongitude) * Math.PI / 180.0;
-        var sinHalfLatitude = Math.Sin(deltaLatitude / 2.0);
-        var sinHalfLongitude = Math.Sin(deltaLongitude / 2.0);
-        var haversine = sinHalfLatitude * sinHalfLatitude
-                        + Math.Cos(latitude1) * Math.Cos(latitude2)
-                        * sinHalfLongitude * sinHalfLongitude;
-        distanceMeters = 2.0 * EarthRadiusMeters
-                         * Math.Asin(Math.Sqrt(Math.Clamp(haversine, 0, 1)));
-        if (!double.IsFinite(distanceMeters))
-            return false;
-        if (distanceMeters < 1)
-        {
-            bearingDegrees = NormalizeDirection(view.AircraftHeadingDeg);
-            elevationDegrees = 0;
-            return true;
-        }
-
-        var y = Math.Sin(deltaLongitude) * Math.Cos(latitude2);
-        var x = Math.Cos(latitude1) * Math.Sin(latitude2)
-                - Math.Sin(latitude1) * Math.Cos(latitude2) * Math.Cos(deltaLongitude);
-        bearingDegrees = NormalizeDirection(Math.Atan2(y, x) * 180.0 / Math.PI);
-        elevationDegrees = Math.Atan2(
-                view.RunwayElevationFeet - view.AircraftAltitudeFeet,
-                distanceMeters * FeetPerMeter)
-            * 180.0 / Math.PI;
-        return double.IsFinite(bearingDegrees) && double.IsFinite(elevationDegrees);
-    }
-
-    private static double NormalizeDirection(double degrees)
-    {
-        var normalized = degrees % 360.0;
-        return normalized < 0 ? normalized + 360.0 : normalized;
+        return _policy.ShouldShow(
+            frame?.IsConnected == true,
+            frame?.IsFlightActive == true,
+            context);
     }
 }

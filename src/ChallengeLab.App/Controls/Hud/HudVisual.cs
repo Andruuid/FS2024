@@ -45,6 +45,7 @@ public sealed class HudVisual : FrameworkElement
     private HudPresentationFrame? _frame;
     private double _hudScale = 0.78;
     private double _hudOpacity = 0.95;
+    private double _fontScale = 1.0;
 
     public HudVisual()
     {
@@ -71,6 +72,14 @@ public sealed class HudVisual : FrameworkElement
     internal void UpdateOpacity(double opacity)
     {
         _hudOpacity = Math.Clamp(opacity, 0.2, 1.0);
+        InvalidateVisual();
+    }
+
+    internal double FontScale => _fontScale;
+
+    internal void UpdateFontScale(double scale)
+    {
+        _fontScale = Math.Clamp(scale, 0.75, 1.35);
         InvalidateVisual();
     }
 
@@ -102,7 +111,7 @@ public sealed class HudVisual : FrameworkElement
         drawingContext.Pop();
     }
 
-    private static void DrawWind(DrawingContext dc, RelativeWindReading wind)
+    private void DrawWind(DrawingContext dc, RelativeWindReading wind)
     {
         var center = new Point(706, 120);
 
@@ -126,7 +135,7 @@ public sealed class HudVisual : FrameworkElement
     internal static string FormatWindSpeed(RelativeWindReading wind) =>
         wind.IsAvailable ? $"{wind.WindSpeedKts:0.0} KT" : "— KT";
 
-    private static void DrawPathPosition(DrawingContext dc, HudPresentationFrame frame)
+    private void DrawPathPosition(DrawingContext dc, HudPresentationFrame frame)
     {
         var guidance = frame.Guidance;
         var value = guidance.GlideslopeDeg is { } angle ? $"{angle:0.0}°" : "—";
@@ -139,7 +148,7 @@ public sealed class HudVisual : FrameworkElement
             458, 378, TextAlignment.Left, mono: true);
     }
 
-    private static void DrawDescentAngle(DrawingContext dc, HudPresentationFrame frame)
+    private void DrawDescentAngle(DrawingContext dc, HudPresentationFrame frame)
     {
         var guidance = frame.Guidance;
         var value = guidance.DescentAngleDeg is { } angle ? $"{angle:0.0}°" : "—";
@@ -152,7 +161,7 @@ public sealed class HudVisual : FrameworkElement
             458, 498, TextAlignment.Left, mono: true);
     }
 
-    private static void DrawVerticalSpeed(DrawingContext dc, LandingMonitorReading guidance)
+    private void DrawVerticalSpeed(DrawingContext dc, LandingMonitorReading guidance)
     {
         var verticalSpeed = guidance.VerticalSpeedFpm;
         var value = verticalSpeed is { } fpm
@@ -163,7 +172,7 @@ public sealed class HudVisual : FrameworkElement
         DrawText(dc, "VSpeed", 11, LabelBrush, 1118, 415, TextAlignment.Left, semibold: true);
     }
 
-    private static void DrawAirspeed(DrawingContext dc, LandingMonitorReading guidance)
+    private void DrawAirspeed(DrawingContext dc, LandingMonitorReading guidance)
     {
         var value = guidance.AirspeedKts is { } airspeed ? $"{airspeed:0}" : "—";
         var color = StatusBrush(guidance.AirspeedStatus);
@@ -239,7 +248,7 @@ public sealed class HudVisual : FrameworkElement
         _ => NeutralBrush,
     };
 
-    private static void DrawText(
+    private void DrawText(
         DrawingContext dc,
         string text,
         double fontSize,
@@ -251,12 +260,13 @@ public sealed class HudVisual : FrameworkElement
         bool mono = false)
     {
         var typeface = mono ? MonoTypeface : semibold ? SemiboldTypeface : UiTypeface;
+        var scaledFontSize = fontSize * _fontScale;
         var formatted = new FormattedText(
             text,
             CultureInfo.InvariantCulture,
             WpfFlowDirection.LeftToRight,
             typeface,
-            fontSize,
+            scaledFontSize,
             brush,
             1.0)
         {
@@ -267,7 +277,7 @@ public sealed class HudVisual : FrameworkElement
             CultureInfo.InvariantCulture,
             WpfFlowDirection.LeftToRight,
             typeface,
-            fontSize,
+            scaledFontSize,
             ShadowBrush,
             1.0)
         {

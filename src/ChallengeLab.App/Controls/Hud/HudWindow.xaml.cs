@@ -30,6 +30,7 @@ public partial class HudWindow : Window
     private bool _hasBeenShown;
     private bool _isApplyingScale;
     private bool _isApplyingOpacity;
+    private bool _isApplyingFontScale;
 
     public HudWindow()
     {
@@ -44,10 +45,12 @@ public partial class HudWindow : Window
         _placementTimer.Start();
         ApplyScale(0.78);
         ApplyOpacity(0.95);
+        ApplyFontScale(1.0);
     }
 
     internal event Action<double>? ScaleChanged;
     internal event Action<double>? OpacityChanged;
+    internal event Action<double>? FontScaleChanged;
 
     internal void SetUserVisible(bool visible)
     {
@@ -82,6 +85,21 @@ public partial class HudWindow : Window
         finally
         {
             _isApplyingOpacity = false;
+        }
+    }
+
+    internal void ApplyFontScale(double scale)
+    {
+        var bounded = Math.Clamp(scale, FontScaleSlider.Minimum, FontScaleSlider.Maximum);
+        Visual.UpdateFontScale(bounded);
+        _isApplyingFontScale = true;
+        try
+        {
+            FontScaleSlider.Value = bounded;
+        }
+        finally
+        {
+            _isApplyingFontScale = false;
         }
     }
 
@@ -218,6 +236,15 @@ public partial class HudWindow : Window
 
         Visual.UpdateOpacity(eventArgs.NewValue);
         OpacityChanged?.Invoke(eventArgs.NewValue);
+    }
+
+    private void OnFontScaleChanged(object sender, RoutedPropertyChangedEventArgs<double> eventArgs)
+    {
+        if (_isApplyingFontScale)
+            return;
+
+        Visual.UpdateFontScale(eventArgs.NewValue);
+        FontScaleChanged?.Invoke(eventArgs.NewValue);
     }
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]
