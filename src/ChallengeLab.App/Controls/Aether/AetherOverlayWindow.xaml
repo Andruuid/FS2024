@@ -1,0 +1,92 @@
+<Window x:Class="ChallengeLab.App.Controls.Aether.AetherOverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:aether="clr-namespace:ChallengeLab.App.Controls.Aether"
+        Title="Challenge Lab Aether HUD"
+        Width="1280"
+        Height="720"
+        AllowsTransparency="True"
+        Background="Transparent"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        ShowActivated="False"
+        ShowInTaskbar="False"
+        Topmost="True">
+  <Grid Background="Transparent">
+    <aether:AetherSurface x:Name="Surface" IsHitTestVisible="False" />
+
+    <Border x:Name="Chrome"
+            Width="188"
+            Margin="20"
+            Padding="12,9"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Bottom"
+            Background="#66101828"
+            BorderBrush="#66B388FF"
+            BorderThickness="1"
+            CornerRadius="12">
+      <Border.Effect>
+        <DropShadowEffect BlurRadius="16" ShadowDepth="0" Opacity="0.45" Color="#B388FF"/>
+      </Border.Effect>
+      <Border.Style>
+        <Style TargetType="Border">
+          <Setter Property="Opacity" Value="0.38" />
+          <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter Property="Opacity" Value="0.95" />
+            </Trigger>
+          </Style.Triggers>
+        </Style>
+      </Border.Style>
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <TextBlock Grid.ColumnSpan="2"
+                   Margin="0,0,0,6"
+                   FontSize="9"
+                   FontWeight="Bold"
+                   Foreground="#B388FF"
+                   Text="AETHER CONTROLS" />
+
+        <TextBlock Margin="0,0,10,0"
+                   VerticalAlignment="Center"
+                   FontSize="9"
+                   Foreground="#9BB0D0"
+                   Text="SCALE" />
+        <Slider x:Name="ScaleSlider"
+                Grid.Column="1"
+                Minimum="0.55"
+                Maximum="1.3"
+                SmallChange="0.05"
+                LargeChange="0.1"
+                Value="1.0"
+                ValueChanged="OnScaleChanged" />
+
+        <TextBlock Grid.Row="1"
+                   Margin="0,8,10,0"
+                   VerticalAlignment="Center"
+                   FontSize="9"
+                   Foreground="#9BB0D0"
+                   Text="OPACITY" />
+        <Slider x:Name="OpacitySlider"
+                Grid.Row="1"
+                Grid.Column="1"
+                Margin="0,8,0,0"
+                Minimum="0.2"
+                Maximum="1"
+                SmallChange="0.05"
+                LargeChange="0.1"
+                Value="0.96"
+                ValueChanged="OnOpacityChanged" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

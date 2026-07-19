@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using ChallengeLab.App.Controls.Aether;
 using ChallengeLab.App.Controls.Hud;
 using ChallengeLab.App.ViewModels;
 using ChallengeLab.Core.Highscores;
@@ -22,8 +23,11 @@ public partial class MainWindow : Window
     private CompanionHudWindow? _hud;
     private SecondaryHudWindow? _secondaryHud;
     private HudWindow? _fighterHud;
+    private AetherOverlayWindow? _aetherHud;
     private double _fighterHudScale = 0.78;
     private double _fighterHudOpacity = 0.95;
+    private double _aetherHudScale = 1.0;
+    private double _aetherHudOpacity = 0.96;
 
     public MainWindow()
     {
@@ -37,6 +41,8 @@ public partial class MainWindow : Window
         _vm.RequestToggleSecondaryHud += ToggleSecondaryHud;
         _vm.RequestToggleFighterHud += ToggleFighterHud;
         _vm.FighterHudPresentation += OnFighterHudPresentation;
+        _vm.RequestToggleAetherHud += ToggleAetherHud;
+        _vm.AetherPresentation += OnAetherPresentation;
         _vm.RequestToggleMain += ToggleMainWindow;
 
         // Always paint report in code — no reliance on fragile ItemsControl bindings
@@ -624,6 +630,7 @@ public partial class MainWindow : Window
     private void OnClosed(object? sender, EventArgs e)
     {
         _fighterHud?.Close();
+        _aetherHud?.Close();
         _secondaryHud?.Close();
         _hud?.Close();
         _vm.Dispose();
@@ -732,6 +739,61 @@ public partial class MainWindow : Window
 
         _fighterHud.UpdatePresentation(frame);
         _fighterHud.SetUserVisible(frame is not null && _vm.IsFighterHudVisible);
+    }
+
+    private void ToggleAetherHud()
+    {
+        if (_vm.IsAetherHudVisible)
+        {
+            CloseAetherHud();
+            return;
+        }
+
+        if (_aetherHud is null)
+        {
+            // Unowned overlay so it stays up when the menu is hidden.
+            _aetherHud = new AetherOverlayWindow();
+            _aetherHud.ApplyScale(_aetherHudScale);
+            _aetherHud.ApplyOpacity(_aetherHudOpacity);
+            _aetherHud.ScaleChanged += scale => _aetherHudScale = scale;
+            _aetherHud.OpacityChanged += opacity => _aetherHudOpacity = opacity;
+            _aetherHud.Closed += (_, _) =>
+            {
+                _aetherHud = null;
+                _vm.SetAetherHudVisible(false);
+            };
+        }
+
+        _vm.SetAetherHudVisible(true);
+        _aetherHud.SetUserVisible(true);
+    }
+
+    private void CloseAetherHud()
+    {
+        _vm.SetAetherHudVisible(false);
+        if (_aetherHud is null)
+            return;
+
+        try
+        {
+            _aetherHud.SetUserVisible(false);
+            _aetherHud.Close();
+        }
+        catch
+        {
+            // Window may already be closing.
+        }
+
+        _aetherHud = null;
+    }
+
+    private void OnAetherPresentation(AetherSnapshot? snapshot)
+    {
+        if (_aetherHud is null)
+            return;
+
+        _aetherHud.ApplySnapshot(snapshot);
+        _aetherHud.SetUserVisible(snapshot is not null && _vm.IsAetherHudVisible);
     }
 
     /// <summary>

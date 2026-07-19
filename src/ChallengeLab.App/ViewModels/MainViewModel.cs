@@ -18,6 +18,7 @@ using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scenarios;
 using ChallengeLab.Core.Scoring;
 using ChallengeLab.Core.Snapshots;
+using ChallengeLab.App.Controls.Aether;
 using ChallengeLab.App.Controls.Hud;
 using ChallengeLab.SimConnect;
 // LandingEvaluationKey lives in ChallengeLab.Core.Config
@@ -136,7 +137,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _freeTargetMonitorStatus = "Runway data warming · lower gear to select an aligned runway";
     private bool _isSecondaryHudVisible;
     private bool _isFighterHudVisible;
+    private bool _isAetherHudVisible;
     private long _fighterHudSequence;
+    private long _aetherHudSequence;
 
     // Post-spawn GO gate: wait until IAS + surfaces match challenge before enabling GO.
     private bool _isSpawnPreparing;
@@ -228,6 +231,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         ClearHighscoreSelectionCommand = new RelayCommand(() => SelectedHighscore = null);
         ToggleSecondaryHudCommand = new RelayCommand(() => RequestToggleSecondaryHud?.Invoke());
         ToggleFighterHudCommand = new RelayCommand(ToggleFighterHud);
+        ToggleAetherHudCommand = new RelayCommand(ToggleAetherHud);
         RefreshFlightTapesCommand = new RelayCommand(RefreshFlightTapes);
         EvaluateSelectedFlightTapeCommand = new RelayCommand(
             EvaluateSelectedFlightTape,
@@ -334,6 +338,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public event Action? RequestToggleFighterHud;
     /// <summary>Push a presentation frame to the fighter HUD when it is open.</summary>
     internal event Action<HudPresentationFrame?>? FighterHudPresentation;
+    /// <summary>Open/close the independent Aether (HUD 2) overlay (wired in MainWindow).</summary>
+    public event Action? RequestToggleAetherHud;
+    /// <summary>Push a presentation snapshot to the Aether overlay when it is open.</summary>
+    internal event Action<AetherSnapshot?>? AetherPresentation;
     public event Action<ScoreResult>? ScoreComputed;
 
     public SecondaryHudViewModel SecondaryHud { get; }
@@ -373,6 +381,35 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void ToggleFighterHud()
     {
         RequestToggleFighterHud?.Invoke();
+    }
+
+    public bool IsAetherHudVisible
+    {
+        get => _isAetherHudVisible;
+        private set => SetProperty(ref _isAetherHudVisible, value);
+    }
+
+    public void SetAetherHudVisible(bool visible)
+    {
+        if (IsAetherHudVisible == visible)
+            return;
+
+        IsAetherHudVisible = visible;
+        if (visible)
+        {
+            AppendLog("Aether HUD on — independent approach overlay on the MSFS window.");
+            PushAetherPresentation();
+        }
+        else
+        {
+            AppendLog("Aether HUD off.");
+            AetherPresentation?.Invoke(null);
+        }
+    }
+
+    private void ToggleAetherHud()
+    {
+        RequestToggleAetherHud?.Invoke();
     }
 
     public bool HasValidScoringConfiguration => _scoreEngine is not null && _sessionSettings is not null;
@@ -452,6 +489,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand ToggleSecondaryHudCommand { get; }
     /// <summary>Show or hide the fighter-style sim overlay HUD.</summary>
     public ICommand ToggleFighterHudCommand { get; }
+    /// <summary>Show or hide the independent Aether (HUD 2) overlay.</summary>
+    public ICommand ToggleAetherHudCommand { get; }
     public ICommand OpenMenuCommand { get; }
     public ICommand RefreshFlightTapesCommand { get; }
     public ICommand EvaluateSelectedFlightTapeCommand { get; }
@@ -2598,6 +2637,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 evaluationArmed: _session is not null);
             if (IsFighterHudVisible)
                 PushFighterHudPresentation(sample, sharedGuidance: sharedGuidance);
+            if (IsAetherHudVisible)
+                PushAetherPresentation(sample, sharedGuidance: sharedGuidance);
             if (IsFreeMode && _session is null)
             {
                 if (_freeTargetLock is { } targetLock)
@@ -3098,6 +3139,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 SecondaryHud.SetDisconnected();
                 if (IsFighterHudVisible)
                     PushFighterHudPresentation(sample: null, connected: false);
+                if (IsAetherHudVisible)
+                    PushAetherPresentation(sample: null, connected: false);
                 if (!IsFreeMode) return;
                 StopFreeInference(resetTarget: _freeTargetLock is null);
                 if (_freeTargetLock is { } targetLock)
@@ -3738,6 +3781,56 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             sample,
             isConnected,
             _fighterHudSequence,
+            guidanceChallenge?.Runway,
+            guidance));
+    }
+
+    private void PushAetherPresentation(
+        ChallengeLab.Core.Models.TelemetrySample? sample = null,
+        bool? connected = null,
+        LandingMonitorReading? sharedGuidance = null)
+    {
+        if (!IsAetherHudVisible)
+            return;
+
+        var isConnected = connected ?? _sim.IsConnected;
+        sample ??= _lastTelemetry;
+        _aetherHudSequence++;
+        if (sample is null)
+        {
+            AetherPresentation?.Invoke(AetherSnapshot.Disconnected(_aetherHudSequence));
+            return;
+        }
+
+        var settings = CurrentSessionSettings;
+        var guidanceChallenge = CurrentGuidanceChallenge;
+        double? targetTouchdownIas = null;
+        if (guidanceChallenge is not null && settings is not null)
+        {
+            targetTouchdownIas = SpeedTargetCalculator
+                .Resolve(guidanceChallenge, settings, sample)
+                .TargetTouchdownIasKts;
+        }
+
+        var guidance = sharedGuidance ?? LandingMonitorCalculator.Calculate(
+            sample,
+            guidanceChallenge?.Runway,
+            targetTouchdownIas,
+            settings?.ApproachPathMinDistNm ?? .2,
+            settings?.ApproachPathMaxDistNm ?? 4.5);
+        if (sharedGuidance is null)
+        {
+            guidance = _landingGuidanceHold.Update(
+                sample,
+                guidanceChallenge?.Runway,
+                guidance,
+                settings?.FlareAglFeet ?? 50);
+        }
+
+        AetherPresentation?.Invoke(AetherMapper.FromGuidance(
+            sample,
+            isConnected,
+            _aetherHudSequence,
             guidanceChallenge?.Runway,
             guidance));
     }

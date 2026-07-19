@@ -37,6 +37,7 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel>
                     <TextBlock Text="CHALLENGE LAB" FontSize="10" FontWeight="Bold" Foreground="#FF2DE2E6"/>
@@ -91,7 +92,23 @@
                         </Style>
                     </Button.Style>
                 </Button>
-                <Button x:Name="FlightMonitorButton" Grid.Column="3" Content="Monitor"
+                <Button x:Name="AetherHudButton" Grid.Column="3" Content="HUD 2"
+                        Command="{Binding ToggleAetherHudCommand}" Margin="0,0,7,0"
+                        ToolTip="Show or hide Aether — independent glass approach overlay on the simulator window.">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource GhostButton}">
+                            <Setter Property="Padding" Value="9,5"/>
+                            <Setter Property="FontSize" Value="10"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsAetherHudVisible}" Value="True">
+                                    <Setter Property="Background" Value="#FFB388FF"/>
+                                    <Setter Property="Foreground" Value="#FF0B1020"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                <Button x:Name="FlightMonitorButton" Grid.Column="4" Content="Monitor"
                         Command="{Binding ToggleSecondaryHudCommand}" Margin="0,0,7,0"
                         ToolTip="Show or hide live approach guidance and projected-score graph.">
                     <Button.Style>
@@ -107,7 +124,7 @@
                         </Style>
                     </Button.Style>
                 </Button>
-                <Button Grid.Column="4" Content="✕" Style="{StaticResource GhostButton}" Padding="10,4"
+                <Button Grid.Column="5" Content="✕" Style="{StaticResource GhostButton}" Padding="10,4"
                         Click="CompactToggle_Click" VerticalAlignment="Top"
                         ToolTip="Collapse HUD to a small Show button"/>
             </Grid>
