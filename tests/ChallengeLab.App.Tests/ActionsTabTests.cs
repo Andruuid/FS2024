@@ -222,7 +222,8 @@ public sealed class ActionsTabTests
                     Longitude = 8.56,
                     AltitudeFeet = 4464,
                     HeadingDegrees = 274,
-                    AirspeedKts = 236,
+                    AirspeedFeetPerSecond = 236,
+                    AirspeedKts = 139.8261771,
                     OnGround = false
                 },
                 FinalObservation = new FlightLoadObservation
@@ -231,7 +232,8 @@ public sealed class ActionsTabTests
                     Latitude = 47.45,
                     Longitude = 8.56,
                     AltitudeFeet = 4464,
-                    AirspeedKts = 236,
+                    HeadingTrueDeg = 274,
+                    AirspeedKts = 139.8,
                     OnGround = false
                 },
                 ValidationIssues = ["UseWeatherFile=False; weather was not loaded."],
@@ -262,11 +264,20 @@ public sealed class ActionsTabTests
 
             Assert.Equal(1, env.Sim.FlightLoadCalls);
             Assert.Equal(Path.GetFullPath(env.FltPath), Path.GetFullPath(env.Sim.LastFlightLoadRequest!.FlightFilePath));
+            Assert.Equal(FlightLoadPausePolicy.AutoRelease, env.Sim.LastFlightLoadRequest.PausePolicy);
+            Assert.Equal(TimeSpan.FromSeconds(3), env.Sim.LastFlightLoadRequest.PauseReleaseTimeout);
+            Assert.Equal(TimeSpan.FromMilliseconds(750), env.Sim.LastFlightLoadRequest.LiveSettleDelay);
+            Assert.Equal(TimeSpan.FromSeconds(30), env.Sim.LastFlightLoadRequest.AcceptanceTimeout);
+            Assert.Equal(TimeSpan.FromSeconds(180), env.Sim.LastFlightLoadRequest.ReadyTimeout);
+            Assert.Equal(TimeSpan.FromSeconds(15), env.Sim.LastFlightLoadRequest.ValidationTimeout);
             Assert.Contains("FLT LOAD PARTIAL SUCCESS", vm.ActionsStatus, StringComparison.Ordinal);
             Assert.Contains("Attempt:", vm.ActionsStatus, StringComparison.Ordinal);
+            Assert.Contains("IAS raw=236.000 ft/s", vm.ActionsStatus, StringComparison.Ordinal);
+            Assert.Contains("IAS converted=139.83 kt", vm.ActionsStatus, StringComparison.Ordinal);
             Assert.Contains("FlightLoaded event=yes", vm.ActionsStatus, StringComparison.Ordinal);
             Assert.Contains("consecutive matching samples=3", vm.ActionsStatus, StringComparison.Ordinal);
             Assert.Contains("Weather: status=NotRequested", vm.ActionsStatus, StringComparison.Ordinal);
+            Assert.Contains("observed change=", vm.ActionsStatus, StringComparison.Ordinal);
             Assert.Contains("Timeline:", vm.ActionsStatus, StringComparison.Ordinal);
             Assert.NotNull(vm.LastFlightLoadReportPath);
             Assert.True(File.Exists(vm.LastFlightLoadReportPath));
@@ -312,6 +323,62 @@ public sealed class ActionsTabTests
     }
 
     [Fact]
+    public void LoadFlt_CancelStopsWaitPersistsReportAndImmediatelyReenablesActions()
+    {
+        RunSta(() =>
+        {
+            using var env = new TestEnv();
+            env.Sim.FlightLoadCompletion = new TaskCompletionSource<FlightLoadResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            using var vm = env.CreateViewModel();
+            vm.IsConnected = true;
+            vm.ConfirmAction = (_, _) => true;
+
+            vm.LoadFltCommand.Execute(null);
+            WaitFor(() => vm.IsFlightLoadRunning);
+
+            Assert.True(vm.CancelFlightLoadCommand.CanExecute(null));
+            Assert.False(vm.SetIlsCommand.CanExecute(null));
+            vm.CancelFlightLoadCommand.Execute(null);
+            WaitFor(() => !vm.IsActionRunning);
+
+            Assert.False(vm.IsFlightLoadRunning);
+            Assert.False(vm.CancelFlightLoadCommand.CanExecute(null));
+            Assert.True(vm.SetIlsCommand.CanExecute(null));
+            Assert.Contains("FLT LOAD CANCELLED", vm.ActionsStatus, StringComparison.Ordinal);
+            Assert.NotNull(vm.LastFlightLoadReportPath);
+            var report = env.ReportStore.Load(vm.LastFlightLoadReportPath!);
+            Assert.Equal(FlightLoadOutcome.Cancelled, report.Outcome);
+            Assert.True(report.LoadIssued);
+            Assert.False(report.LoadAccepted);
+        });
+    }
+
+    [Fact]
+    public void LoadFlt_ConfirmationWarnsThatPauseIsBrieflyReleasedWithoutAutomaticRepause()
+    {
+        RunSta(() =>
+        {
+            using var env = new TestEnv();
+            using var vm = env.CreateViewModel();
+            vm.IsConnected = true;
+            string? confirmation = null;
+            vm.ConfirmAction = (message, _) =>
+            {
+                confirmation = message;
+                return false;
+            };
+
+            vm.LoadFltCommand.Execute(null);
+
+            Assert.Contains("Normal Pause or Active Pause", confirmation, StringComparison.Ordinal);
+            Assert.Contains("approximately one second", confirmation, StringComparison.Ordinal);
+            Assert.Contains("never retried or automatically re-paused", confirmation, StringComparison.Ordinal);
+            Assert.Contains("current simulator clock is preserved", confirmation, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
     public void ActionsXaml_IsImmediatelyAfterStore_AndContainsExpectedBindings()
     {
         var root = FindRepositoryRoot();
@@ -328,12 +395,15 @@ public sealed class ActionsTabTests
         Assert.Contains("SetIlsCommand", xaml, StringComparison.Ordinal);
         Assert.Contains("SetSelectedIlsCommand", xaml, StringComparison.Ordinal);
         Assert.Contains("LoadFltCommand", xaml, StringComparison.Ordinal);
+        Assert.Contains("CancelFlightLoadCommand", xaml, StringComparison.Ordinal);
+        Assert.Contains("IsFlightLoadRunning", xaml, StringComparison.Ordinal);
         Assert.Contains("OpenFlightLoadReportsFolderCommand", xaml, StringComparison.Ordinal);
         Assert.Contains("CopyActionsStatusCommand", xaml, StringComparison.Ordinal);
         Assert.Contains("IsReadOnly=\"True\"", xaml, StringComparison.Ordinal);
         Assert.Contains("VerticalScrollBarVisibility=\"Auto\"", xaml, StringComparison.Ordinal);
         Assert.Contains("FlightLoadReportsFolderPath", xaml, StringComparison.Ordinal);
-        Assert.Contains("can hang or crash MSFS 2024", xaml, StringComparison.Ordinal);
+        Assert.Contains("briefly releases Normal Pause or Active Pause", xaml, StringComparison.Ordinal);
+        Assert.Contains("FlightLoadTimeNotice", xaml, StringComparison.Ordinal);
         Assert.Contains("IlsAmbiguityWarning", xaml, StringComparison.Ordinal);
         Assert.Equal(2, xaml.Split("Command=\"{Binding ResumeNowCommand}\"", StringSplitOptions.None).Length - 1);
         Assert.Contains("waits 0.5 seconds, then resends ILS", xaml, StringComparison.Ordinal);
@@ -354,6 +424,136 @@ public sealed class ActionsTabTests
         Assert.Equal(1, diagnostic.Split("_sim.FlightLoad(", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("_sim.FlightLoad(", safeChallenge, StringComparison.Ordinal);
         Assert.DoesNotContain("_sim.FlightLoad(", snapshot, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("andi1", true)]
+    [InlineData("andi1.flt", true)]
+    [InlineData("C:\\developer\\andi1", true)]
+    [InlineData("final.flt", false)]
+    [InlineData("other", false)]
+    public void FlightLoadFlowCorrelation_AcceptsTargetStemAndRejectsUnrelatedLoads(
+        string flowIdentity,
+        bool expected)
+    {
+        Assert.Equal(expected, SimConnectClient.FlowIdentityMatches(
+            "C:\\developer\\andi1.flt", flowIdentity));
+    }
+
+    [Theory]
+    [InlineData(0u, false, false)]
+    [InlineData(1u, true, false)]
+    [InlineData(2u, true, false)]
+    [InlineData(4u, false, true)]
+    [InlineData(8u, true, false)]
+    [InlineData(5u, true, true)]
+    [InlineData(12u, true, true)]
+    public void FlightLoadPauseFlags_DistinguishNormalAndActivePause(
+        uint flags,
+        bool normal,
+        bool active)
+    {
+        Assert.Equal(normal, SimConnectClient.HasDiagnosticNormalPause(flags));
+        Assert.Equal(active, SimConnectClient.HasDiagnosticActivePause(flags));
+    }
+
+    [Fact]
+    public void FlightLoadOperationalProbe_RejectsPauseDialogDisabledSimAndDisabledInput()
+    {
+        var live = new FlightLoadObservation
+        {
+            PauseStateAvailable = true,
+            PauseStateFlags = 0,
+            SimDisabled = false,
+            UserInputEnabled = true
+        };
+
+        Assert.True(SimConnectClient.IsDiagnosticOperationalProbe(live, simRunning: true, dialogMode: false));
+        Assert.False(SimConnectClient.IsDiagnosticOperationalProbe(
+            live with { PauseStateFlags = 1, NormalPauseActive = true }, true, false));
+        Assert.False(SimConnectClient.IsDiagnosticOperationalProbe(
+            live with { PauseStateFlags = 4, ActivePauseActive = true }, true, false));
+        Assert.False(SimConnectClient.IsDiagnosticOperationalProbe(live, true, true));
+        Assert.False(SimConnectClient.IsDiagnosticOperationalProbe(live, false, false));
+        Assert.False(SimConnectClient.IsDiagnosticOperationalProbe(
+            live with { SimDisabled = true }, true, false));
+        Assert.False(SimConnectClient.IsDiagnosticOperationalProbe(
+            live with { UserInputEnabled = false }, true, false));
+        Assert.False(SimConnectClient.IsDiagnosticOperationalProbe(
+            live with { MotionSimulationActive = false }, true, false));
+    }
+
+    [Fact]
+    public void FlightLoadPhases_CannotMoveBackward()
+    {
+        var phase = FlightLoadPhase.Preflight;
+        foreach (var next in new[]
+                 {
+                     FlightLoadPhase.ReleasingPause,
+                     FlightLoadPhase.RequestSent,
+                     FlightLoadPhase.LoadAccepted,
+                     FlightLoadPhase.AwaitingReady,
+                     FlightLoadPhase.ValidatingState,
+                     FlightLoadPhase.Operational,
+                     FlightLoadPhase.Completed
+                 })
+        {
+            phase = SimConnectClient.AdvanceDiagnosticPhase(phase, next);
+            Assert.Equal(next, phase);
+            Assert.Equal(phase, SimConnectClient.AdvanceDiagnosticPhase(phase, FlightLoadPhase.Preflight));
+        }
+    }
+
+    [Fact]
+    public void FlightLoadTimeouts_ClassifyAcceptanceReadyAndValidationStages()
+    {
+        var origin = DateTimeOffset.Parse("2026-07-21T12:00:00Z");
+        var request = new FlightLoadRequest
+        {
+            FlightFilePath = "andi1.flt",
+            AcceptanceTimeout = TimeSpan.FromSeconds(30),
+            ReadyTimeout = TimeSpan.FromSeconds(180),
+            ValidationTimeout = TimeSpan.FromSeconds(15)
+        };
+
+        Assert.Null(SimConnectClient.DetermineDiagnosticTimeoutOutcome(
+            origin.AddSeconds(29), origin, null, null, null, false, request));
+        Assert.Equal(FlightLoadOutcome.TimedOut, SimConnectClient.DetermineDiagnosticTimeoutOutcome(
+            origin.AddSeconds(30), origin, null, null, null, false, request));
+
+        var accepted = origin.AddSeconds(5);
+        Assert.Null(SimConnectClient.DetermineDiagnosticTimeoutOutcome(
+            accepted.AddSeconds(179), origin, accepted, null, null, false, request));
+        Assert.Equal(FlightLoadOutcome.LoadedAwaitingReady,
+            SimConnectClient.DetermineDiagnosticTimeoutOutcome(
+                accepted.AddSeconds(180), origin, accepted, null, null, false, request));
+
+        var started = accepted.AddSeconds(20);
+        Assert.Equal(FlightLoadOutcome.LoadedAwaitingReady,
+            SimConnectClient.DetermineDiagnosticTimeoutOutcome(
+                started.AddSeconds(15), origin, accepted, started, null, false, request));
+        Assert.Equal(FlightLoadOutcome.PartialSuccess,
+            SimConnectClient.DetermineDiagnosticTimeoutOutcome(
+                started.AddSeconds(15), origin, accepted, started, started, true, request));
+    }
+
+    [Fact]
+    public void FlightLoadSource_ReleasesActiveThenNormalPauseBeforeSingleRequestAndNeverFreezesPose()
+    {
+        var path = Path.Combine(
+            FindRepositoryRoot(), "src", "ChallengeLab.SimConnect", "SimConnectClient.FlightLoad.cs");
+        var source = File.ReadAllText(path);
+        var normalize = source.IndexOf("await NormalizeDiagnosticFlightLoadEntryAsync", StringComparison.Ordinal);
+        var request = source.IndexOf("_sim.FlightLoad(", StringComparison.Ordinal);
+        var activePauseOff = source.IndexOf("EnsureActivePauseOff();", StringComparison.Ordinal);
+        var normalPauseOff = source.IndexOf("PauseSim(false);", activePauseOff, StringComparison.Ordinal);
+
+        Assert.InRange(normalize, 0, request - 1);
+        Assert.InRange(activePauseOff, 0, normalPauseOff - 1);
+        Assert.Equal(2, source.Split("PauseSim(false);", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("FreezePosition", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("FreezeAttitude", source, StringComparison.Ordinal);
+        Assert.Contains("RestoreDiagnosticOriginalPause", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -466,6 +666,7 @@ public sealed class ActionsTabTests
         public int FlightLoadCalls { get; private set; }
         public FlightLoadRequest? LastFlightLoadRequest { get; private set; }
         public FlightLoadResult? FlightLoadResult { get; set; }
+        public TaskCompletionSource<FlightLoadResult>? FlightLoadCompletion { get; set; }
 
         public event EventHandler<SimConnectionState>? StateChanged { add { } remove { } }
         public event EventHandler<TelemetrySample>? TelemetryReceived { add { } remove { } }
@@ -519,7 +720,7 @@ public sealed class ActionsTabTests
             return IlsCompletion?.Task ?? Task.CompletedTask;
         }
 
-        public Task<FlightLoadResult> LoadFlightFileAsync(
+        public async Task<FlightLoadResult> LoadFlightFileAsync(
             FlightLoadRequest request,
             IProgress<string>? progress = null,
             CancellationToken ct = default)
@@ -527,12 +728,25 @@ public sealed class ActionsTabTests
             FlightLoadCalls++;
             LastFlightLoadRequest = request;
             progress?.Report("Test FLT load…");
-            return Task.FromResult(FlightLoadResult ?? new FlightLoadResult
+            if (FlightLoadCompletion is not null)
+            {
+                using var registration = ct.Register(() => FlightLoadCompletion.TrySetResult(
+                    new FlightLoadResult
+                    {
+                        Outcome = FlightLoadOutcome.Cancelled,
+                        FlightFilePath = request.FlightFilePath,
+                        LoadIssued = true,
+                        Message = "Stopped waiting after FlightLoad was issued; the simulator load cannot be undone."
+                    }));
+                return await FlightLoadCompletion.Task;
+            }
+
+            return FlightLoadResult ?? new FlightLoadResult
             {
                 Outcome = FlightLoadOutcome.Succeeded,
                 FlightFilePath = request.FlightFilePath,
                 Message = "test"
-            });
+            };
         }
 
         public void Dispose() { }

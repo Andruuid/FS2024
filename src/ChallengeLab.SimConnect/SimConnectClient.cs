@@ -74,6 +74,7 @@ public sealed partial class SimConnectClient : ISimBridge
         SnapshotCapture = 6,
         DiagnosticSimState = 7,
         DiagnosticFlightLoadedState = 8,
+        DiagnosticDialogState = 9,
         Airports = 100
     }
 
@@ -145,7 +146,9 @@ public sealed partial class SimConnectClient : ISimBridge
         FlightLevelChangeOff = 51,
         YawDamperOn = 52,
         YawDamperOff = 53,
-        DiagnosticFlightLoaded = 54
+        DiagnosticFlightLoaded = 54,
+        DiagnosticSimStart = 55,
+        DiagnosticSimStop = 56
     }
 
     private enum Groups
@@ -255,6 +258,9 @@ public sealed partial class SimConnectClient : ISimBridge
         public double ThrottleLever2;
         public double ThrottleLever3;
         public double ThrottleLever4;
+        public double SimDisabled;
+        public double UserInputEnabled;
+        public double MotionSimulation;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
@@ -1649,7 +1655,14 @@ public sealed partial class SimConnectClient : ISimBridge
         Microsoft.FlightSimulator.SimConnect.SimConnect sender,
         SIMCONNECT_RECV_EVENT data)
     {
-        if ((Events)data.uEventID != Events.PauseStateEx1)
+        var eventId = (Events)data.uEventID;
+        if (eventId is Events.DiagnosticSimStart or Events.DiagnosticSimStop)
+        {
+            ObserveDiagnosticSimulatorEvent(eventId == Events.DiagnosticSimStart);
+            return;
+        }
+
+        if (eventId != Events.PauseStateEx1)
             return;
 
         lock (_pauseStateLock)
@@ -1963,12 +1976,14 @@ public sealed partial class SimConnectClient : ISimBridge
         {
             var t = (TelemetryStruct)data.dwData[0];
             bool pauseStateAvailable;
+            uint pauseStateFlags;
             bool normalPauseActive;
             bool activePauseActive;
             long pauseGeneration;
             lock (_pauseStateLock)
             {
                 pauseStateAvailable = _pauseStateKnown;
+                pauseStateFlags = _pauseStateFlags;
                 normalPauseActive = (_pauseStateFlags & (1u | 2u | 8u)) != 0;
                 activePauseActive = (_pauseStateFlags & 4u) != 0;
                 pauseGeneration = _pauseGeneration;
@@ -2126,8 +2141,12 @@ public sealed partial class SimConnectClient : ISimBridge
                     ? (int)Math.Round(t.CameraViewType)
                     : null,
                 PauseStateAvailable = pauseStateAvailable,
+                PauseStateFlags = pauseStateAvailable ? pauseStateFlags : null,
                 NormalPauseActive = normalPauseActive,
                 ActivePauseActive = activePauseActive,
+                SimDisabled = double.IsFinite(t.SimDisabled) ? t.SimDisabled > 0.5 : null,
+                UserInputEnabled = double.IsFinite(t.UserInputEnabled) ? t.UserInputEnabled > 0.5 : null,
+                MotionSimulationActive = double.IsFinite(t.MotionSimulation) ? t.MotionSimulation > 0.5 : null,
                 PauseGeneration = pauseGeneration,
                 AircraftTitle = _cachedAircraftTitle,
                 DesignSpeedVs0Kts = t.DesignSpeedVs0,
@@ -2388,6 +2407,12 @@ public sealed partial class SimConnectClient : ISimBridge
         for (var engineIndex = 1; engineIndex <= 4; engineIndex++)
             _sim.AddToDataDefinition(Definitions.Telemetry, $"GENERAL ENG THROTTLE LEVER POSITION:{engineIndex}", "percent",
                 SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "SIM DISABLED", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "USER INPUT ENABLED", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
+        _sim.AddToDataDefinition(Definitions.Telemetry, "MOTION SIMULATION", "bool",
+            SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         _sim.AddToDataDefinition(Definitions.ContactPoints, "SIMULATION TIME", "seconds",
             SIMCONNECT_DATATYPE.FLOAT64, 0, MsfsSc.SIMCONNECT_UNUSED);
         for (var contactPointIndex = 0; contactPointIndex <= 15; contactPointIndex++)

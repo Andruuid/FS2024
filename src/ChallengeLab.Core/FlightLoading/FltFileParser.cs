@@ -6,6 +6,8 @@ namespace ChallengeLab.Core.FlightLoading;
 
 public static partial class FltFileParser
 {
+    public const double FeetPerSecondToKnots = 0.592483801295896;
+
     public static FltFileMetadata Parse(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -25,9 +27,13 @@ public static partial class FltFileParser
         var sim = Section(sections, "Sim.0");
         var simVars = Section(sections, "SimVars.0");
         var weather = Section(sections, "Weather");
+        var dateTime = sections.TryGetValue("DateTimeSeason", out var dateTimeSection)
+            ? ParseDateTime(dateTimeSection)
+            : new FltDateTimeMetadata { Status = FlightLoadTimeStatus.NotSpecified };
 
         var preset = Value(weather, "WeatherPresetFile");
         var presetAbsolute = ResolveRelativePath(absolutePath, preset);
+        var airspeedFeetPerSecond = ParseDouble(Value(simVars, "ZVelBodyAxis_IAS"));
 
         return new FltFileMetadata
         {
@@ -39,13 +45,45 @@ public static partial class FltFileParser
             Longitude = ParseCoordinate(Value(simVars, "Longitude"), latitude: false),
             AltitudeFeet = ParseDouble(Value(simVars, "Altitude")),
             HeadingDegrees = NormalizeHeading(ParseDouble(Value(simVars, "Heading"))),
-            AirspeedKts = ParseDouble(Value(simVars, "ZVelBodyAxis_IAS")),
+            AirspeedFeetPerSecond = airspeedFeetPerSecond,
+            AirspeedKts = airspeedFeetPerSecond * FeetPerSecondToKnots,
             OnGround = ParseBool(Value(simVars, "SimOnGround")),
             UseWeatherFile = ParseBool(Value(weather, "UseWeatherFile")) ?? false,
             UseLiveWeather = ParseBool(Value(weather, "UseLiveWeather")) ?? false,
             WeatherPresetFile = preset,
             WeatherPresetAbsolutePath = presetAbsolute,
-            WeatherPresetExists = presetAbsolute is not null && File.Exists(presetAbsolute)
+            WeatherPresetExists = presetAbsolute is not null && File.Exists(presetAbsolute),
+            DateTime = dateTime
+        };
+    }
+
+    private static FltDateTimeMetadata ParseDateTime(IReadOnlyDictionary<string, string> section)
+    {
+        var season = Value(section, "Season");
+        var year = ParseInt(Value(section, "Year"));
+        var day = ParseInt(Value(section, "Day"));
+        var hours = ParseInt(Value(section, "Hours"));
+        var minutes = ParseInt(Value(section, "Minutes"));
+        var seconds = ParseDouble(Value(section, "Seconds"));
+        var useZuluTime = ParseBool(Value(section, "UseZuluTime"));
+        var valid = !string.IsNullOrWhiteSpace(season)
+                    && year is > 0
+                    && day is >= 1 and <= 366
+                    && hours is >= 0 and <= 23
+                    && minutes is >= 0 and <= 59
+                    && seconds is >= 0 and < 60
+                    && useZuluTime is not null;
+
+        return new FltDateTimeMetadata
+        {
+            Status = valid ? FlightLoadTimeStatus.Specified : FlightLoadTimeStatus.Invalid,
+            Season = season,
+            Year = year,
+            Day = day,
+            Hours = hours,
+            Minutes = minutes,
+            Seconds = seconds,
+            UseZuluTime = useZuluTime
         };
     }
 
@@ -105,6 +143,11 @@ public static partial class FltFileParser
     private static double? ParseDouble(string? value) =>
         double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
             && double.IsFinite(parsed)
+            ? parsed
+            : null;
+
+    private static int? ParseInt(string? value) =>
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : null;
 

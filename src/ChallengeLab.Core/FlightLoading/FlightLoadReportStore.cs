@@ -40,8 +40,9 @@ public sealed class FlightLoadReportStore
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             throw new FileNotFoundException("Flight-load report not found.", path);
-        return JsonSerializer.Deserialize<FlightLoadResult>(File.ReadAllText(path), JsonOptions)
-               ?? throw new InvalidOperationException("Flight-load report is empty or invalid.");
+        var loaded = JsonSerializer.Deserialize<FlightLoadResult>(File.ReadAllText(path), JsonOptions)
+                     ?? throw new InvalidOperationException("Flight-load report is empty or invalid.");
+        return loaded with { ReportPath = path };
     }
 
     private static void WriteAtomic(string path, FlightLoadResult result)

@@ -12,7 +12,8 @@ public static class FlightLoadSafetyPolicy
             return new(false, "The FLT does not identify its target aircraft.");
 
         if (simulatorMode == FlightLoadSimulatorMode.MainMenu)
-            return new(true, "Main menu detected; no active aircraft will be replaced.");
+            return new(false,
+                "No running flight is active. Start the FLT aircraft and press Ready to Fly before loading.");
         if (simulatorMode != FlightLoadSimulatorMode.ActiveFlight)
             return new(false, "The simulator state could not be established safely.");
         if (string.IsNullOrWhiteSpace(currentAircraftTitle))

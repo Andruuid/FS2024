@@ -2,9 +2,10 @@ namespace ChallengeLab.Core.FlightLoading;
 
 public sealed class FlightLoadReadinessEvaluator
 {
-    public const double MaxHorizontalErrorM = 2_000;
-    public const double MaxAltitudeErrorFeet = 1_000;
-    public const double MaxAirspeedErrorKts = 80;
+    public const double MaxHorizontalErrorM = 1_000;
+    public const double MaxAltitudeErrorFeet = 500;
+    public const double MaxAirspeedErrorKts = 30;
+    public const double MaxHeadingErrorDegrees = 20;
 
     private readonly FltFileMetadata _target;
     private readonly int _requiredSamples;
@@ -49,6 +50,7 @@ public sealed class FlightLoadReadinessEvaluator
         double? horizontalError = null;
         double? altitudeError = null;
         double? airspeedError = null;
+        double? headingError = null;
 
         if (string.IsNullOrWhiteSpace(observation.AircraftTitle)
             || string.IsNullOrWhiteSpace(target.AircraftTitle)
@@ -85,6 +87,20 @@ public sealed class FlightLoadReadinessEvaluator
         if (target.OnGround is not null && observation.OnGround != target.OnGround)
             issues.Add($"On-ground state is {Display(observation.OnGround)}, expected {Display(target.OnGround)}.");
 
+        if (target.HeadingDegrees is not null)
+        {
+            if (observation.HeadingTrueDeg is null || !double.IsFinite(observation.HeadingTrueDeg.Value))
+            {
+                issues.Add("Heading is unavailable.");
+            }
+            else
+            {
+                headingError = HeadingDifference(target.HeadingDegrees.Value, observation.HeadingTrueDeg.Value);
+                if (headingError > MaxHeadingErrorDegrees)
+                    issues.Add($"Heading error is {headingError:0}Â° (limit {MaxHeadingErrorDegrees:0}Â°).");
+            }
+        }
+
         if (target.AirspeedKts is > 1)
         {
             if (observation.AirspeedKts is null || !double.IsFinite(observation.AirspeedKts.Value))
@@ -105,8 +121,15 @@ public sealed class FlightLoadReadinessEvaluator
             HorizontalErrorM = horizontalError,
             AltitudeErrorFeet = altitudeError,
             AirspeedErrorKts = airspeedError,
+            HeadingErrorDegrees = headingError,
             Issues = issues
         };
+    }
+
+    private static double HeadingDifference(double first, double second)
+    {
+        var difference = Math.Abs((first - second) % 360d);
+        return difference > 180d ? 360d - difference : difference;
     }
 
     private static string Display(bool? value) => value is null ? "unavailable" : value.Value ? "ground" : "airborne";

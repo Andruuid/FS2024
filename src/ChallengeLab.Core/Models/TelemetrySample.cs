@@ -153,8 +153,14 @@ public sealed class TelemetrySample
 
     /// <summary>Pause_EX1 state copied into every telemetry sample.</summary>
     public bool PauseStateAvailable { get; init; }
+    public uint? PauseStateFlags { get; init; }
     public bool NormalPauseActive { get; init; }
     public bool ActivePauseActive { get; init; }
+
+    /// <summary>General simulator readiness probes used by the diagnostic FLT loader.</summary>
+    public bool? SimDisabled { get; init; }
+    public bool? UserInputEnabled { get; init; }
+    public bool? MotionSimulationActive { get; init; }
 
     /// <summary>
     /// Increments on every transition into a Pause_EX1 paused state. This detects a pause

@@ -131,6 +131,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private bool _isActionRunning;
     private string _flightLoadTargetSummary = "andi1.flt metadata has not been read.";
     private string _flightLoadWeatherNotice = "Weather dependency has not been checked.";
+    private string _flightLoadTimeNotice = "Time metadata has not been checked.";
+    private bool _isFlightLoadRunning;
+    private CancellationTokenSource? _flightLoadCts;
     private string? _lastFlightLoadReportPath;
     private LandingReportViewModel? _landingReport;
     private string _reportStatus = "";
@@ -292,6 +295,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         SetSelectedIlsCommand = new RelayCommand(async () => await SetSelectedIlsAsync(), () =>
             CanRunAction() && SelectedIlsRunway is not null);
         LoadFltCommand = new RelayCommand(async () => await RunDiagnosticFlightLoadAsync(), CanRunAction);
+        CancelFlightLoadCommand = new RelayCommand(
+            CancelDiagnosticFlightLoad,
+            () => IsFlightLoadRunning && _flightLoadCts is not null);
         OpenFlightLoadReportsFolderCommand = new RelayCommand(OpenFlightLoadReportsFolder);
         CopyActionsStatusCommand = new RelayCommand(CopyActionsStatus);
         OpenMenuCommand = new RelayCommand(() =>
@@ -546,6 +552,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand SetIlsCommand { get; }
     public ICommand SetSelectedIlsCommand { get; }
     public ICommand LoadFltCommand { get; }
+    public ICommand CancelFlightLoadCommand { get; }
     public ICommand OpenFlightLoadReportsFolderCommand { get; }
     public ICommand CopyActionsStatusCommand { get; }
 
@@ -561,6 +568,21 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         get => _flightLoadWeatherNotice;
         private set => SetProperty(ref _flightLoadWeatherNotice, value);
+    }
+    public string FlightLoadTimeNotice
+    {
+        get => _flightLoadTimeNotice;
+        private set => SetProperty(ref _flightLoadTimeNotice, value);
+    }
+    public bool IsFlightLoadRunning
+    {
+        get => _isFlightLoadRunning;
+        private set
+        {
+            if (_isFlightLoadRunning == value) return;
+            SetProperty(ref _isFlightLoadRunning, value);
+            (CancelFlightLoadCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
     }
     public string? LastFlightLoadReportPath
     {
@@ -3462,6 +3484,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         (SetIlsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (SetSelectedIlsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (LoadFltCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (CancelFlightLoadCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     private void RefreshDiagnosticFlightLoadSummary()
@@ -3478,16 +3501,19 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 FlightLoadWeatherStatus.DependencyAvailable =>
                     $"Weather file ready: {target.WeatherPresetFile}. Clouds and turbulence still require visual confirmation.",
                 FlightLoadWeatherStatus.DependencyMissing =>
-                    $"Weather unavailable: referenced file '{target.WeatherPresetFile}' is missing. Flight-state testing can continue.",
+                    $"Weather preflight blocked: required file '{target.WeatherPresetFile}' is missing beside the FLT.",
                 FlightLoadWeatherStatus.NotRequested =>
-                    $"Weather unavailable: the FLT names '{target.WeatherPresetFile}' but UseWeatherFile=False. Flight-state testing can continue.",
+                    $"Weather metadata: the FLT declares '{target.WeatherPresetFile}' with UseWeatherFile=False. " +
+                    "MSFS may retain or apply runtime weather; verify it visually.",
                 _ => "Weather remains unverified and requires visual confirmation in MSFS."
             };
+            FlightLoadTimeNotice = target.DateTime.Description;
         }
         catch (Exception ex)
         {
             FlightLoadTargetSummary = $"andi1.flt unavailable: {ex.Message}";
             FlightLoadWeatherNotice = "No FLT/weather preflight is available; an attempted load will produce a failed JSON report.";
+            FlightLoadTimeNotice = "No FLT time metadata is available.";
         }
     }
 
@@ -3498,15 +3524,22 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         if (!ConfirmAction(
                 "EXPERIMENTAL SimConnect FlightLoad can hang or crash MSFS 2024.\n\n" +
                 $"Target: {FlightLoadTargetSummary}\n\n" +
-                "Allowed starting states: the main menu, or an active flight already using A320neo V2. " +
-                "A different active aircraft is always blocked. The request is sent once and is never retried automatically.\n\n" +
-                FlightLoadWeatherNotice + "\n\nLoad andi1.flt now?",
+                "Start from a running flight already using A320neo V2. A different aircraft, the ESC dialog, " +
+                "or a pre-Ready-to-Fly state is blocked.\n\n" +
+                "If Normal Pause or Active Pause is set, Challenge Lab briefly resumes the aircraft, verifies live control, " +
+                "and waits about 0.75 seconds before loading. The aircraft may move for approximately one second. " +
+                "The request is sent exactly once and is never retried or automatically re-paused.\n\n" +
+                FlightLoadWeatherNotice + "\n" + FlightLoadTimeNotice + "\n\nLoad andi1.flt now?",
                 "Challenge Lab — Experimental Load FLT"))
         {
             ActionsStatus = "Experimental FLT load cancelled before any simulator request.";
             return;
         }
 
+        _flightLoadCts?.Dispose();
+        var loadCts = new CancellationTokenSource();
+        _flightLoadCts = loadCts;
+        IsFlightLoadRunning = true;
         IsActionRunning = true;
         _retryZurichIlsAfterResume = false;
         IsSnapshotResumeReady = false;
@@ -3529,10 +3562,27 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 new FlightLoadRequest
                 {
                     FlightFilePath = _diagnosticFltPath,
-                    Timeout = TimeSpan.FromSeconds(180),
+                    PausePolicy = FlightLoadPausePolicy.AutoRelease,
+                    PauseReleaseTimeout = TimeSpan.FromSeconds(3),
+                    LiveSettleDelay = TimeSpan.FromMilliseconds(750),
+                    AcceptanceTimeout = TimeSpan.FromSeconds(30),
+                    ReadyTimeout = TimeSpan.FromSeconds(180),
+                    ValidationTimeout = TimeSpan.FromSeconds(15),
                     RequiredConsecutiveSamples = 3
                 },
-                progress);
+                progress,
+                loadCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            result = new FlightLoadResult
+            {
+                Outcome = FlightLoadOutcome.Cancelled,
+                FlightFilePath = _diagnosticFltPath,
+                Message = "The FLT wait was cancelled. Check MSFS: a FlightLoad request already sent cannot be undone.",
+                ValidationIssues = ["The application-side FLT wait was cancelled."],
+                Timeline = [new FlightLoadTimelineEntry { Stage = "Cancelled", Message = "The user cancelled the FLT wait." }]
+            };
         }
         catch (Exception ex)
         {
@@ -3562,9 +3612,25 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
         finally
         {
+            if (ReferenceEquals(_flightLoadCts, loadCts))
+            {
+                _flightLoadCts = null;
+                loadCts.Dispose();
+            }
+            IsFlightLoadRunning = false;
             IsActionRunning = false;
             RestartObservationAfterSnapshotRestore();
         }
+    }
+
+    private void CancelDiagnosticFlightLoad()
+    {
+        var cts = _flightLoadCts;
+        if (cts is null || cts.IsCancellationRequested) return;
+
+        ActionsStatus = "Cancelling FLT wait... If FlightLoad was already sent, cancellation cannot undo the simulator load.";
+        cts.Cancel();
+        (CancelFlightLoadCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     private void CopyActionsStatus()
@@ -3596,11 +3662,17 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var outcome = result.Outcome switch
         {
             FlightLoadOutcome.PartialSuccess => "PARTIAL SUCCESS",
+            FlightLoadOutcome.LoadedAwaitingReady => "LOADED — AWAITING READY",
+            FlightLoadOutcome.TimedOut => "TIMED OUT",
             _ => result.Outcome.ToString().ToUpperInvariant()
         };
 
         text.Append("FLT LOAD ").Append(outcome).Append(": ")
             .AppendLine(string.IsNullOrWhiteSpace(result.Message) ? "No result message." : result.Message.Trim());
+        text.Append("Report format: ").Append(result.Format)
+            .Append(" | phase=").Append(result.Phase)
+            .Append(" | load issued=").Append(DebugYesNo(result.LoadIssued))
+            .Append(" | load accepted=").AppendLine(DebugYesNo(result.LoadAccepted));
         text.Append("Attempt: ").AppendLine(result.AttemptId.ToString("N"));
         text.Append("Timing: requested ")
             .Append(result.RequestedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture))
@@ -3619,8 +3691,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 .Append(" | lon=").Append(DebugNumber(target.Longitude, "0.000000"))
                 .Append(" | alt=").Append(DebugNumber(target.AltitudeFeet, "0.0", " ft"))
                 .Append(" | heading=").Append(DebugNumber(target.HeadingDegrees, "0.0", "°"))
-                .Append(" | IAS=").Append(DebugNumber(target.AirspeedKts, "0.0", " kt"))
+                .Append(" | IAS raw=").Append(DebugNumber(target.AirspeedFeetPerSecond, "0.000", " ft/s"))
+                .Append(" | IAS converted=").Append(DebugNumber(target.AirspeedKts, "0.00", " kt"))
                 .Append(" | state=").AppendLine(DebugGroundState(target.OnGround));
+            text.Append("Target time: ").AppendLine(target.DateTime.Description);
         }
         else
         {
@@ -3628,9 +3702,46 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
 
         text.Append("Start: mode=").Append(result.StartState?.SimulatorMode.ToString() ?? "n/a")
+            .Append(" | Sim=").Append(DebugYesNo(result.StartState?.SimRunning))
+            .Append(" | DialogMode=").Append(DebugYesNo(result.StartState?.DialogMode))
             .Append(" | title=").AppendLine(DebugValue(result.StartState?.AircraftTitle));
         AppendDebugObservation(text, "Initial telemetry", result.StartState?.Observation);
         AppendDebugObservation(text, "Final telemetry", result.FinalObservation);
+
+        if (result.PauseNormalization is { } pause)
+        {
+            text.Append("Pause normalization: policy=").Append(pause.Policy)
+                .Append(" | initial flags=").Append(pause.InitialFlags?.ToString(CultureInfo.InvariantCulture) ?? "n/a")
+                .Append(" | final flags=").Append(pause.FinalFlags?.ToString(CultureInfo.InvariantCulture) ?? "n/a")
+                .Append(" | released=").Append(DebugYesNo(pause.VerifiedUnpaused))
+                .Append(" | unpaused samples=").Append(pause.ConsecutiveUnpausedSamples.ToString(CultureInfo.InvariantCulture))
+                .Append(" | restored=").AppendLine(DebugYesNo(pause.OriginalPauseRestored));
+            text.Append("Pause detail: ").AppendLine(DebugValue(pause.Message));
+        }
+        else
+        {
+            text.AppendLine("Pause normalization: unavailable");
+        }
+
+        if (result.OperationalReadiness is { } readiness)
+        {
+            text.Append("Operational readiness: final phase=").Append(readiness.FinalPhase)
+                .Append(" | flight-start event=").Append(DebugYesNo(readiness.FlightStartEventReceived))
+                .Append(" | SimStart event=").Append(DebugYesNo(readiness.SimStartEventReceived))
+                .Append(" | stable fallback=").Append(DebugYesNo(readiness.UsedStableProbeFallback))
+                .Append(" | operational samples=")
+                .AppendLine(readiness.ConsecutiveOperationalSamples.ToString(CultureInfo.InvariantCulture));
+            text.Append("Operational probes: Sim=").Append(DebugYesNo(readiness.SimRunning))
+                .Append(" | DialogMode=").Append(DebugYesNo(readiness.DialogMode))
+                .Append(" | sim disabled=").Append(DebugYesNo(readiness.SimDisabled))
+                .Append(" | input enabled=").Append(DebugYesNo(readiness.UserInputEnabled))
+                .Append(" | motion simulation=").AppendLine(DebugYesNo(readiness.MotionSimulationActive));
+            text.Append("Visual avionics check: ").AppendLine(readiness.VisualVerification);
+        }
+        else
+        {
+            text.AppendLine("Operational readiness: unavailable");
+        }
 
         text.Append("Correlation: FlightLoaded event=").Append(DebugYesNo(result.FlightLoadedEventReceived))
             .Append(" | loaded filename=").Append(DebugValue(result.LoadedFilename))
@@ -3645,10 +3756,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             text.Append("Weather: status=").Append(weather.Status)
                 .Append(" | requested=").Append(DebugYesNo(weather.RequestedFromFile))
+                .Append(" | live weather=").Append(DebugYesNo(weather.UseLiveWeather))
                 .Append(" | preset=").Append(DebugValue(weather.PresetFile))
                 .Append(" | exists=").AppendLine(DebugYesNo(weather.PresetExists));
             text.Append("Wind: initial=").Append(DebugWind(weather.InitialWindDirectionDeg, weather.InitialWindVelocityKts))
-                .Append(" | final=").AppendLine(DebugWind(weather.FinalWindDirectionDeg, weather.FinalWindVelocityKts));
+                .Append(" | final=").Append(DebugWind(weather.FinalWindDirectionDeg, weather.FinalWindVelocityKts))
+                .Append(" | observed change=").AppendLine(DebugYesNo(weather.ObservedWindChanged));
             text.Append("Weather visual check: ").AppendLine(weather.ManualVerification);
         }
         else
@@ -3704,8 +3817,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             .Append(" | heading=").Append(DebugNumber(observation.HeadingTrueDeg, "0.0", "°"))
             .Append(" | IAS=").Append(DebugNumber(observation.AirspeedKts, "0.0", " kt"))
             .Append(" | state=").Append(DebugGroundState(observation.OnGround))
+            .Append(" | Pause_EX1 flags=").Append(observation.PauseStateFlags?.ToString(CultureInfo.InvariantCulture) ?? "n/a")
             .Append(" | normal pause=").Append(DebugYesNo(observation.NormalPauseActive))
-            .Append(" | active pause=").AppendLine(DebugYesNo(observation.ActivePauseActive));
+            .Append(" | active pause=").Append(DebugYesNo(observation.ActivePauseActive))
+            .Append(" | sim disabled=").Append(DebugYesNo(observation.SimDisabled))
+            .Append(" | input enabled=").Append(DebugYesNo(observation.UserInputEnabled))
+            .Append(" | motion simulation=").AppendLine(DebugYesNo(observation.MotionSimulationActive));
     }
 
     private static string DebugValue(string? value) =>
@@ -4608,6 +4725,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         _reconnectTimer.Stop();
         _tipTimer?.Stop();
+        _flightLoadCts?.Cancel();
+        _flightLoadCts?.Dispose();
+        _flightLoadCts = null;
         StopFreeInference(resetTarget: true);
         DetachSession();
         _sim.StateChanged -= OnSimStateChanged;
