@@ -293,6 +293,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             CanRunAction() && SelectedIlsRunway is not null);
         LoadFltCommand = new RelayCommand(async () => await RunDiagnosticFlightLoadAsync(), CanRunAction);
         OpenFlightLoadReportsFolderCommand = new RelayCommand(OpenFlightLoadReportsFolder);
+        CopyActionsStatusCommand = new RelayCommand(CopyActionsStatus);
         OpenMenuCommand = new RelayCommand(() =>
         {
             ResultVisible = false;
@@ -546,6 +547,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand SetSelectedIlsCommand { get; }
     public ICommand LoadFltCommand { get; }
     public ICommand OpenFlightLoadReportsFolderCommand { get; }
+    public ICommand CopyActionsStatusCommand { get; }
 
     public string FlightsFolderPath => _flightTapes.DirectoryPath;
     public string FlightLoadReportsFolderPath => _flightLoadReports.DirectoryPath;
@@ -872,6 +874,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public Func<string, string, bool> ConfirmAction { get; set; } = (message, title) =>
         MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Question)
         == MessageBoxResult.Yes;
+
+    /// <summary>Clipboard hook (default WPF clipboard) so Actions output copying stays testable.</summary>
+    public Action<string> SetClipboardText { get; set; } = text =>
+        System.Windows.Clipboard.SetDataObject(text, copy: true);
 
     public LandingReportViewModel? LandingReport
     {
@@ -3543,15 +3549,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         try
         {
             LastFlightLoadReportPath = _flightLoadReports.Save(result);
-            var reportName = Path.GetFileName(LastFlightLoadReportPath);
-            ActionsStatus = result.Outcome switch
-            {
-                FlightLoadOutcome.Succeeded => $"FLT load succeeded. {result.Message} Report: {reportName}",
-                FlightLoadOutcome.PartialSuccess => $"FLT load PARTIAL. {result.Message} Report: {reportName}",
-                FlightLoadOutcome.Blocked => $"FLT load blocked safely. {result.Message} Report: {reportName}",
-                FlightLoadOutcome.TimedOut => $"FLT load timed out. {result.Message} Report: {reportName}",
-                _ => $"FLT load failed. {result.Message} Report: {reportName}"
-            };
+            ActionsStatus = BuildFlightLoadDebugOutput(result, LastFlightLoadReportPath);
             AppendLog(
                 $"Diagnostic FLT result: {result.Outcome} · {result.ElapsedSeconds:0.0}s · " +
                 $"event={result.FlightLoadedEventReceived} disconnect={result.DisconnectedDuringLoad} " +
@@ -3559,7 +3557,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            ActionsStatus = $"FLT result {result.Outcome}, but saving its JSON report failed: {ex.Message}";
+            ActionsStatus = BuildFlightLoadDebugOutput(result, reportPath: null, reportSaveError: ex.Message);
             AppendLog($"Diagnostic FLT report save failed: {ex}");
         }
         finally
@@ -3568,6 +3566,175 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             RestartObservationAfterSnapshotRestore();
         }
     }
+
+    private void CopyActionsStatus()
+    {
+        if (string.IsNullOrWhiteSpace(ActionsStatus)) return;
+
+        try
+        {
+            SetClipboardText(ActionsStatus);
+            AppendLog("Actions debug output copied to the clipboard.");
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Copy Actions debug output failed: {ex.Message}");
+            MessageBox.Show(
+                $"Could not copy the Actions debug output:\n{ex.Message}",
+                "Challenge Lab — Copy debug output",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
+    private static string BuildFlightLoadDebugOutput(
+        FlightLoadResult result,
+        string? reportPath,
+        string? reportSaveError = null)
+    {
+        var text = new StringBuilder();
+        var outcome = result.Outcome switch
+        {
+            FlightLoadOutcome.PartialSuccess => "PARTIAL SUCCESS",
+            _ => result.Outcome.ToString().ToUpperInvariant()
+        };
+
+        text.Append("FLT LOAD ").Append(outcome).Append(": ")
+            .AppendLine(string.IsNullOrWhiteSpace(result.Message) ? "No result message." : result.Message.Trim());
+        text.Append("Attempt: ").AppendLine(result.AttemptId.ToString("N"));
+        text.Append("Timing: requested ")
+            .Append(result.RequestedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture))
+            .Append(" | completed ")
+            .Append(result.CompletedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture))
+            .Append(" | elapsed ")
+            .Append(result.ElapsedSeconds.ToString("0.000", CultureInfo.InvariantCulture))
+            .AppendLine(" s");
+        text.Append("Flight file: ").AppendLine(result.FlightFilePath);
+        text.Append("SHA-256: ").AppendLine(DebugValue(result.FlightFileSha256));
+
+        if (result.Target is { } target)
+        {
+            text.Append("Target: title=").Append(DebugValue(target.AircraftTitle))
+                .Append(" | lat=").Append(DebugNumber(target.Latitude, "0.000000"))
+                .Append(" | lon=").Append(DebugNumber(target.Longitude, "0.000000"))
+                .Append(" | alt=").Append(DebugNumber(target.AltitudeFeet, "0.0", " ft"))
+                .Append(" | heading=").Append(DebugNumber(target.HeadingDegrees, "0.0", "°"))
+                .Append(" | IAS=").Append(DebugNumber(target.AirspeedKts, "0.0", " kt"))
+                .Append(" | state=").AppendLine(DebugGroundState(target.OnGround));
+        }
+        else
+        {
+            text.AppendLine("Target: metadata unavailable");
+        }
+
+        text.Append("Start: mode=").Append(result.StartState?.SimulatorMode.ToString() ?? "n/a")
+            .Append(" | title=").AppendLine(DebugValue(result.StartState?.AircraftTitle));
+        AppendDebugObservation(text, "Initial telemetry", result.StartState?.Observation);
+        AppendDebugObservation(text, "Final telemetry", result.FinalObservation);
+
+        text.Append("Correlation: FlightLoaded event=").Append(DebugYesNo(result.FlightLoadedEventReceived))
+            .Append(" | loaded filename=").Append(DebugValue(result.LoadedFilename))
+            .Append(" | confirmed state path=").AppendLine(DebugValue(result.ConfirmedFlightStatePath));
+        text.Append("Validation: consecutive matching samples=")
+            .Append(result.ConsecutiveValidSamples.ToString(CultureInfo.InvariantCulture))
+            .AppendLine();
+        text.Append("Connection: disconnected during load=").Append(DebugYesNo(result.DisconnectedDuringLoad))
+            .Append(" | reconnected=").AppendLine(DebugYesNo(result.ReconnectedDuringLoad));
+
+        if (result.Weather is { } weather)
+        {
+            text.Append("Weather: status=").Append(weather.Status)
+                .Append(" | requested=").Append(DebugYesNo(weather.RequestedFromFile))
+                .Append(" | preset=").Append(DebugValue(weather.PresetFile))
+                .Append(" | exists=").AppendLine(DebugYesNo(weather.PresetExists));
+            text.Append("Wind: initial=").Append(DebugWind(weather.InitialWindDirectionDeg, weather.InitialWindVelocityKts))
+                .Append(" | final=").AppendLine(DebugWind(weather.FinalWindDirectionDeg, weather.FinalWindVelocityKts));
+            text.Append("Weather visual check: ").AppendLine(weather.ManualVerification);
+        }
+        else
+        {
+            text.AppendLine("Weather: assessment unavailable");
+        }
+
+        if (result.ValidationIssues.Count > 0)
+        {
+            text.AppendLine("Validation issues:");
+            foreach (var issue in result.ValidationIssues)
+                text.Append("- ").AppendLine(issue);
+        }
+        else
+        {
+            text.AppendLine("Validation issues: none");
+        }
+
+        if (result.Timeline.Count > 0)
+        {
+            text.AppendLine("Timeline:");
+            foreach (var entry in result.Timeline)
+            {
+                text.Append("- ")
+                    .Append(entry.TimestampUtc.ToUniversalTime().ToString("HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture))
+                    .Append(" [").Append(entry.Stage).Append("] ").AppendLine(entry.Message);
+            }
+        }
+        else
+        {
+            text.AppendLine("Timeline: no entries");
+        }
+
+        text.Append("Report: ").AppendLine(DebugValue(reportPath));
+        if (!string.IsNullOrWhiteSpace(reportSaveError))
+            text.Append("REPORT SAVE ERROR: ").AppendLine(reportSaveError);
+
+        return text.ToString().TrimEnd();
+    }
+
+    private static void AppendDebugObservation(StringBuilder text, string label, FlightLoadObservation? observation)
+    {
+        if (observation is null)
+        {
+            text.Append(label).AppendLine(": unavailable");
+            return;
+        }
+
+        text.Append(label).Append(": title=").Append(DebugValue(observation.AircraftTitle))
+            .Append(" | lat=").Append(DebugNumber(observation.Latitude, "0.000000"))
+            .Append(" | lon=").Append(DebugNumber(observation.Longitude, "0.000000"))
+            .Append(" | alt=").Append(DebugNumber(observation.AltitudeFeet, "0.0", " ft"))
+            .Append(" | heading=").Append(DebugNumber(observation.HeadingTrueDeg, "0.0", "°"))
+            .Append(" | IAS=").Append(DebugNumber(observation.AirspeedKts, "0.0", " kt"))
+            .Append(" | state=").Append(DebugGroundState(observation.OnGround))
+            .Append(" | normal pause=").Append(DebugYesNo(observation.NormalPauseActive))
+            .Append(" | active pause=").AppendLine(DebugYesNo(observation.ActivePauseActive));
+    }
+
+    private static string DebugValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "n/a" : value;
+
+    private static string DebugNumber(double? value, string format, string suffix = "") =>
+        value is null ? "n/a" : value.Value.ToString(format, CultureInfo.InvariantCulture) + suffix;
+
+    private static string DebugYesNo(bool value) => value ? "yes" : "no";
+
+    private static string DebugYesNo(bool? value) => value switch
+    {
+        true => "yes",
+        false => "no",
+        null => "n/a"
+    };
+
+    private static string DebugGroundState(bool? onGround) => onGround switch
+    {
+        true => "GROUND",
+        false => "AIR",
+        null => "n/a"
+    };
+
+    private static string DebugWind(double? direction, double? velocity) =>
+        direction is null || velocity is null
+            ? "n/a"
+            : $"{direction.Value.ToString("0.0", CultureInfo.InvariantCulture)}°/" +
+              $"{velocity.Value.ToString("0.0", CultureInfo.InvariantCulture)} kt";
 
     private void OpenFlightLoadReportsFolder()
     {

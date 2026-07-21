@@ -207,13 +207,50 @@ public sealed class ActionsTabTests
             {
                 Outcome = FlightLoadOutcome.PartialSuccess,
                 FlightFilePath = env.FltPath,
+                FlightFileSha256 = "ABC123",
                 Message = "Flight state validated; weather unavailable.",
                 FlightLoadedEventReceived = true,
+                LoadedFilename = "andi1.flt",
+                ConfirmedFlightStatePath = env.FltPath,
                 ConsecutiveValidSamples = 3,
+                ElapsedSeconds = 12.345,
+                Target = new FltFileMetadata
+                {
+                    FilePath = env.FltPath,
+                    AircraftTitle = "Airbus A320neo V2",
+                    Latitude = 47.45,
+                    Longitude = 8.56,
+                    AltitudeFeet = 4464,
+                    HeadingDegrees = 274,
+                    AirspeedKts = 236,
+                    OnGround = false
+                },
+                FinalObservation = new FlightLoadObservation
+                {
+                    AircraftTitle = "Airbus A320neo V2",
+                    Latitude = 47.45,
+                    Longitude = 8.56,
+                    AltitudeFeet = 4464,
+                    AirspeedKts = 236,
+                    OnGround = false
+                },
+                ValidationIssues = ["UseWeatherFile=False; weather was not loaded."],
+                Timeline =
+                [
+                    new FlightLoadTimelineEntry
+                    {
+                        Stage = "Readiness",
+                        Message = "3 consecutive target-matching samples."
+                    }
+                ],
                 Weather = new FlightLoadWeatherAssessment
                 {
                     Status = FlightLoadWeatherStatus.NotRequested,
-                    PresetFile = "andi1.wpr"
+                    PresetFile = "andi1.wpr",
+                    InitialWindDirectionDeg = 210,
+                    InitialWindVelocityKts = 8,
+                    FinalWindDirectionDeg = 220,
+                    FinalWindVelocityKts = 10
                 }
             };
             using var vm = env.CreateViewModel();
@@ -225,12 +262,34 @@ public sealed class ActionsTabTests
 
             Assert.Equal(1, env.Sim.FlightLoadCalls);
             Assert.Equal(Path.GetFullPath(env.FltPath), Path.GetFullPath(env.Sim.LastFlightLoadRequest!.FlightFilePath));
-            Assert.Contains("PARTIAL", vm.ActionsStatus, StringComparison.Ordinal);
+            Assert.Contains("FLT LOAD PARTIAL SUCCESS", vm.ActionsStatus, StringComparison.Ordinal);
+            Assert.Contains("Attempt:", vm.ActionsStatus, StringComparison.Ordinal);
+            Assert.Contains("FlightLoaded event=yes", vm.ActionsStatus, StringComparison.Ordinal);
+            Assert.Contains("consecutive matching samples=3", vm.ActionsStatus, StringComparison.Ordinal);
+            Assert.Contains("Weather: status=NotRequested", vm.ActionsStatus, StringComparison.Ordinal);
+            Assert.Contains("Timeline:", vm.ActionsStatus, StringComparison.Ordinal);
             Assert.NotNull(vm.LastFlightLoadReportPath);
             Assert.True(File.Exists(vm.LastFlightLoadReportPath));
+            Assert.Contains(vm.LastFlightLoadReportPath!, vm.ActionsStatus, StringComparison.Ordinal);
             var report = env.ReportStore.Load(vm.LastFlightLoadReportPath!);
             Assert.Equal(FlightLoadOutcome.PartialSuccess, report.Outcome);
             Assert.Equal("andi1.wpr", report.Weather!.PresetFile);
+        });
+    }
+
+    [Fact]
+    public void CopyActionsStatus_CopiesTheCompleteSelectableMessage()
+    {
+        RunSta(() =>
+        {
+            using var env = new TestEnv();
+            using var vm = env.CreateViewModel();
+            string? copied = null;
+            vm.SetClipboardText = text => copied = text;
+
+            vm.CopyActionsStatusCommand.Execute(null);
+
+            Assert.Equal(vm.ActionsStatus, copied);
         });
     }
 
@@ -270,6 +329,9 @@ public sealed class ActionsTabTests
         Assert.Contains("SetSelectedIlsCommand", xaml, StringComparison.Ordinal);
         Assert.Contains("LoadFltCommand", xaml, StringComparison.Ordinal);
         Assert.Contains("OpenFlightLoadReportsFolderCommand", xaml, StringComparison.Ordinal);
+        Assert.Contains("CopyActionsStatusCommand", xaml, StringComparison.Ordinal);
+        Assert.Contains("IsReadOnly=\"True\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("VerticalScrollBarVisibility=\"Auto\"", xaml, StringComparison.Ordinal);
         Assert.Contains("FlightLoadReportsFolderPath", xaml, StringComparison.Ordinal);
         Assert.Contains("can hang or crash MSFS 2024", xaml, StringComparison.Ordinal);
         Assert.Contains("IlsAmbiguityWarning", xaml, StringComparison.Ordinal);

@@ -1489,12 +1489,23 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <ProgressBar Width="26" Height="5" Margin="0,0,12,0"
-                                         VerticalAlignment="Center" IsIndeterminate="True"
+                                         VerticalAlignment="Top" IsIndeterminate="True"
                                          Visibility="{Binding IsActionRunning, Converter={StaticResource BoolToVis}}"/>
-                            <TextBlock Grid.Column="1" Text="{Binding ActionsStatus}" TextWrapping="Wrap"
-                                       VerticalAlignment="Center" Foreground="{StaticResource BrushAccentAmber}"/>
+                            <TextBox Grid.Column="1" Text="{Binding ActionsStatus, Mode=OneWay}"
+                                     IsReadOnly="True" IsReadOnlyCaretVisible="True" AcceptsReturn="True"
+                                     TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Disabled" MinHeight="48" MaxHeight="190"
+                                     Padding="0" BorderThickness="0" Background="Transparent"
+                                     FontFamily="{StaticResource MonoFont}" FontSize="11"
+                                     Foreground="{StaticResource BrushAccentAmber}"
+                                     ToolTip="Selectable Actions debug output"/>
+                            <Button Grid.Column="2" Content="COPY" Command="{Binding CopyActionsStatusCommand}"
+                                    Style="{StaticResource GhostButton}" Padding="10,6" Margin="12,0,0,0"
+                                    VerticalAlignment="Top" FontSize="10"
+                                    ToolTip="Copy the complete Actions debug output to the clipboard"/>
                         </Grid>
                     </Border>
 
