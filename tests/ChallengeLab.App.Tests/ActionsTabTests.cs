@@ -464,7 +464,7 @@ public sealed class ActionsTabTests
         {
             FlightLoadCalls++;
             LastFlightLoadRequest = request;
-            progress?.Report("Test FLT loadâ€¦");
+            progress?.Report("Test FLT load…");
             return Task.FromResult(FlightLoadResult ?? new FlightLoadResult
             {
                 Outcome = FlightLoadOutcome.Succeeded,

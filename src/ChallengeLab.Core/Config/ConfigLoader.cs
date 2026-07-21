@@ -218,7 +218,11 @@ public sealed class ConfigLoader
 
     private static string? FindCorruption(string text)
     {
-        foreach (var sequence in new[] { "Ã", "Â", "â€", "â€“", "â€”", "â†", "�" })
+        foreach (var sequence in new[]
+                 {
+                     "\u00C3", "\u00C2", "\u00E2\u20AC", "\u00E2\u20AC\u201C",
+                     "\u00E2\u20AC\u201D", "\u00E2\u2020", "\uFFFD"
+                 })
             if (text.Contains(sequence, StringComparison.Ordinal)) return sequence;
         return null;
     }

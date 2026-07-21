@@ -587,7 +587,7 @@ internal static class OperationalGateEvaluator
             criteria.Add(new CriterionScore
             {
                 Id = id,
-                DisplayName = name + " â€” assumed telemetry adjustment",
+                DisplayName = name + " — assumed telemetry adjustment",
                 Status = MetricStatus.Assumed,
                 AppliedMultiplier = multiplier,
                 UnavailableReason = reason,
@@ -624,7 +624,7 @@ internal static class OperationalGateEvaluator
         criteria.Add(new CriterionScore
         {
             Id = id,
-            DisplayName = name + " â€” not applicable",
+            DisplayName = name + " — not applicable",
             Status = MetricStatus.NotApplicable,
             AppliedMultiplier = 1,
             Note = decision.Reason

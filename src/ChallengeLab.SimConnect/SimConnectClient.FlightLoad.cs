@@ -38,7 +38,7 @@ public sealed partial class SimConnectClient
 
         try
         {
-            progress?.Report("Reading FLT metadataâ€¦");
+            progress?.Report("Reading FLT metadata…");
             target = FltFileParser.Parse(request.FlightFilePath);
             sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(target.FilePath)));
             if (target.UseWeatherFile && !target.WeatherPresetExists)
@@ -50,7 +50,7 @@ public sealed partial class SimConnectClient
                     reason, requestedUtc, attemptId);
             }
 
-            progress?.Report("Checking simulator stateâ€¦");
+            progress?.Report("Checking simulator state…");
             var mode = await RequestDiagnosticSimulatorModeAsync(ct);
             var currentTitle = mode == FlightLoadSimulatorMode.ActiveFlight
                 ? await RequestAircraftTitleAsync(ct)
@@ -94,7 +94,7 @@ public sealed partial class SimConnectClient
                 operation.Add("Weather", $"Referenced preset is missing: {target.WeatherPresetAbsolutePath}");
 
             _diagnosticFlightLoad = operation;
-            progress?.Report("Sending one experimental FlightLoad requestâ€¦");
+            progress?.Report("Sending one experimental FlightLoad request…");
             operation.Add("Request", $"FlightLoad('{target.FilePath}')");
             operation.LoadIssued = true;
 
@@ -249,7 +249,7 @@ public sealed partial class SimConnectClient
         if (data.FlowEvent == SIMCONNECT_FLOW_EVENT.FLT_LOAD)
         {
             operation.Add("Flow", $"FLT_LOAD {data.FltPath}".Trim());
-            operation.Progress?.Report("Simulator is loading the FLTâ€¦");
+            operation.Progress?.Report("Simulator is loading the FLT…");
             return;
         }
 
@@ -323,7 +323,7 @@ public sealed partial class SimConnectClient
         var now = DateTimeOffset.UtcNow;
         operation.LoadedSignalUtc = now;
         operation.Evaluator.MarkFlightLoaded(now);
-        operation.Progress?.Report("FLT loaded; validating aircraft stateâ€¦");
+        operation.Progress?.Report("FLT loaded; validating aircraft state…");
     }
 
     private void ObserveDiagnosticFlightLoadTelemetry(TelemetrySample sample)
@@ -338,7 +338,7 @@ public sealed partial class SimConnectClient
         {
             operation.Add("Readiness",
                 $"{operation.Evaluator.ConsecutiveValidSamples} consecutive target-matching samples.");
-            operation.Progress?.Report("Target state validated; confirming loaded pathâ€¦");
+            operation.Progress?.Report("Target state validated; confirming loaded path…");
         }
     }
 
@@ -349,7 +349,7 @@ public sealed partial class SimConnectClient
         {
             operation.ReconnectedDuringLoad = true;
             operation.Add("Connection", "SimConnect reconnected during the load attempt.");
-            operation.Progress?.Report("Reconnected; confirming the loaded FLTâ€¦");
+            operation.Progress?.Report("Reconnected; confirming the loaded FLT…");
         }
         RequestDiagnosticFlightPathState();
     }
@@ -364,7 +364,7 @@ public sealed partial class SimConnectClient
 
         operation.DisconnectedDuringLoad = true;
         operation.Add("Connection", "SimConnect disconnected during the load attempt; waiting for auto-reconnect.");
-        operation.Progress?.Report("Connection lost during load; waiting for auto-reconnectâ€¦");
+        operation.Progress?.Report("Connection lost during load; waiting for auto-reconnect…");
     }
 
     private void ObserveDiagnosticFlightLoadException(SIMCONNECT_RECV_EXCEPTION data)

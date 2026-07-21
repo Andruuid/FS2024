@@ -44,8 +44,8 @@ public sealed class FlightLoadDomainTests
                        UseLiveWeather=False
                        WeatherPresetFile=.\legacy.wpr
                        [SimVars.0]
-                       Latitude=S12Â° 30' 0.0000"
-                       Longitude=W45Â° 15' 30.0000"
+                       Latitude=S12° 30' 0.0000"
+                       Longitude=W45° 15' 30.0000"
                        Altitude=+005000.50
                        Heading=-10
                        ZVelBodyAxis_IAS=140

@@ -83,7 +83,7 @@ public sealed class ScoreEngine
                                 Id = metric.Id, DisplayName = metric.DisplayName,
                                 Score01 = assumedScore01, Unit = metric.Unit,
                                 Status = MetricStatus.Assumed, UnavailableReason = assumedReason,
-                                Note = $"[FREE Â· assumed {freeMode.UnavailableMetricScorePercent:0.#}%] " +
+                                Note = $"[FREE · assumed {freeMode.UnavailableMetricScorePercent:0.#}%] " +
                                        $"Telemetry unavailable: {assumedReason}",
                                 PhaseId = phase.Id, PhaseDisplayName = phase.DisplayName,
                                 PhaseImportancePercent = metric.ImportancePercent,
@@ -176,7 +176,7 @@ public sealed class ScoreEngine
                             Unit = metric.Unit,
                             Status = MetricStatus.Assumed,
                             UnavailableReason = assumedReason,
-                            Note = $"[FREE Â· assumed {freeMode.UnavailableMetricScorePercent:0.#}%] " +
+                            Note = $"[FREE · assumed {freeMode.UnavailableMetricScorePercent:0.#}%] " +
                                    $"{MetricExplanations.DefaultCatalog(metric.Id, metric.DisplayName)} " +
                                    $"Telemetry unavailable: {assumedReason}",
                             PhaseId = phase.Id,

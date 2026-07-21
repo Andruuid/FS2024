@@ -1312,7 +1312,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             {
                 AppendLog(
                     $"OurAirports {_runwayReferenceResolver.Catalog.SnapshotId}: " +
-                    $"{_runwayReferenceResolver.Catalog.RunwayEndCount} indexed ends Â· " +
+                    $"{_runwayReferenceResolver.Catalog.RunwayEndCount} indexed ends · " +
                     $"{csvMatches}/{challenges.Count} challenge runway matches.");
             }
             else
@@ -3464,9 +3464,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             var target = FltFileParser.Parse(_diagnosticFltPath);
             FlightLoadTargetSummary =
-                $"{Path.GetFileName(target.FilePath)} Â· {target.AircraftTitle ?? "unknown aircraft"} Â· " +
-                $"{(target.OnGround == true ? "GROUND" : "AIR")} Â· " +
-                $"{target.AltitudeFeet:0} ft Â· IAS {target.AirspeedKts:0} kt";
+                $"{Path.GetFileName(target.FilePath)} · {target.AircraftTitle ?? "unknown aircraft"} · " +
+                $"{(target.OnGround == true ? "GROUND" : "AIR")} · " +
+                $"{target.AltitudeFeet:0} ft · IAS {target.AirspeedKts:0} kt";
             FlightLoadWeatherNotice = target.WeatherStatus switch
             {
                 FlightLoadWeatherStatus.DependencyAvailable =>
@@ -3495,7 +3495,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 "Allowed starting states: the main menu, or an active flight already using A320neo V2. " +
                 "A different active aircraft is always blocked. The request is sent once and is never retried automatically.\n\n" +
                 FlightLoadWeatherNotice + "\n\nLoad andi1.flt now?",
-                "Challenge Lab â€” Experimental Load FLT"))
+                "Challenge Lab — Experimental Load FLT"))
         {
             ActionsStatus = "Experimental FLT load cancelled before any simulator request.";
             return;
@@ -3513,7 +3513,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         LastScore = null;
         ResultVisible = false;
         PhaseLabel = "Loading FLT";
-        ActionsStatus = "Preparing experimental FLT loadâ€¦";
+        ActionsStatus = "Preparing experimental FLT load…";
 
         FlightLoadResult result;
         try
@@ -3553,9 +3553,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 _ => $"FLT load failed. {result.Message} Report: {reportName}"
             };
             AppendLog(
-                $"Diagnostic FLT result: {result.Outcome} Â· {result.ElapsedSeconds:0.0}s Â· " +
+                $"Diagnostic FLT result: {result.Outcome} · {result.ElapsedSeconds:0.0}s · " +
                 $"event={result.FlightLoadedEventReceived} disconnect={result.DisconnectedDuringLoad} " +
-                $"reconnect={result.ReconnectedDuringLoad} Â· report={LastFlightLoadReportPath}");
+                $"reconnect={result.ReconnectedDuringLoad} · report={LastFlightLoadReportPath}");
         }
         catch (Exception ex)
         {
@@ -3585,7 +3585,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             AppendLog($"Open flight-load reports folder failed: {ex.Message}");
             MessageBox.Show(
                 $"Could not open flight-load reports folder:\n{ex.Message}",
-                "Challenge Lab â€” Experimental Load FLT",
+                "Challenge Lab — Experimental Load FLT",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
         }
