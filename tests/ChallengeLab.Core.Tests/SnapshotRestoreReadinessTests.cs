@@ -113,6 +113,57 @@ public sealed class SnapshotRestoreReadinessTests
         Assert.StartsWith("GS ", result.Detail, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Evaluate_MovingGroundSnapshotUsesPrimedBodyVelocityWhilePositionIsFrozen()
+    {
+        var snapshot = BuildAirborneSnapshot();
+        snapshot.OnGround = true;
+        snapshot.IasKts = 39.4;
+        snapshot.GroundSpeedKts = 39.9;
+        snapshot.BodyVelXMs = 0.02;
+        snapshot.BodyVelYMs = -0.04;
+        snapshot.BodyVelZMs = 20.53;
+
+        // Frozen lat/lon makes earth-relative GS read zero, but the exact stored body
+        // velocity is primed and will take effect when the user resumes.
+        var result = SnapshotRestoreReadiness.Evaluate(
+            snapshot,
+            ReadyReadback() with
+            {
+                GroundSpeedKts = 0,
+                BodyVelXMs = 0.02,
+                BodyVelYMs = -0.04,
+                BodyVelZMs = 20.53
+            });
+
+        Assert.True(result.SpeedReady);
+        Assert.True(result.Ready);
+        Assert.StartsWith("GS primed 40/40 kt ok", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Evaluate_MovingGroundSnapshotRejectsMissingBodyVelocity()
+    {
+        var snapshot = BuildAirborneSnapshot();
+        snapshot.OnGround = true;
+        snapshot.GroundSpeedKts = 40;
+        snapshot.BodyVelZMs = 20.58;
+
+        var result = SnapshotRestoreReadiness.Evaluate(
+            snapshot,
+            ReadyReadback() with
+            {
+                GroundSpeedKts = 0,
+                BodyVelXMs = 0,
+                BodyVelYMs = 0,
+                BodyVelZMs = 0
+            });
+
+        Assert.False(result.SpeedReady);
+        Assert.False(result.Ready);
+        Assert.StartsWith("GS primed 0/40 kt", result.Detail, StringComparison.Ordinal);
+    }
+
     private static FlightStateSnapshot BuildAirborneSnapshot() => new()
     {
         OnGround = false,

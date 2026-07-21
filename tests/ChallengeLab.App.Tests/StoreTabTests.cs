@@ -115,6 +115,40 @@ public sealed class StoreTabTests
     }
 
     [Fact]
+    public void LoadCommand_CannotStartAgainWhileRestoreIsStillSettling()
+    {
+        RunSta(() =>
+        {
+            using var env = new TestEnv();
+            env.Sim.RestoreCompletion = new TaskCompletionSource<SpawnApplyResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var vm = env.CreateViewModel();
+            try
+            {
+                env.SnapshotStore.Save(BuildSnapshot("Slow gear animation"));
+                vm.RefreshSnapshotsCommand.Execute(null);
+                vm.SelectedSnapshot = vm.Snapshots[0];
+                vm.IsConnected = true;
+
+                vm.LoadSnapshotCommand.Execute(null);
+
+                Assert.True(vm.IsRestoringSnapshot);
+                Assert.False(vm.LoadSnapshotCommand.CanExecute(null));
+                vm.LoadSnapshotCommand.Execute(null); // hard method guard as well as disabled UI
+                Assert.Equal(1, env.Sim.RestoreCalls);
+
+                env.Sim.RestoreCompletion.SetResult(env.Sim.RestoreResult);
+                Assert.True(SpinWait.SpinUntil(() => !vm.IsRestoringSnapshot, 2_000));
+                Assert.True(vm.LoadSnapshotCommand.CanExecute(null));
+            }
+            finally
+            {
+                vm.Dispose();
+            }
+        });
+    }
+
+    [Fact]
     public void RenameAndDelete_FlowThroughStore_DeleteUsesInjectedConfirm()
     {
         RunSta(() =>
@@ -284,6 +318,7 @@ public sealed class StoreTabTests
         public FlightStateSnapshot? NextSnapshot { get; set; }
         public SpawnApplyResult RestoreResult { get; set; } =
             SpawnApplyResult.Ok("restored", 0, 0, 140, 47.4647, 8.5492, 4200, false);
+        public TaskCompletionSource<SpawnApplyResult>? RestoreCompletion { get; set; }
         public int CaptureCalls { get; private set; }
         public int RestoreCalls { get; private set; }
         public int ResumeCalls { get; private set; }
@@ -341,7 +376,7 @@ public sealed class StoreTabTests
             RestoreCalls++;
             LastRestoredSnapshot = snapshot;
             LastRestoreOptions = options;
-            return Task.FromResult(RestoreResult);
+            return RestoreCompletion?.Task ?? Task.FromResult(RestoreResult);
         }
 
         public void Dispose() { }

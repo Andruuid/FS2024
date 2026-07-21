@@ -23,7 +23,9 @@ public sealed partial class SimConnectClient
     /// <summary>Final strict read-back after the last INITPOSITION write.</summary>
     private const int MaxSnapshotReadinessMs = 15000;
     private const int RequiredSnapshotReadySamples = 2;
-    private const int GearAnimationWindowMs = 9000;
+    private const int RequiredSnapshotStableMs = 2500;
+    private const int GearAnimationWindowMs = 14000;
+    private const int GearAnimationTailMs = 2500;
     private const double GroundGearClearanceFeet = 20.0;
 
     // Tank order is fixed — capture struct, write struct and dictionary keys must agree.
@@ -1323,6 +1325,7 @@ public sealed partial class SimConnectClient
         var mechanismMatched = false;
         var lastExtension01 = double.NaN;
         var started = DateTimeOffset.UtcNow;
+        DateTimeOffset? gearReadySince = null;
 
         progress?.Report(liftForClearance
             ? "Freeing landing gear — lifting clear while position stays locked…"
@@ -1370,10 +1373,32 @@ public sealed partial class SimConnectClient
 
                     if (readiness.GearReady)
                     {
-                        mechanismMatched = true;
-                        Log($"Snapshot gear recovery reached {lastExtension01:0%}.");
-                        break;
+                        if (gearReadySince is null)
+                        {
+                            gearReadySince = DateTimeOffset.UtcNow;
+                            mechanismMatched = true;
+                            Log(
+                                $"Snapshot gear recovery reached {lastExtension01:0%}; " +
+                                "allowing visual mechanism to finish.");
+                        }
+
+                        var tailMs = (DateTimeOffset.UtcNow - gearReadySince.Value).TotalMilliseconds;
+                        progress?.Report(
+                            $"Gear reports fully {(targetDown ? "down" : "up")} — " +
+                            $"letting animation finish {Math.Min(tailMs, GearAnimationTailMs) / 1000.0:0.0}/" +
+                            $"{GearAnimationTailMs / 1000.0:0.0}s…");
+                        if (tailMs >= GearAnimationTailMs)
+                            break;
+
+                        await Task.Delay(ConfigPollMs, ct);
+                        continue;
                     }
+
+                    gearReadySince = null;
+                }
+                else
+                {
+                    gearReadySince = null;
                 }
 
                 // Re-send the documented handle commands about once a second. If the
@@ -1523,6 +1548,7 @@ public sealed partial class SimConnectClient
         var poll = 0;
         var consecutiveReady = 0;
         var gearRecoveryAttempted = false;
+        DateTimeOffset? fullyReadySince = null;
         SnapshotCaptureStruct? lastSample = null;
         string lastDetail = "waiting for simulator read-back";
 
@@ -1536,6 +1562,7 @@ public sealed partial class SimConnectClient
             if (sample is null)
             {
                 consecutiveReady = 0;
+                fullyReadySince = null;
                 progress?.Report("Checking restored state — waiting for telemetry…");
                 await Task.Delay(ConfigPollMs, ct);
                 continue;
@@ -1557,11 +1584,16 @@ public sealed partial class SimConnectClient
 
             if (readiness.Ready && positionReady)
             {
+                fullyReadySince ??= DateTimeOffset.UtcNow;
                 consecutiveReady++;
+                var stableMs = (DateTimeOffset.UtcNow - fullyReadySince.Value).TotalMilliseconds;
                 progress?.Report(
-                    $"Final safety check {consecutiveReady}/{RequiredSnapshotReadySamples} — {lastDetail}");
+                    $"Final safety check — stable " +
+                    $"{Math.Min(stableMs, RequiredSnapshotStableMs) / 1000.0:0.0}/" +
+                    $"{RequiredSnapshotStableMs / 1000.0:0.0}s · {lastDetail}");
 
-                if (consecutiveReady >= RequiredSnapshotReadySamples)
+                if (consecutiveReady >= RequiredSnapshotReadySamples
+                    && stableMs >= RequiredSnapshotStableMs)
                 {
                     Log($"Snapshot final readiness verified: {lastDetail}");
                     return SpawnApplyResult.Ok(
@@ -1578,6 +1610,7 @@ public sealed partial class SimConnectClient
             else
             {
                 consecutiveReady = 0;
+                fullyReadySince = null;
 
                 if (!readiness.GearReady
                     && snapshot.IsGearRetractable
@@ -1661,7 +1694,10 @@ public sealed partial class SimConnectClient
                 (int)Math.Round(s.FlapsIndex),
                 s.SpoilersLeft,
                 s.SpoilersRight,
-                s.ParkingBrake > 0.5));
+                s.ParkingBrake > 0.5,
+                s.BodyVelX,
+                s.BodyVelY,
+                s.BodyVelZ));
     }
 
     private async Task RePinSnapshotAsync(

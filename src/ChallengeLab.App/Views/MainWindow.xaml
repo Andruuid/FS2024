@@ -956,13 +956,17 @@
                                            Foreground="{StaticResource BrushAccentCyan}"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                                     <Button Content="Refresh" Command="{Binding RefreshFlightTapesCommand}"
+                                            Style="{StaticResource GhostButton}"
                                             Padding="12,6" Margin="0,0,8,0"/>
                                     <Button Content="Open folder" Command="{Binding OpenFlightsFolderCommand}"
+                                            Style="{StaticResource GhostButton}"
                                             Padding="12,6" Margin="0,0,8,0"/>
                                     <Button Content="Browse…" Command="{Binding BrowseFlightTapeCommand}"
+                                            Style="{StaticResource GhostButton}"
                                             Padding="12,6"/>
                                 </StackPanel>
                                 <Button Content="Evaluate from file" Command="{Binding EvaluateSelectedFlightTapeCommand}"
+                                        Style="{StaticResource PrimaryButton}"
                                         Padding="14,8" Margin="0,10,0,0" HorizontalAlignment="Left"
                                         FontWeight="SemiBold"/>
                             </StackPanel>
@@ -1469,6 +1473,181 @@
                             </ScrollViewer>
                         </Grid>
                     </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="ACTIONS">
+                <Grid Margin="0,16,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Style="{StaticResource CardBorder}" Padding="14">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <ProgressBar Width="26" Height="5" Margin="0,0,12,0"
+                                         VerticalAlignment="Center" IsIndeterminate="True"
+                                         Visibility="{Binding IsActionRunning, Converter={StaticResource BoolToVis}}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding ActionsStatus}" TextWrapping="Wrap"
+                                       VerticalAlignment="Center" Foreground="{StaticResource BrushAccentAmber}"/>
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="0.8*"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="1.2*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel>
+                                <Border Style="{StaticResource CardBorder}" Padding="16" Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <TextBlock Text="ZURICH TEST ACTION" FontSize="11" FontWeight="Bold"
+                                                   Foreground="{StaticResource BrushAccentCyan}"/>
+                                        <TextBlock Text="Restore ZurichRnw28 and tune RW28"
+                                                   FontSize="20" FontWeight="SemiBold" Margin="0,6,0,0"/>
+                                        <TextBlock Text="Loads the newest matching stored flight through the safe snapshot pipeline, leaves it paused, then sends IZW 109.75 / CRS 273 to the iniBuilds A320neo V2 MCDU."
+                                                   TextWrapping="Wrap" LineHeight="19" Margin="0,8,0,14"
+                                                   Foreground="{StaticResource BrushTextMuted}"/>
+                                        <Button Content="ZurichILS" Command="{Binding ZurichIlsCommand}"
+                                                Style="{StaticResource PrimaryButton}" Padding="16,9"
+                                                HorizontalAlignment="Left" FontWeight="SemiBold"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Style="{StaticResource CardBorder}" Padding="16">
+                                    <StackPanel>
+                                        <TextBlock Text="SET ILS FREQUENCY" FontSize="11" FontWeight="Bold"
+                                                   Foreground="{StaticResource BrushAccentCyan}"/>
+                                        <TextBlock Text="Frequency only" FontSize="20" FontWeight="SemiBold"
+                                                   Margin="0,6,0,0"/>
+                                        <TextBlock Text="Enter 109.75, /109.75, or 109,75. This control sends only the ILS/FREQ value and does not touch the course."
+                                                   TextWrapping="Wrap" LineHeight="19" Margin="0,8,0,12"
+                                                   Foreground="{StaticResource BrushTextMuted}"/>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="10"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox Text="{Binding IlsFrequencyInput, UpdateSourceTrigger=PropertyChanged}"
+                                                     Background="#FF0B1020" Foreground="#FFF2F6FF"
+                                                     CaretBrush="#FFF2F6FF" BorderBrush="#44FFFFFF"
+                                                     BorderThickness="1" Padding="10,8" FontSize="16"/>
+                                            <Button Grid.Column="2" Content="SET" Command="{Binding SetIlsCommand}"
+                                                    Style="{StaticResource PrimaryButton}" Padding="18,8"
+                                                    FontWeight="Bold"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <Border Grid.Column="2" Style="{StaticResource CardBorder}" Padding="16">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="150"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <StackPanel>
+                                    <TextBlock Text="ILS CATALOGUE" FontSize="11" FontWeight="Bold"
+                                               Foreground="{StaticResource BrushAccentCyan}"/>
+                                    <TextBlock Text="Find an airport and runway" FontSize="20"
+                                               FontWeight="SemiBold" Margin="0,6,0,0"/>
+                                    <TextBlock Text="Search by airport name or four-letter ICAO. Ident is shown for verification; SET sends the exact catalogue frequency and selected course."
+                                               TextWrapping="Wrap" LineHeight="19" Margin="0,8,0,10"
+                                               Foreground="{StaticResource BrushTextMuted}"/>
+                                </StackPanel>
+
+                                <TextBox Grid.Row="1" Text="{Binding IlsAirportQuery, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="Airport name or ICAO, for example Zurich or LSZH"
+                                         Background="#FF0B1020" Foreground="#FFF2F6FF"
+                                         CaretBrush="#FFF2F6FF" BorderBrush="#44FFFFFF"
+                                         BorderThickness="1" Padding="10,8" FontSize="15" Margin="0,0,0,8"/>
+
+                                <ListBox Grid.Row="2" ItemsSource="{Binding IlsAirportResults}"
+                                         SelectedItem="{Binding SelectedIlsAirport, Mode=TwoWay}"
+                                         DisplayMemberPath="DisplayName"
+                                         Background="#FF0B1020" Foreground="#FFF2F6FF"
+                                         BorderBrush="#33FFFFFF" BorderThickness="1"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+
+                                <StackPanel Grid.Row="3" Margin="0,12,0,0">
+                                    <TextBlock Text="AVAILABLE RUNWAYS / TRANSMITTERS" FontSize="10"
+                                               FontWeight="Bold" Foreground="{StaticResource BrushTextMuted}"/>
+                                    <ComboBox ItemsSource="{Binding SelectedIlsAirport.Runways}"
+                                              SelectedItem="{Binding SelectedIlsRunway, Mode=TwoWay}"
+                                              DisplayMemberPath="DisplayName"
+                                              Background="#FF0B1020" Foreground="#FFF2F6FF"
+                                              BorderBrush="#44FFFFFF" Padding="8,6" Margin="0,6,0,0"/>
+                                </StackPanel>
+
+                                <Border Grid.Row="4" Background="#FF0B1020" BorderBrush="#33FFFFFF"
+                                        BorderThickness="1" CornerRadius="7" Padding="12" Margin="0,12,0,0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="RUNWAY" FontSize="9" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock FontSize="15" FontWeight="SemiBold" Foreground="#FFF2F6FF">
+                                                <Run Text="RW"/><Run Text="{Binding SelectedIlsRunway.Runway, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="IDENT" FontSize="9" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock Text="{Binding SelectedIlsRunway.Ident}" FontSize="15"
+                                                       FontWeight="SemiBold" Foreground="#FFF2F6FF"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="FREQUENCY" FontSize="9" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock FontSize="15" FontWeight="SemiBold" Foreground="#FFF2F6FF">
+                                                <Run Text="{Binding SelectedIlsRunway.FrequencyMhz, Mode=OneWay, StringFormat={}{0:0.00}}"/>
+                                                <Run Text=" MHz"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="3">
+                                            <TextBlock Text="COURSE" FontSize="9" Foreground="{StaticResource BrushTextMuted}"/>
+                                            <TextBlock FontSize="15" FontWeight="SemiBold" Foreground="#FFF2F6FF">
+                                                <Run Text="{Binding SelectedIlsRunway.CourseDegrees, Mode=OneWay, StringFormat={}{0:000}}"/>
+                                                <Run Text="°"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                                <Border Grid.Row="5" Background="#33FFB020" BorderBrush="#99FFB020"
+                                        BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,10,0,0"
+                                        VerticalAlignment="Top"
+                                        Visibility="{Binding HasIlsAmbiguity, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="{Binding IlsAmbiguityWarning}" TextWrapping="Wrap"
+                                               Foreground="{StaticResource BrushAccentAmber}" FontWeight="SemiBold"/>
+                                </Border>
+
+                                <Button Grid.Row="6" Content="SET FREQUENCY + COURSE"
+                                        Command="{Binding SetSelectedIlsCommand}"
+                                        Style="{StaticResource PrimaryButton}" Padding="16,9"
+                                        HorizontalAlignment="Right" Margin="0,12,0,0" FontWeight="Bold"/>
+                            </Grid>
+                        </Border>
+                    </Grid>
                 </Grid>
             </TabItem>
         </TabControl>

@@ -12,6 +12,8 @@ public static class SnapshotRestoreReadiness
     public const double GearExtendedThreshold = 0.95;
     public const double GearRetractedThreshold = 0.05;
     public const double SpoilersOutThreshold = 0.15;
+    public const double MovingGroundThresholdKts = 2.0;
+    private const double KnotsPerMeterPerSecond = 1.9438444924406;
 
     /// <summary>Accept either a normalized 0–1 value or an MSFS percent 0–100 value.</summary>
     public static double NormalizeGearExtension01(double raw)
@@ -30,12 +32,45 @@ public static class SnapshotRestoreReadiness
         var targetSpeed = snapshot.OnGround
             ? Math.Max(0, snapshot.GroundSpeedKts)
             : Math.Max(0, snapshot.IasKts);
-        var liveSpeed = snapshot.OnGround
-            ? Math.Max(0, live.GroundSpeedKts)
-            : Math.Max(0, live.IasKts);
         var speedTolerance = Math.Max(MinimumSpeedToleranceKts, targetSpeed * SpeedToleranceFraction);
-        var speedReady = double.IsFinite(liveSpeed)
+
+        // FREEZE_LATITUDE_LONGITUDE_SET deliberately prevents earth-relative movement,
+        // so GROUND VELOCITY can read zero even when a rolling restore's exact body
+        // velocity is correctly primed. For moving ground snapshots, verify all three
+        // stored body-axis components instead; those are the velocities released on Resume.
+        var storedBodySpeedMs = VectorMagnitude(
+            snapshot.BodyVelXMs,
+            snapshot.BodyVelYMs,
+            snapshot.BodyVelZMs);
+        var useBodyVelocity = snapshot.OnGround
+                              && targetSpeed > MovingGroundThresholdKts
+                              && double.IsFinite(storedBodySpeedMs)
+                              && storedBodySpeedMs * KnotsPerMeterPerSecond
+                              > MovingGroundThresholdKts;
+
+        double liveSpeed;
+        bool speedReady;
+        if (useBodyVelocity)
+        {
+            var liveBodySpeedMs = VectorMagnitude(
+                live.BodyVelXMs,
+                live.BodyVelYMs,
+                live.BodyVelZMs);
+            liveSpeed = liveBodySpeedMs * KnotsPerMeterPerSecond;
+            var componentToleranceMs = speedTolerance / KnotsPerMeterPerSecond;
+            speedReady = double.IsFinite(liveBodySpeedMs)
+                         && Math.Abs(live.BodyVelXMs - snapshot.BodyVelXMs) <= componentToleranceMs
+                         && Math.Abs(live.BodyVelYMs - snapshot.BodyVelYMs) <= componentToleranceMs
+                         && Math.Abs(live.BodyVelZMs - snapshot.BodyVelZMs) <= componentToleranceMs;
+        }
+        else
+        {
+            liveSpeed = snapshot.OnGround
+                ? Math.Max(0, live.GroundSpeedKts)
+                : Math.Max(0, live.IasKts);
+            speedReady = double.IsFinite(liveSpeed)
                          && Math.Abs(liveSpeed - targetSpeed) <= speedTolerance;
+        }
 
         var gearExtension01 = NormalizeGearExtension01(live.GearTotalPctExtended);
         var gearHandleReady = !snapshot.IsGearRetractable
@@ -62,7 +97,7 @@ public static class SnapshotRestoreReadiness
 
         var parkingBrakeReady = live.ParkingBrakeOn == snapshot.ParkingBrakeOn;
 
-        var speedLabel = snapshot.OnGround ? "GS" : "IAS";
+        var speedLabel = useBodyVelocity ? "GS primed" : snapshot.OnGround ? "GS" : "IAS";
         var gearState = live.GearHandleDown ? "down" : "up";
         var wantedGearState = snapshot.GearHandleDown ? "down" : "up";
         var spoilerState = spoilersOut ? "out" : "in";
@@ -86,6 +121,13 @@ public static class SnapshotRestoreReadiness
             parkingBrakeReady,
             detail);
     }
+
+    private static double VectorMagnitude(double x, double y, double z)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(z))
+            return double.NaN;
+        return Math.Sqrt(x * x + y * y + z * z);
+    }
 }
 
 public readonly record struct SnapshotRestoreReadback(
@@ -96,7 +138,10 @@ public readonly record struct SnapshotRestoreReadback(
     int FlapsHandleIndex,
     double SpoilersLeft01,
     double SpoilersRight01,
-    bool ParkingBrakeOn);
+    bool ParkingBrakeOn,
+    double BodyVelXMs = double.NaN,
+    double BodyVelYMs = double.NaN,
+    double BodyVelZMs = double.NaN);
 
 public readonly record struct SnapshotRestoreReadinessResult(
     bool SpeedReady,

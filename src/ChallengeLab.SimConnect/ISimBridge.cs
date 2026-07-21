@@ -76,4 +76,15 @@ public interface ISimBridge : IDisposable
         SnapshotRestoreOptions options,
         IProgress<string>? progress = null,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// ACTIONS tab: operate the iniBuilds A320neo V2 MCDU RAD NAV page. Frequency is
+    /// always entered; course is optional so the manual control can change only frequency.
+    /// </summary>
+    Task SetMcduIlsAsync(
+        decimal frequencyMhz,
+        int? courseDegrees = null,
+        IProgress<string>? progress = null,
+        CancellationToken ct = default) =>
+        Task.FromException(new NotSupportedException("MCDU ILS control is not supported by this simulator bridge."));
 }

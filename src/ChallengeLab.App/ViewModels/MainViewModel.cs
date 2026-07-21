@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Windows.Input;
@@ -33,6 +34,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public const int SessionTabIndex = 3;
     public const int TestingTabIndex = 4;
     public const int StoreTabIndex = 5;
+    public const int ActionsTabIndex = 6;
 
     private readonly ConfigLoader _configLoader;
     private readonly HighscoreStore _highscores;
@@ -102,6 +104,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _testingStatus = "Select a recorded flight tape and evaluate offline.";
     private bool _isEvaluatingFlightTape;
     private readonly SnapshotStore _snapshotStore;
+    private readonly IlsFrequencyCatalog _ilsFrequencyCatalog;
     private ObservableCollection<SnapshotListItem> _snapshots = new();
     private SnapshotListItem? _selectedSnapshot;
     private SnapshotDetailViewModel? _selectedSnapshotDetail;
@@ -115,6 +118,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private bool _restoreWeatherEnabled = true;
     private bool _restoreAutopilotEnabled = true;
     private bool _autoResumeAfterRestore;
+    private ObservableCollection<IlsAirportOption> _ilsAirportResults = new();
+    private IlsAirportOption? _selectedIlsAirport;
+    private IlsRunwayOption? _selectedIlsRunway;
+    private string _ilsAirportQuery = "";
+    private string _ilsFrequencyInput = "109.75";
+    private string _actionsStatus = "Search the ILS catalogue or use a testing action.";
+    private bool _isActionRunning;
     private LandingReportViewModel? _landingReport;
     private string _reportStatus = "";
     private string _reportBodyText = "";
@@ -161,7 +171,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         CareerProgressStore? careerStore = null,
         IRandomIndexProvider? careerRandom = null,
         OurAirportsRunwayCatalog? runwayCatalog = null,
-        SnapshotStore? snapshotStore = null)
+        SnapshotStore? snapshotStore = null,
+        IlsFrequencyCatalog? ilsFrequencyCatalog = null)
     {
         _sim = sim;
         _runwayReferenceResolver = new RunwayReferenceResolver(runwayCatalog);
@@ -170,6 +181,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _landingTraces = new LandingTraceStore();
         _flightTapes = new FlightTapeStore();
         _snapshotStore = snapshotStore ?? new SnapshotStore();
+        _ilsFrequencyCatalog = ilsFrequencyCatalog ?? IlsFrequencyCatalog.Default;
+        if (!_ilsFrequencyCatalog.IsAvailable)
+            _actionsStatus = "ILS catalogue unavailable: " + _ilsFrequencyCatalog.LoadError;
         _careerStore = careerStore ?? new CareerProgressStore();
         _careerRandom = careerRandom;
 
@@ -245,7 +259,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         SaveSnapshotCommand = new RelayCommand(async () => await SaveSnapshotAsync(), CanSaveSnapshot);
         LoadSnapshotCommand = new RelayCommand(async () => await LoadSelectedSnapshotAsync(), () =>
             SelectedSnapshot is not null && IsConnected && !IsRestoringSnapshot
-            && !IsCapturingSnapshot && !IsLoading);
+            && !IsCapturingSnapshot && !IsLoading && !IsActionRunning);
         RenameSnapshotCommand = new RelayCommand(BeginRenameSnapshot, () =>
             SelectedSnapshot is not null && !IsRestoringSnapshot);
         ConfirmRenameSnapshotCommand = new RelayCommand(ConfirmRenameSnapshot, () => IsRenamingSnapshot);
@@ -259,7 +273,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         RefreshSnapshotsCommand = new RelayCommand(RefreshSnapshots);
         OpenSnapshotsFolderCommand = new RelayCommand(OpenSnapshotsFolder);
         ResumeNowCommand = new RelayCommand(ResumeRestoredSnapshot, () =>
-            IsConnected && IsSnapshotResumeReady && !IsRestoringSnapshot);
+            IsConnected && IsSnapshotResumeReady && !IsRestoringSnapshot && !IsActionRunning);
+        ZurichIlsCommand = new RelayCommand(async () => await RunZurichIlsAsync(), CanRunAction);
+        SetIlsCommand = new RelayCommand(async () => await SetManualIlsAsync(), CanRunAction);
+        SetSelectedIlsCommand = new RelayCommand(async () => await SetSelectedIlsAsync(), () =>
+            CanRunAction() && SelectedIlsRunway is not null);
         OpenMenuCommand = new RelayCommand(() =>
         {
             ResultVisible = false;
@@ -508,6 +526,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand RefreshSnapshotsCommand { get; }
     public ICommand OpenSnapshotsFolderCommand { get; }
     public ICommand ResumeNowCommand { get; }
+    public ICommand ZurichIlsCommand { get; }
+    public ICommand SetIlsCommand { get; }
+    public ICommand SetSelectedIlsCommand { get; }
 
     public string FlightsFolderPath => _flightTapes.DirectoryPath;
 
@@ -668,6 +689,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             SetProperty(ref _isCapturingSnapshot, value);
             (SaveSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (LoadSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            RaiseActionCommandStates();
         }
     }
 
@@ -683,6 +705,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             (RenameSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (DeleteSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ResumeNowCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            RaiseActionCommandStates();
         }
     }
 
@@ -736,6 +759,80 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     }
 
     public string SnapshotsFolderPath => _snapshotStore.DirectoryPath;
+
+    public ObservableCollection<IlsAirportOption> IlsAirportResults
+    {
+        get => _ilsAirportResults;
+        private set => SetProperty(ref _ilsAirportResults, value);
+    }
+
+    public string IlsAirportQuery
+    {
+        get => _ilsAirportQuery;
+        set
+        {
+            if (string.Equals(_ilsAirportQuery, value, StringComparison.Ordinal)) return;
+            SetProperty(ref _ilsAirportQuery, value);
+            RefreshIlsAirportResults();
+        }
+    }
+
+    public IlsAirportOption? SelectedIlsAirport
+    {
+        get => _selectedIlsAirport;
+        set
+        {
+            if (ReferenceEquals(_selectedIlsAirport, value)) return;
+            SetProperty(ref _selectedIlsAirport, value);
+            SelectedIlsRunway = value?.Runways.FirstOrDefault();
+        }
+    }
+
+    public IlsRunwayOption? SelectedIlsRunway
+    {
+        get => _selectedIlsRunway;
+        set
+        {
+            if (ReferenceEquals(_selectedIlsRunway, value)) return;
+            SetProperty(ref _selectedIlsRunway, value);
+            RaisePropertyChanged(nameof(IlsAmbiguityWarning));
+            RaisePropertyChanged(nameof(HasIlsAmbiguity));
+            (SetSelectedIlsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string IlsAmbiguityWarning => SelectedIlsRunway?.AmbiguityWarning ?? "";
+    public bool HasIlsAmbiguity => !string.IsNullOrWhiteSpace(IlsAmbiguityWarning);
+
+    public string IlsFrequencyInput
+    {
+        get => _ilsFrequencyInput;
+        set
+        {
+            SetProperty(ref _ilsFrequencyInput, value);
+            (SetIlsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string ActionsStatus
+    {
+        get => _actionsStatus;
+        private set => SetProperty(ref _actionsStatus, value);
+    }
+
+    public bool IsActionRunning
+    {
+        get => _isActionRunning;
+        private set
+        {
+            if (_isActionRunning == value) return;
+            SetProperty(ref _isActionRunning, value);
+            (SaveSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (LoadSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (ResumeNowCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            RaiseActionCommandStates();
+        }
+    }
 
     /// <summary>Confirmation hook (default MessageBox) — injectable so tests can intercept.</summary>
     public Func<string, string, bool> ConfirmAction { get; set; } = (message, title) =>
@@ -889,6 +986,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             (SaveSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (LoadSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ResumeNowCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            RaiseActionCommandStates();
         }
     }
 
@@ -908,6 +1006,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             (FreeModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (SaveSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (LoadSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (ResumeNowCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            RaiseActionCommandStates();
         }
     }
 
@@ -3309,8 +3409,184 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private bool CanRunAction() =>
+        IsConnected && !IsActionRunning && !IsRestoringSnapshot && !IsCapturingSnapshot && !IsLoading;
+
+    private void RaiseActionCommandStates()
+    {
+        (ZurichIlsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (SetIlsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (SetSelectedIlsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    private void RefreshIlsAirportResults()
+    {
+        if (!_ilsFrequencyCatalog.IsAvailable)
+        {
+            IlsAirportResults = new ObservableCollection<IlsAirportOption>();
+            SelectedIlsAirport = null;
+            ActionsStatus = "ILS catalogue unavailable: " + _ilsFrequencyCatalog.LoadError;
+            return;
+        }
+
+        var priorIcao = SelectedIlsAirport?.Icao;
+        var results = _ilsFrequencyCatalog.Search(IlsAirportQuery);
+        IlsAirportResults = new ObservableCollection<IlsAirportOption>(results);
+
+        IlsAirportOption? selection = null;
+        var trimmed = (IlsAirportQuery ?? "").Trim();
+        if (trimmed.Length == 4)
+        {
+            selection = results.FirstOrDefault(airport =>
+                string.Equals(airport.Icao, trimmed, StringComparison.OrdinalIgnoreCase));
+        }
+        selection ??= results.FirstOrDefault(airport =>
+            string.Equals(airport.Icao, priorIcao, StringComparison.OrdinalIgnoreCase));
+        SelectedIlsAirport = selection;
+
+        ActionsStatus = trimmed.Length < 2
+            ? "Enter at least two characters to search the ILS catalogue."
+            : results.Count == 0
+                ? $"No ILS airports found for '{trimmed}'."
+                : $"{results.Count} airport result(s). Select an airport and runway.";
+    }
+
+    internal static bool TryParseIlsFrequency(string? input, out decimal frequencyMhz)
+    {
+        var normalized = (input ?? "").Trim();
+        if (normalized.StartsWith("/", StringComparison.Ordinal))
+            normalized = normalized[1..].Trim();
+        normalized = normalized.Replace(',', '.');
+        if (!decimal.TryParse(normalized, NumberStyles.Number, CultureInfo.InvariantCulture,
+                out frequencyMhz))
+            return false;
+        return frequencyMhz is >= 108.10m and <= 111.95m
+               && decimal.Round(frequencyMhz, 2) == frequencyMhz;
+    }
+
+    private async Task SetManualIlsAsync()
+    {
+        if (!CanRunAction()) return;
+        if (!TryParseIlsFrequency(IlsFrequencyInput, out var frequency))
+        {
+            ActionsStatus = "Enter an ILS frequency from 108.10 to 111.95 MHz (for example 109.75).";
+            return;
+        }
+
+        await SendIlsToMcduAsync(
+            frequency,
+            courseDegrees: null,
+            $"Frequency /{frequency:0.00} sent. Course was not changed.");
+    }
+
+    private async Task SetSelectedIlsAsync()
+    {
+        var runway = SelectedIlsRunway;
+        if (!CanRunAction() || runway is null) return;
+        await SendIlsToMcduAsync(
+            runway.FrequencyMhz,
+            runway.CourseDegrees,
+            $"{runway.AirportIcao} RW{runway.Runway} · {runway.Ident} · " +
+            $"/{runway.FrequencyMhz:0.00} · CRS {runway.CourseDegrees:000} sent.");
+    }
+
+    private async Task SendIlsToMcduAsync(decimal frequencyMhz, int? courseDegrees, string successMessage)
+    {
+        if (!CanRunAction()) return;
+        IsActionRunning = true;
+        ActionsStatus = courseDegrees is null
+            ? $"Sending /{frequencyMhz:0.00} to the MCDU…"
+            : $"Sending /{frequencyMhz:0.00} and CRS {courseDegrees:000} to the MCDU…";
+        try
+        {
+            var progress = new Progress<string>(message => ActionsStatus = message);
+            await _sim.SetMcduIlsAsync(frequencyMhz, courseDegrees, progress);
+            ActionsStatus = successMessage + " Verify the RAD NAV page in the aircraft.";
+        }
+        catch (AircraftMismatchException ex)
+        {
+            ActionsStatus = $"Wrong aircraft — MCDU actions require '{SimConnectClient.McduIlsAircraftTitle}', " +
+                            $"but the simulator reports '{ex.ActualTitle}'.";
+            AppendLog($"MCDU ILS blocked: aircraft mismatch (sim='{ex.ActualTitle}').");
+        }
+        catch (Exception ex)
+        {
+            ActionsStatus = $"ILS set failed: {ex.Message}";
+            AppendLog($"MCDU ILS error: {ex.Message}");
+        }
+        finally
+        {
+            IsActionRunning = false;
+        }
+    }
+
+    private async Task RunZurichIlsAsync()
+    {
+        if (!CanRunAction()) return;
+
+        var item = _snapshotStore.List()
+            .Where(snapshot => string.Equals(snapshot.Name, "ZurichRnw28", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(snapshot => snapshot.CreatedUtc)
+            .FirstOrDefault();
+        if (item is null)
+        {
+            ActionsStatus = "Stored flight 'ZurichRnw28' was not found.";
+            return;
+        }
+
+        FlightStateSnapshot snapshot;
+        try
+        {
+            snapshot = _snapshotStore.Load(item.Path);
+        }
+        catch (Exception ex)
+        {
+            ActionsStatus = $"Could not read ZurichRnw28: {ex.Message}";
+            AppendLog($"ZurichILS snapshot read failed for '{item.Path}': {ex.Message}");
+            return;
+        }
+
+        IsActionRunning = true;
+        try
+        {
+            var restored = await RestoreSnapshotWithSafetyAsync(
+                snapshot,
+                new SnapshotRestoreOptions
+                {
+                    RestoreWeather = true,
+                    RestoreTime = true,
+                    RestoreFuel = true,
+                    RestoreEngines = true,
+                    RestoreLights = true,
+                    RestoreAutopilot = true,
+                    AutoResume = false
+                },
+                message => ActionsStatus = message,
+                "Actions");
+            if (!restored) return;
+
+            ActionsStatus = "ZurichRnw28 restored and PAUSED. Setting IZW /109.75 · CRS 273…";
+            try
+            {
+                var progress = new Progress<string>(message => ActionsStatus = message);
+                await _sim.SetMcduIlsAsync(109.75m, 273, progress);
+                ActionsStatus = "ZurichRnw28 restored — PAUSED. IZW /109.75 · CRS 273 sent; " +
+                                "verify RAD NAV, then Resume when ready.";
+            }
+            catch (Exception ex)
+            {
+                ActionsStatus = "ZurichRnw28 restored and remains PAUSED, but ILS tuning failed: " + ex.Message;
+                AppendLog($"ZurichILS partial completion — restore succeeded, MCDU failed: {ex.Message}");
+            }
+        }
+        finally
+        {
+            IsActionRunning = false;
+        }
+    }
+
     private bool CanSaveSnapshot() =>
-        IsConnected && !IsCapturingSnapshot && !IsRestoringSnapshot && !IsLoading
+        IsConnected && !IsCapturingSnapshot && !IsRestoringSnapshot && !IsLoading && !IsActionRunning
         && _lastTelemetry is not null
         // CAMERA STATE ≥ 11 = menus / world map — no live flight to capture there.
         && (_lastTelemetry.CameraState is null || _lastTelemetry.CameraState < 11);
@@ -3423,7 +3699,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private async Task LoadSelectedSnapshotAsync()
     {
         var item = SelectedSnapshot;
-        if (item is null || !IsConnected || IsRestoringSnapshot || IsLoading) return;
+        if (item is null || !IsConnected || IsRestoringSnapshot || IsLoading || IsActionRunning) return;
 
         FlightStateSnapshot snapshot;
         try
@@ -3437,9 +3713,27 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        await RestoreSnapshotWithSafetyAsync(
+            snapshot,
+            new SnapshotRestoreOptions
+            {
+                RestoreWeather = RestoreWeatherEnabled,
+                RestoreAutopilot = RestoreAutopilotEnabled,
+                AutoResume = AutoResumeAfterRestore
+            },
+            message => StoreStatus = message,
+            "Store");
+    }
+
+    private async Task<bool> RestoreSnapshotWithSafetyAsync(
+        FlightStateSnapshot snapshot,
+        SnapshotRestoreOptions options,
+        Action<string> setStatus,
+        string sourceName)
+    {
         IsSnapshotResumeReady = false;
         IsRestoringSnapshot = true;
-        StoreStatus = $"Loading '{snapshot.Name}'…";
+        setStatus($"Loading '{snapshot.Name}'…");
         AppendLog($"Snapshot restore requested: '{snapshot.Name}' (safe apply, no FlightLoad).");
 
         // Teleporting away invalidates any armed challenge/scoring session.
@@ -3452,37 +3746,33 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         ResultVisible = false;
         PhaseLabel = "Loading";
 
+        var restored = false;
         try
         {
-            var options = new SnapshotRestoreOptions
-            {
-                RestoreWeather = RestoreWeatherEnabled,
-                RestoreAutopilot = RestoreAutopilotEnabled,
-                AutoResume = AutoResumeAfterRestore
-            };
-            var progress = new Progress<string>(msg => StoreStatus = msg);
+            var progress = new Progress<string>(setStatus);
             var result = await _sim.RestoreSnapshotAsync(snapshot, options, progress);
 
             if (result.Success)
             {
-                IsSnapshotResumeReady = !AutoResumeAfterRestore;
+                restored = true;
+                IsSnapshotResumeReady = !options.AutoResume;
                 AppendLog(
                     $"Snapshot restored: '{snapshot.Name}' · horiz={result.HorizontalErrorM:0} m · " +
                     $"altErr={result.AltErrorFeet:0} ft · onGround={result.ReportedOnGround}.");
-                StoreStatus = AutoResumeAfterRestore
+                setStatus(options.AutoResume
                     ? $"Restored: {snapshot.Name} — flying."
-                    : $"Restored: {snapshot.Name} — PAUSED. Click Resume now (or unpause in the sim) when ready.";
+                    : $"Restored: {snapshot.Name} — PAUSED. Click Resume now (or unpause in the sim) when ready.");
             }
             else
             {
                 AppendLog($"Snapshot restore FAILED: {result.Message}");
-                StoreStatus = $"Restore failed: {result.Message}";
+                setStatus($"Restore failed: {result.Message}");
             }
         }
         catch (AircraftMismatchException ex)
         {
             var wanted = ex.ExpectedTitles.FirstOrDefault() ?? snapshot.AircraftTitle;
-            StoreStatus = $"Wrong aircraft — this snapshot needs '{wanted}'.";
+            setStatus($"Wrong aircraft — this snapshot needs '{wanted}'.");
             AppendLog($"Snapshot restore blocked: aircraft mismatch (sim='{ex.ActualTitle}', snapshot='{wanted}').");
             MessageBox.Show(
                 $"This snapshot was saved in:\n{wanted}\n\n" +
@@ -3492,25 +3782,27 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 "1. World Map → select the snapshot aircraft\n" +
                 "2. Start a free flight (any airport)\n" +
                 "3. Load the snapshot again.",
-                "Challenge Lab — Store",
+                $"Challenge Lab — {sourceName}",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
         }
         catch (Exception ex)
         {
             AppendLog($"Snapshot restore error: {ex.Message}");
-            StoreStatus = $"Restore error: {ex.Message}";
+            setStatus($"Restore error: {ex.Message}");
         }
         finally
         {
             IsRestoringSnapshot = false;
             RestartObservationAfterSnapshotRestore();
         }
+
+        return restored;
     }
 
     private void ResumeRestoredSnapshot()
     {
-        if (!IsConnected || !IsSnapshotResumeReady || IsRestoringSnapshot) return;
+        if (!IsConnected || !IsSnapshotResumeReady || IsRestoringSnapshot || IsActionRunning) return;
 
         // Lock immediately so a double-click cannot issue a second pause-off sequence.
         IsSnapshotResumeReady = false;
