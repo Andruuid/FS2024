@@ -14,6 +14,7 @@ A separate challenge mode for **Microsoft Flight Simulator 2024**: hardcore land
 | Score when GS &lt; 50 knots | Yes |
 | Companion HUD with Normal / Free flight modes | Yes |
 | Highscores tab | Yes |
+| **ACTIONS: experimental Load FLT test harness** | Diagnostic |
 | **STORE tab** — save & reload full flight-state snapshots | Yes |
 | Disasters (Sioux City, Swissair) | UI placeholders |
 | Admin UI for criteria | Later (JSON only for now) |
@@ -65,6 +66,25 @@ autopilot restores through the standard sim interface — addon "managed" FMGC m
 best-effort and NAV mode needs a flight plan loaded; live weather is rebuilt as a fixed
 approximate METAR; complex addons may ignore throttle/engine-state writes.
 Gear/flap surface animations may finish moving just after you resume — the handles are correct.
+
+## ACTIONS tab — experimental Load FLT
+
+The **Load FLT** card is a deliberately isolated test harness for the bundled
+`data/FltFiles/andi1.flt`. It may be used from the main menu or while already flying the
+FLT's **A320neo V2**. It blocks a different active aircraft because a mid-session aircraft
+swap through `FlightLoad` has previously crashed MSFS 2024. The call is sent once and is
+never retried automatically.
+
+Challenge Lab waits for the SimConnect `FlightLoaded` event, confirms the loaded-flight
+system-state path, and then requires three matching telemetry samples. Every terminal result
+is written to `%LocalAppData%\ChallengeLab\flight-load-tests\`; use **Open reports** to find
+the JSON file after each experiment. Run the manual matrix from `FlightAndWeatherLoading.md`
+and keep the reports when describing successes, partial loads, hangs, or reconnects.
+
+The current FLT names `andi1.wpr`, but that file is not bundled and `UseWeatherFile=False`.
+Flight-state testing still runs, while the result is correctly marked partial/unverified for
+weather. To test the custom profile later, place the real `andi1.wpr` beside the FLT and set
+`UseWeatherFile=True`; do not fabricate a replacement preset.
 
 ## Career Mode — classified promotion flights
 

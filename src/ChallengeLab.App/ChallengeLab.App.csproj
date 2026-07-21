@@ -32,6 +32,9 @@
     <None Include="..\..\data\ils_frequencies.csv" Link="data\ils_frequencies.csv">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="..\..\data\FltFiles\**\*.*" Link="data\FltFiles\%(RecursiveDir)%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

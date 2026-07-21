@@ -72,6 +72,8 @@ public sealed partial class SimConnectClient : ISimBridge
         AircraftTitleStream = 5,
         /// <summary>One-shot full-state read for STORE tab snapshots.</summary>
         SnapshotCapture = 6,
+        DiagnosticSimState = 7,
+        DiagnosticFlightLoadedState = 8,
         Airports = 100
     }
 
@@ -142,7 +144,8 @@ public sealed partial class SimConnectClient : ISimBridge
         FlightLevelChangeOn = 50,
         FlightLevelChangeOff = 51,
         YawDamperOn = 52,
-        YawDamperOff = 53
+        YawDamperOff = 53,
+        DiagnosticFlightLoaded = 54
     }
 
     private enum Groups
@@ -494,6 +497,9 @@ public sealed partial class SimConnectClient : ISimBridge
             _sim.OnRecvException += OnRecvException;
             _sim.OnRecvSimobjectData += OnRecvSimobjectData;
             _sim.OnRecvEvent += OnRecvEvent;
+            _sim.OnRecvEventFilename += OnRecvDiagnosticEventFilename;
+            _sim.OnRecvSystemState += OnRecvDiagnosticSystemState;
+            _sim.OnRecvFlowEvent += OnRecvDiagnosticFlowEvent;
             _sim.OnRecvAirportList += OnRecvAirportList;
             _sim.OnRecvFacilityData += OnRecvFacilityData;
             _sim.OnRecvFacilityDataEnd += OnRecvFacilityDataEnd;
@@ -1605,7 +1611,9 @@ public sealed partial class SimConnectClient : ISimBridge
         State = SimConnectionState.Connected;
         EnsureDefinitions();
         EnsureEvents();
+        EnsureDiagnosticFlightLoadSubscriptions();
         StartTelemetry();
+        OnDiagnosticFlightLoadConnectionOpened();
         bool contactPointsEnabled;
         lock (_contactPointLock)
             contactPointsEnabled = _contactPointTelemetryEnabled;
@@ -1634,6 +1642,7 @@ public sealed partial class SimConnectClient : ISimBridge
             _ => data.dwException.ToString()
         };
         Log($"SimConnect exception: {name} (code {data.dwException}, send {data.dwSendID}, index {data.dwIndex})");
+        ObserveDiagnosticFlightLoadException(data);
     }
 
     private void OnRecvEvent(
@@ -2128,6 +2137,7 @@ public sealed partial class SimConnectClient : ISimBridge
                 OverspeedWarningAvailable = true,
                 TotalWeightLbs = t.TotalWeight > 0 ? t.TotalWeight : null
             };
+            ObserveDiagnosticFlightLoadTelemetry(sample);
             TelemetryReceived?.Invoke(this, sample);
         }
         catch (Exception ex)
@@ -2592,6 +2602,7 @@ public sealed partial class SimConnectClient : ISimBridge
     {
         if (_sim is not null)
         {
+            OnDiagnosticFlightLoadConnectionClosing();
             try
             {
                 _sim.OnRecvOpen -= OnRecvOpen;
@@ -2599,6 +2610,9 @@ public sealed partial class SimConnectClient : ISimBridge
                 _sim.OnRecvException -= OnRecvException;
                 _sim.OnRecvSimobjectData -= OnRecvSimobjectData;
                 _sim.OnRecvEvent -= OnRecvEvent;
+                _sim.OnRecvEventFilename -= OnRecvDiagnosticEventFilename;
+                _sim.OnRecvSystemState -= OnRecvDiagnosticSystemState;
+                _sim.OnRecvFlowEvent -= OnRecvDiagnosticFlowEvent;
                 _sim.OnRecvAirportList -= OnRecvAirportList;
                 _sim.OnRecvFacilityData -= OnRecvFacilityData;
                 _sim.OnRecvFacilityDataEnd -= OnRecvFacilityDataEnd;
@@ -2614,6 +2628,7 @@ public sealed partial class SimConnectClient : ISimBridge
         _mcduKeyStructRegistered = false;
         _snapshotEventsMapped = false;
         _eventsMapped = false;
+        _diagnosticFlightLoadSubscriptionsReady = false;
         lock (_pauseStateLock)
         {
             _pauseStateFlags = 0;

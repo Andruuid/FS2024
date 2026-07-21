@@ -1,5 +1,6 @@
 using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Facilities;
+using ChallengeLab.Core.FlightLoading;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Snapshots;
 
@@ -87,4 +88,15 @@ public interface ISimBridge : IDisposable
         IProgress<string>? progress = null,
         CancellationToken ct = default) =>
         Task.FromException(new NotSupportedException("MCDU ILS control is not supported by this simulator bridge."));
+
+    /// <summary>
+    /// ACTIONS diagnostic only: load a developer-exported FLT and return an instrumented
+    /// result. Challenge starts, restarts and STORE restores must never use this method.
+    /// </summary>
+    Task<FlightLoadResult> LoadFlightFileAsync(
+        FlightLoadRequest request,
+        IProgress<string>? progress = null,
+        CancellationToken ct = default) =>
+        Task.FromException<FlightLoadResult>(
+            new NotSupportedException("Diagnostic FLT loading is not supported by this simulator bridge."));
 }

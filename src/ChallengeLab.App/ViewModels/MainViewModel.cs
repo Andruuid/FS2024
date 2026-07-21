@@ -14,6 +14,7 @@ using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 using ChallengeLab.Core.Career;
 using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Facilities;
+using ChallengeLab.Core.FlightLoading;
 using ChallengeLab.Core.Highscores;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Scenarios;
@@ -105,6 +106,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private bool _isEvaluatingFlightTape;
     private readonly SnapshotStore _snapshotStore;
     private readonly IlsFrequencyCatalog _ilsFrequencyCatalog;
+    private readonly FlightLoadReportStore _flightLoadReports;
+    private readonly string _diagnosticFltPath;
     private ObservableCollection<SnapshotListItem> _snapshots = new();
     private SnapshotListItem? _selectedSnapshot;
     private SnapshotDetailViewModel? _selectedSnapshotDetail;
@@ -126,6 +129,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _ilsFrequencyInput = "109.75";
     private string _actionsStatus = "Search the ILS catalogue or use a testing action.";
     private bool _isActionRunning;
+    private string _flightLoadTargetSummary = "andi1.flt metadata has not been read.";
+    private string _flightLoadWeatherNotice = "Weather dependency has not been checked.";
+    private string? _lastFlightLoadReportPath;
     private LandingReportViewModel? _landingReport;
     private string _reportStatus = "";
     private string _reportBodyText = "";
@@ -173,7 +179,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         IRandomIndexProvider? careerRandom = null,
         OurAirportsRunwayCatalog? runwayCatalog = null,
         SnapshotStore? snapshotStore = null,
-        IlsFrequencyCatalog? ilsFrequencyCatalog = null)
+        IlsFrequencyCatalog? ilsFrequencyCatalog = null,
+        FlightLoadReportStore? flightLoadReportStore = null,
+        string? diagnosticFltPath = null)
     {
         _sim = sim;
         _runwayReferenceResolver = new RunwayReferenceResolver(runwayCatalog);
@@ -183,6 +191,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _flightTapes = new FlightTapeStore();
         _snapshotStore = snapshotStore ?? new SnapshotStore();
         _ilsFrequencyCatalog = ilsFrequencyCatalog ?? IlsFrequencyCatalog.Default;
+        _flightLoadReports = flightLoadReportStore ?? new FlightLoadReportStore();
+        _diagnosticFltPath = diagnosticFltPath ?? Path.Combine(
+            AppContext.BaseDirectory, "data", "FltFiles", "andi1.flt");
+        RefreshDiagnosticFlightLoadSummary();
         if (!_ilsFrequencyCatalog.IsAvailable)
             _actionsStatus = "ILS catalogue unavailable: " + _ilsFrequencyCatalog.LoadError;
         _careerStore = careerStore ?? new CareerProgressStore();
@@ -279,6 +291,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         SetIlsCommand = new RelayCommand(async () => await SetManualIlsAsync(), CanRunAction);
         SetSelectedIlsCommand = new RelayCommand(async () => await SetSelectedIlsAsync(), () =>
             CanRunAction() && SelectedIlsRunway is not null);
+        LoadFltCommand = new RelayCommand(async () => await RunDiagnosticFlightLoadAsync(), CanRunAction);
+        OpenFlightLoadReportsFolderCommand = new RelayCommand(OpenFlightLoadReportsFolder);
         OpenMenuCommand = new RelayCommand(() =>
         {
             ResultVisible = false;
@@ -530,8 +544,27 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand ZurichIlsCommand { get; }
     public ICommand SetIlsCommand { get; }
     public ICommand SetSelectedIlsCommand { get; }
+    public ICommand LoadFltCommand { get; }
+    public ICommand OpenFlightLoadReportsFolderCommand { get; }
 
     public string FlightsFolderPath => _flightTapes.DirectoryPath;
+    public string FlightLoadReportsFolderPath => _flightLoadReports.DirectoryPath;
+    public string DiagnosticFltPath => _diagnosticFltPath;
+    public string FlightLoadTargetSummary
+    {
+        get => _flightLoadTargetSummary;
+        private set => SetProperty(ref _flightLoadTargetSummary, value);
+    }
+    public string FlightLoadWeatherNotice
+    {
+        get => _flightLoadWeatherNotice;
+        private set => SetProperty(ref _flightLoadWeatherNotice, value);
+    }
+    public string? LastFlightLoadReportPath
+    {
+        get => _lastFlightLoadReportPath;
+        private set => SetProperty(ref _lastFlightLoadReportPath, value);
+    }
 
     public bool IsCareerAvailable => _career is not null;
     public string CareerConfigurationStatus
@@ -3422,6 +3455,140 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         (ZurichIlsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (SetIlsCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (SetSelectedIlsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (LoadFltCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    private void RefreshDiagnosticFlightLoadSummary()
+    {
+        try
+        {
+            var target = FltFileParser.Parse(_diagnosticFltPath);
+            FlightLoadTargetSummary =
+                $"{Path.GetFileName(target.FilePath)} Â· {target.AircraftTitle ?? "unknown aircraft"} Â· " +
+                $"{(target.OnGround == true ? "GROUND" : "AIR")} Â· " +
+                $"{target.AltitudeFeet:0} ft Â· IAS {target.AirspeedKts:0} kt";
+            FlightLoadWeatherNotice = target.WeatherStatus switch
+            {
+                FlightLoadWeatherStatus.DependencyAvailable =>
+                    $"Weather file ready: {target.WeatherPresetFile}. Clouds and turbulence still require visual confirmation.",
+                FlightLoadWeatherStatus.DependencyMissing =>
+                    $"Weather unavailable: referenced file '{target.WeatherPresetFile}' is missing. Flight-state testing can continue.",
+                FlightLoadWeatherStatus.NotRequested =>
+                    $"Weather unavailable: the FLT names '{target.WeatherPresetFile}' but UseWeatherFile=False. Flight-state testing can continue.",
+                _ => "Weather remains unverified and requires visual confirmation in MSFS."
+            };
+        }
+        catch (Exception ex)
+        {
+            FlightLoadTargetSummary = $"andi1.flt unavailable: {ex.Message}";
+            FlightLoadWeatherNotice = "No FLT/weather preflight is available; an attempted load will produce a failed JSON report.";
+        }
+    }
+
+    private async Task RunDiagnosticFlightLoadAsync()
+    {
+        if (!CanRunAction()) return;
+        RefreshDiagnosticFlightLoadSummary();
+        if (!ConfirmAction(
+                "EXPERIMENTAL SimConnect FlightLoad can hang or crash MSFS 2024.\n\n" +
+                $"Target: {FlightLoadTargetSummary}\n\n" +
+                "Allowed starting states: the main menu, or an active flight already using A320neo V2. " +
+                "A different active aircraft is always blocked. The request is sent once and is never retried automatically.\n\n" +
+                FlightLoadWeatherNotice + "\n\nLoad andi1.flt now?",
+                "Challenge Lab â€” Experimental Load FLT"))
+        {
+            ActionsStatus = "Experimental FLT load cancelled before any simulator request.";
+            return;
+        }
+
+        IsActionRunning = true;
+        _retryZurichIlsAfterResume = false;
+        IsSnapshotResumeReady = false;
+        SecondaryHud.ResetAttempt();
+        DetachSession();
+        ReleaseFreeTargetLock("diagnostic FLT load", _lastTelemetry);
+        StopFreeInference(resetTarget: true);
+        _activeChallenge = null;
+        SetAttemptOrigin(LandingAttemptOrigin.DefaultChallenge);
+        LastScore = null;
+        ResultVisible = false;
+        PhaseLabel = "Loading FLT";
+        ActionsStatus = "Preparing experimental FLT loadâ€¦";
+
+        FlightLoadResult result;
+        try
+        {
+            var progress = new Progress<string>(message => ActionsStatus = message);
+            result = await _sim.LoadFlightFileAsync(
+                new FlightLoadRequest
+                {
+                    FlightFilePath = _diagnosticFltPath,
+                    Timeout = TimeSpan.FromSeconds(180),
+                    RequiredConsecutiveSamples = 3
+                },
+                progress);
+        }
+        catch (Exception ex)
+        {
+            result = new FlightLoadResult
+            {
+                Outcome = FlightLoadOutcome.Failed,
+                FlightFilePath = _diagnosticFltPath,
+                Message = ex.Message,
+                ValidationIssues = [ex.Message],
+                Timeline = [new FlightLoadTimelineEntry { Stage = "ApplicationError", Message = ex.Message }]
+            };
+        }
+
+        try
+        {
+            LastFlightLoadReportPath = _flightLoadReports.Save(result);
+            var reportName = Path.GetFileName(LastFlightLoadReportPath);
+            ActionsStatus = result.Outcome switch
+            {
+                FlightLoadOutcome.Succeeded => $"FLT load succeeded. {result.Message} Report: {reportName}",
+                FlightLoadOutcome.PartialSuccess => $"FLT load PARTIAL. {result.Message} Report: {reportName}",
+                FlightLoadOutcome.Blocked => $"FLT load blocked safely. {result.Message} Report: {reportName}",
+                FlightLoadOutcome.TimedOut => $"FLT load timed out. {result.Message} Report: {reportName}",
+                _ => $"FLT load failed. {result.Message} Report: {reportName}"
+            };
+            AppendLog(
+                $"Diagnostic FLT result: {result.Outcome} Â· {result.ElapsedSeconds:0.0}s Â· " +
+                $"event={result.FlightLoadedEventReceived} disconnect={result.DisconnectedDuringLoad} " +
+                $"reconnect={result.ReconnectedDuringLoad} Â· report={LastFlightLoadReportPath}");
+        }
+        catch (Exception ex)
+        {
+            ActionsStatus = $"FLT result {result.Outcome}, but saving its JSON report failed: {ex.Message}";
+            AppendLog($"Diagnostic FLT report save failed: {ex}");
+        }
+        finally
+        {
+            IsActionRunning = false;
+            RestartObservationAfterSnapshotRestore();
+        }
+    }
+
+    private void OpenFlightLoadReportsFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(FlightLoadReportsFolderPath);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = FlightLoadReportsFolderPath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Open flight-load reports folder failed: {ex.Message}");
+            MessageBox.Show(
+                $"Could not open flight-load reports folder:\n{ex.Message}",
+                "Challenge Lab â€” Experimental Load FLT",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
     }
 
     private void RefreshIlsAirportResults()

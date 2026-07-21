@@ -3,6 +3,7 @@ using ChallengeLab.App.ViewModels;
 using ChallengeLab.Core.Career;
 using ChallengeLab.Core.Config;
 using ChallengeLab.Core.Facilities;
+using ChallengeLab.Core.FlightLoading;
 using ChallengeLab.Core.Highscores;
 using ChallengeLab.Core.Models;
 using ChallengeLab.Core.Snapshots;
@@ -187,11 +188,67 @@ public sealed class ActionsTabTests
             Assert.True(vm.IsActionRunning);
             Assert.False(vm.SetIlsCommand.CanExecute(null));
             Assert.False(vm.ZurichIlsCommand.CanExecute(null));
+            Assert.False(vm.LoadFltCommand.CanExecute(null));
             Assert.False(vm.LoadSnapshotCommand.CanExecute(null));
 
             env.Sim.IlsCompletion.SetResult();
             WaitFor(() => !vm.IsActionRunning);
             Assert.True(vm.LoadSnapshotCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
+    public void LoadFlt_ConfirmsCallsFixedFileAndPersistsPartialReport()
+    {
+        RunSta(() =>
+        {
+            using var env = new TestEnv();
+            env.Sim.FlightLoadResult = new FlightLoadResult
+            {
+                Outcome = FlightLoadOutcome.PartialSuccess,
+                FlightFilePath = env.FltPath,
+                Message = "Flight state validated; weather unavailable.",
+                FlightLoadedEventReceived = true,
+                ConsecutiveValidSamples = 3,
+                Weather = new FlightLoadWeatherAssessment
+                {
+                    Status = FlightLoadWeatherStatus.NotRequested,
+                    PresetFile = "andi1.wpr"
+                }
+            };
+            using var vm = env.CreateViewModel();
+            vm.IsConnected = true;
+            vm.ConfirmAction = (_, _) => true;
+
+            vm.LoadFltCommand.Execute(null);
+            WaitFor(() => !vm.IsActionRunning);
+
+            Assert.Equal(1, env.Sim.FlightLoadCalls);
+            Assert.Equal(Path.GetFullPath(env.FltPath), Path.GetFullPath(env.Sim.LastFlightLoadRequest!.FlightFilePath));
+            Assert.Contains("PARTIAL", vm.ActionsStatus, StringComparison.Ordinal);
+            Assert.NotNull(vm.LastFlightLoadReportPath);
+            Assert.True(File.Exists(vm.LastFlightLoadReportPath));
+            var report = env.ReportStore.Load(vm.LastFlightLoadReportPath!);
+            Assert.Equal(FlightLoadOutcome.PartialSuccess, report.Outcome);
+            Assert.Equal("andi1.wpr", report.Weather!.PresetFile);
+        });
+    }
+
+    [Fact]
+    public void LoadFlt_DeclinedConfirmationSendsNothingAndWritesNoReport()
+    {
+        RunSta(() =>
+        {
+            using var env = new TestEnv();
+            using var vm = env.CreateViewModel();
+            vm.IsConnected = true;
+            vm.ConfirmAction = (_, _) => false;
+
+            vm.LoadFltCommand.Execute(null);
+
+            Assert.Equal(0, env.Sim.FlightLoadCalls);
+            Assert.Empty(Directory.EnumerateFiles(env.ReportStore.DirectoryPath, "*.json"));
+            Assert.Contains("cancelled", vm.ActionsStatus, StringComparison.OrdinalIgnoreCase);
         });
     }
 
@@ -211,10 +268,30 @@ public sealed class ActionsTabTests
         Assert.Contains("ZurichIlsCommand", xaml, StringComparison.Ordinal);
         Assert.Contains("SetIlsCommand", xaml, StringComparison.Ordinal);
         Assert.Contains("SetSelectedIlsCommand", xaml, StringComparison.Ordinal);
+        Assert.Contains("LoadFltCommand", xaml, StringComparison.Ordinal);
+        Assert.Contains("OpenFlightLoadReportsFolderCommand", xaml, StringComparison.Ordinal);
+        Assert.Contains("FlightLoadReportsFolderPath", xaml, StringComparison.Ordinal);
+        Assert.Contains("can hang or crash MSFS 2024", xaml, StringComparison.Ordinal);
         Assert.Contains("IlsAmbiguityWarning", xaml, StringComparison.Ordinal);
         Assert.Equal(2, xaml.Split("Command=\"{Binding ResumeNowCommand}\"", StringSplitOptions.None).Length - 1);
         Assert.Contains("waits 0.5 seconds, then resends ILS", xaml, StringComparison.Ordinal);
         Assert.Contains("public const int ActionsTabIndex = 6;", viewModel, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FlightLoadCall_IsIsolatedFromSafeChallengeAndSnapshotPipelines()
+    {
+        var root = FindRepositoryRoot();
+        var diagnostic = File.ReadAllText(Path.Combine(
+            root, "src", "ChallengeLab.SimConnect", "SimConnectClient.FlightLoad.cs"));
+        var safeChallenge = File.ReadAllText(Path.Combine(
+            root, "src", "ChallengeLab.SimConnect", "SimConnectClient.cs"));
+        var snapshot = File.ReadAllText(Path.Combine(
+            root, "src", "ChallengeLab.SimConnect", "SimConnectClient.Snapshot.cs"));
+
+        Assert.Equal(1, diagnostic.Split("_sim.FlightLoad(", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("_sim.FlightLoad(", safeChallenge, StringComparison.Ordinal);
+        Assert.DoesNotContain("_sim.FlightLoad(", snapshot, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -264,6 +341,7 @@ public sealed class ActionsTabTests
         {
             Directory.CreateDirectory(_directory);
             SnapshotStore = new SnapshotStore(Path.Combine(_directory, "snapshots"));
+            ReportStore = new FlightLoadReportStore(Path.Combine(_directory, "flight-load-tests"));
             var ils = Path.Combine(_directory, "ils.csv");
             var airports = Path.Combine(_directory, "airports.csv");
             File.WriteAllText(ils,
@@ -281,16 +359,24 @@ public sealed class ActionsTabTests
         public FakeSimBridge Sim { get; } = new();
         public SnapshotStore SnapshotStore { get; }
         public IlsFrequencyCatalog Catalog { get; }
+        public FlightLoadReportStore ReportStore { get; }
+        public string FltPath { get; } = Path.Combine(
+            FindRepositoryRoot(), "data", "FltFiles", "andi1.flt");
 
-        public MainViewModel CreateViewModel() => new(
-            Sim,
-            new ConfigLoader(FindConfig()),
-            new HighscoreStore(Path.Combine(_directory, "highscores.json")),
-            new CareerProgressStore(Path.Combine(_directory, "career.json")),
-            careerRandom: null,
-            runwayCatalog: null,
-            snapshotStore: SnapshotStore,
-            ilsFrequencyCatalog: Catalog);
+        public MainViewModel CreateViewModel()
+        {
+            return new MainViewModel(
+                Sim,
+                new ConfigLoader(FindConfig()),
+                new HighscoreStore(Path.Combine(_directory, "highscores.json")),
+                new CareerProgressStore(Path.Combine(_directory, "career.json")),
+                careerRandom: null,
+                runwayCatalog: null,
+                snapshotStore: SnapshotStore,
+                ilsFrequencyCatalog: Catalog,
+                flightLoadReportStore: ReportStore,
+                diagnosticFltPath: FltPath);
+        }
 
         public void Dispose()
         {
@@ -315,6 +401,9 @@ public sealed class ActionsTabTests
         public int? LastIlsCourse { get; private set; }
         public Exception? IlsException { get; set; }
         public TaskCompletionSource? IlsCompletion { get; set; }
+        public int FlightLoadCalls { get; private set; }
+        public FlightLoadRequest? LastFlightLoadRequest { get; private set; }
+        public FlightLoadResult? FlightLoadResult { get; set; }
 
         public event EventHandler<SimConnectionState>? StateChanged { add { } remove { } }
         public event EventHandler<TelemetrySample>? TelemetryReceived { add { } remove { } }
@@ -366,6 +455,22 @@ public sealed class ActionsTabTests
             if (IlsException is not null)
                 return Task.FromException(IlsException);
             return IlsCompletion?.Task ?? Task.CompletedTask;
+        }
+
+        public Task<FlightLoadResult> LoadFlightFileAsync(
+            FlightLoadRequest request,
+            IProgress<string>? progress = null,
+            CancellationToken ct = default)
+        {
+            FlightLoadCalls++;
+            LastFlightLoadRequest = request;
+            progress?.Report("Test FLT loadâ€¦");
+            return Task.FromResult(FlightLoadResult ?? new FlightLoadResult
+            {
+                Outcome = FlightLoadOutcome.Succeeded,
+                FlightFilePath = request.FlightFilePath,
+                Message = "test"
+            });
         }
 
         public void Dispose() { }
