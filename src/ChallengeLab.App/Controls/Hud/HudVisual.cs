@@ -43,7 +43,10 @@ public sealed class HudVisual : FrameworkElement
     private static readonly Brush WindBrush = FrozenBrush("#42E3FF");
     private static readonly Brush ShadowBrush = FrozenBrush("#C0000000");
 
+    private readonly HudVerticalSpeedSmoother _verticalSpeedSmoother = new();
     private HudPresentationFrame? _frame;
+    private double? _displayVerticalSpeedFpm;
+    private long? _lastSmoothedSequence;
     private double _hudScale = 0.78;
     private double _hudOpacity = 0.95;
     private double _fontScale = 1.1;
@@ -57,8 +60,21 @@ public sealed class HudVisual : FrameworkElement
     internal void UpdatePresentation(HudPresentationFrame? frame)
     {
         _frame = frame;
+        if (frame is null || !frame.IsConnected)
+        {
+            ResetVerticalSpeedSmoothing();
+        }
+        else if (_lastSmoothedSequence != frame.Sequence)
+        {
+            _displayVerticalSpeedFpm = _verticalSpeedSmoother.Update(
+                frame.CapturedAt,
+                frame.Guidance.VerticalSpeedFpm);
+            _lastSmoothedSequence = frame.Sequence;
+        }
         InvalidateVisual();
     }
+
+    internal double? DisplayVerticalSpeedFpm => _displayVerticalSpeedFpm;
 
     internal double HudScale => _hudScale;
 
@@ -104,7 +120,8 @@ public sealed class HudVisual : FrameworkElement
             DrawPathPosition(drawingContext, _frame);
             DrawDescentAngle(drawingContext, _frame);
         }
-        DrawVerticalSpeed(drawingContext, _frame.Guidance);
+        DrawVerticalSpeed(drawingContext, _frame.Guidance, _displayVerticalSpeedFpm);
+        DrawRadioAltitude(drawingContext, _frame.RadioAltitudeFeet);
         DrawAirspeed(drawingContext, _frame);
 
         drawingContext.Pop();
@@ -170,16 +187,31 @@ public sealed class HudVisual : FrameworkElement
             458, 498, TextAlignment.Left, mono: true);
     }
 
-    private void DrawVerticalSpeed(DrawingContext dc, LandingMonitorReading guidance)
+    private void DrawVerticalSpeed(
+        DrawingContext dc,
+        LandingMonitorReading guidance,
+        double? displayVerticalSpeedFpm)
     {
-        var verticalSpeed = guidance.VerticalSpeedFpm;
-        var value = verticalSpeed is { } fpm
+        var value = displayVerticalSpeedFpm is { } fpm
             ? $"{(Math.Abs(fpm) < 0.5 ? 0 : fpm):0}"
             : "—";
         var color = StatusBrush(guidance.DescentAngleStatus);
         DrawText(dc, value, 37, color, 1100, 393, TextAlignment.Right, mono: true);
         DrawText(dc, "VSpeed", 11, LabelBrush, 1118, 415, TextAlignment.Left, semibold: true);
     }
+
+    private void DrawRadioAltitude(DrawingContext dc, double? radioAltitudeFeet)
+    {
+        DrawText(dc, FormatRadioAltitude(radioAltitudeFeet), 37, NeutralBrush,
+            1100, 470, TextAlignment.Right, mono: true);
+        DrawText(dc, "RADALT", 11, LabelBrush, 1118, 492, TextAlignment.Left, semibold: true);
+        DrawText(dc, "FT", 10, LabelBrush, 1118, 510, TextAlignment.Left, semibold: true);
+    }
+
+    internal static string FormatRadioAltitude(double? radioAltitudeFeet) =>
+        radioAltitudeFeet is { } feet && double.IsFinite(feet)
+            ? $"{Math.Max(0, feet):0}"
+            : "—";
 
     private void DrawAirspeed(DrawingContext dc, HudPresentationFrame frame)
     {
@@ -305,6 +337,13 @@ public sealed class HudVisual : FrameworkElement
         var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(value)!);
         brush.Freeze();
         return brush;
+    }
+
+    private void ResetVerticalSpeedSmoothing()
+    {
+        _verticalSpeedSmoother.Reset();
+        _displayVerticalSpeedFpm = null;
+        _lastSmoothedSequence = null;
     }
 
 }

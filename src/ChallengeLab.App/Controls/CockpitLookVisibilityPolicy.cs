@@ -26,7 +26,27 @@ internal sealed class CockpitLookVisibilityPolicy
     private const double EarthRadiusMeters = 6_371_000;
     private const double FeetPerMeter = 3.280839895013123;
 
+    private readonly double _enterUpwardDegrees;
+    private readonly double _exitUpwardDegrees;
     private bool _wasVisible;
+
+    internal CockpitLookVisibilityPolicy(
+        double enterUpwardDegrees = EnterUpwardDegrees,
+        double exitUpwardDegrees = ExitUpwardDegrees)
+    {
+        if (!double.IsFinite(enterUpwardDegrees)
+            || !double.IsFinite(exitUpwardDegrees)
+            || enterUpwardDegrees <= 0
+            || exitUpwardDegrees < enterUpwardDegrees)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(exitUpwardDegrees),
+                "Upward look limits must be finite, positive, and enter must not exceed exit.");
+        }
+
+        _enterUpwardDegrees = enterUpwardDegrees;
+        _exitUpwardDegrees = exitUpwardDegrees;
+    }
 
     public bool ShouldShow(
         bool isConnected,
@@ -73,8 +93,8 @@ internal sealed class CockpitLookVisibilityPolicy
             ? ExitHorizontalDegrees
             : EnterHorizontalDegrees;
         var upwardLimit = _wasVisible
-            ? ExitUpwardDegrees
-            : EnterUpwardDegrees;
+            ? _exitUpwardDegrees
+            : _enterUpwardDegrees;
         var downwardLimit = _wasVisible
             ? ExitDownwardDegrees
             : EnterDownwardDegrees;

@@ -118,6 +118,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private bool _restoreWeatherEnabled = true;
     private bool _restoreAutopilotEnabled = true;
     private bool _autoResumeAfterRestore;
+    private bool _retryZurichIlsAfterResume;
     private ObservableCollection<IlsAirportOption> _ilsAirportResults = new();
     private IlsAirportOption? _selectedIlsAirport;
     private IlsRunwayOption? _selectedIlsRunway;
@@ -272,7 +273,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             SelectedSnapshot is not null && !IsRestoringSnapshot);
         RefreshSnapshotsCommand = new RelayCommand(RefreshSnapshots);
         OpenSnapshotsFolderCommand = new RelayCommand(OpenSnapshotsFolder);
-        ResumeNowCommand = new RelayCommand(ResumeRestoredSnapshot, () =>
+        ResumeNowCommand = new RelayCommand(async () => await ResumeRestoredSnapshotAsync(), () =>
             IsConnected && IsSnapshotResumeReady && !IsRestoringSnapshot && !IsActionRunning);
         ZurichIlsCommand = new RelayCommand(async () => await RunZurichIlsAsync(), CanRunAction);
         SetIlsCommand = new RelayCommand(async () => await SetManualIlsAsync(), CanRunAction);
@@ -980,7 +981,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             SetProperty(ref _isConnected, value);
             if (!value)
+            {
                 IsSnapshotResumeReady = false;
+                _retryZurichIlsAfterResume = false;
+            }
             (StartChallengeCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (CleanMetricsCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (SaveSnapshotCommand as RelayCommand)?.RaiseCanExecuteChanged();
@@ -2753,6 +2757,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 && !sample.ActivePauseActive)
             {
                 IsSnapshotResumeReady = false;
+                _retryZurichIlsAfterResume = false;
                 StoreStatus = "Stored flight was resumed in the simulator — flying.";
                 AppendLog("Stored flight pause was released in the simulator; Resume now locked.");
             }
@@ -3523,6 +3528,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private async Task RunZurichIlsAsync()
     {
         if (!CanRunAction()) return;
+        _retryZurichIlsAfterResume = false;
 
         var item = _snapshotStore.List()
             .Where(snapshot => string.Equals(snapshot.Name, "ZurichRnw28", StringComparison.OrdinalIgnoreCase))
@@ -3564,6 +3570,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 message => ActionsStatus = message,
                 "Actions");
             if (!restored) return;
+            _retryZurichIlsAfterResume = true;
 
             ActionsStatus = "ZurichRnw28 restored and PAUSED. Setting IZW /109.75 · CRS 273…";
             try
@@ -3700,6 +3707,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         var item = SelectedSnapshot;
         if (item is null || !IsConnected || IsRestoringSnapshot || IsLoading || IsActionRunning) return;
+        _retryZurichIlsAfterResume = false;
 
         FlightStateSnapshot snapshot;
         try
@@ -3800,15 +3808,41 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         return restored;
     }
 
-    private void ResumeRestoredSnapshot()
+    private async Task ResumeRestoredSnapshotAsync()
     {
         if (!IsConnected || !IsSnapshotResumeReady || IsRestoringSnapshot || IsActionRunning) return;
 
         // Lock immediately so a double-click cannot issue a second pause-off sequence.
+        var retryZurichIls = _retryZurichIlsAfterResume;
+        _retryZurichIlsAfterResume = false;
         IsSnapshotResumeReady = false;
+        if (retryZurichIls)
+            IsActionRunning = true;
         _sim.ResumeFlight();
         StoreStatus = "Stored flight resumed — flying.";
         AppendLog("Stored flight resumed after strict state readiness check.");
+
+        if (!retryZurichIls) return;
+
+        ActionsStatus = "ZurichRnw28 resumed — waiting 0.5 seconds before retrying ILS…";
+        try
+        {
+            await Task.Delay(500);
+            var progress = new Progress<string>(message => ActionsStatus = message);
+            await _sim.SetMcduIlsAsync(109.75m, 273, progress);
+            ActionsStatus = "ZurichRnw28 resumed — flying. IZW /109.75 · CRS 273 sent again; " +
+                            "verify RAD NAV in the aircraft.";
+            AppendLog("ZurichILS resent 0.5 seconds after Resume now.");
+        }
+        catch (Exception ex)
+        {
+            ActionsStatus = "ZurichRnw28 resumed — flying, but the ILS retry failed: " + ex.Message;
+            AppendLog($"ZurichILS post-resume retry failed: {ex.Message}");
+        }
+        finally
+        {
+            IsActionRunning = false;
+        }
     }
 
     /// <summary>Re-arm Free observation (or Idle in Normal) after a snapshot teleport.</summary>

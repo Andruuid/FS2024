@@ -28,6 +28,22 @@ public sealed class ApproachHudTests
         Assert.Equal(expectedWind, frame.Wind);
         Assert.Equal(17, frame.Sequence);
         Assert.Equal(3, frame.TargetGlideslopeDeg);
+        Assert.Equal(1_000, frame.RadioAltitudeFeet);
+    }
+
+    [Fact]
+    public void PresentationFrame_UsesOnlyAvailableFiniteRadioHeightAndClampsBelowGround()
+    {
+        Assert.Equal(247.6, Frame(Sample(radioHeightFeet: 247.6), Runway()).RadioAltitudeFeet);
+        Assert.Equal(0, Frame(Sample(radioHeightFeet: -12), Runway()).RadioAltitudeFeet);
+        Assert.Null(Frame(Sample(radioHeightFeet: 247.6, radioHeightAvailable: false), Runway())
+            .RadioAltitudeFeet);
+        Assert.Null(Frame(Sample(radioHeightFeet: double.NaN), Runway()).RadioAltitudeFeet);
+
+        Assert.Equal("248", HudVisual.FormatRadioAltitude(247.6));
+        Assert.Equal("0", HudVisual.FormatRadioAltitude(-12));
+        Assert.Equal("—", HudVisual.FormatRadioAltitude(null));
+        Assert.Equal("—", HudVisual.FormatRadioAltitude(double.NaN));
     }
 
     [Fact]
@@ -226,6 +242,40 @@ public sealed class ApproachHudTests
     }
 
     [Fact]
+    public void Hud1ViewGate_UsesWiderUpwardHysteresis()
+    {
+        var gate = new HudViewGate();
+
+        Assert.Equal(35, HudViewGate.EnterUpwardDegrees);
+        Assert.Equal(45, HudViewGate.ExitUpwardDegrees);
+        Assert.True(gate.ShouldShow(Frame(Sample(), runway: null)));
+        Assert.True(gate.ShouldShow(Frame(Sample(
+            cameraPitchRadians: Degrees(HudViewGate.ExitUpwardDegrees - 1)), runway: null)));
+        Assert.False(gate.ShouldShow(Frame(Sample(
+            cameraPitchRadians: Degrees(HudViewGate.ExitUpwardDegrees + 1)), runway: null)));
+        Assert.False(gate.ShouldShow(Frame(Sample(
+            cameraPitchRadians: Degrees(HudViewGate.EnterUpwardDegrees + 1)), runway: null)));
+        Assert.True(gate.ShouldShow(Frame(Sample(
+            cameraPitchRadians: Degrees(HudViewGate.EnterUpwardDegrees - 1)), runway: null)));
+    }
+
+    [Fact]
+    public void WiderUpwardLookTolerance_AppliesOnlyToHud1()
+    {
+        var sample = Sample(cameraPitchRadians: Degrees(30));
+        var hudFrame = Frame(sample, runway: null);
+        var aetherFrame = AetherMapper.FromGuidance(
+            sample,
+            isConnected: true,
+            sequence: 1,
+            runway: null,
+            guidance: hudFrame.Guidance);
+
+        Assert.True(new HudViewGate().ShouldShow(hudFrame));
+        Assert.False(new AetherLookPolicy().ShouldRender(aetherFrame));
+    }
+
+    [Fact]
     public void ViewGate_UsesStricterHysteresisWhenLookingDownAtThePanel()
     {
         var gate = new HudViewGate();
@@ -280,7 +330,7 @@ public sealed class ApproachHudTests
     }
 
     [Fact]
-    public void Renderer_PaintsFiveEdgeRegionsAndLeavesCenterTransparent()
+    public void Renderer_PaintsSixEdgeRegionsAndLeavesCenterTransparent()
     {
         RunSta(() =>
         {
@@ -305,8 +355,60 @@ public sealed class ApproachHudTests
             Assert.False(HasVisiblePixel(bitmap, new Int32Rect(995, 360, 190, 30)));
             Assert.True(HasVisiblePixel(bitmap, new Int32Rect(995, 395, 190, 50)));
             Assert.False(HasVisiblePixel(bitmap, new Int32Rect(995, 447, 190, 25)));
+            Assert.True(HasVisiblePixel(bitmap, new Int32Rect(995, 472, 220, 60)));
             Assert.True(HasVisiblePixel(bitmap, new Int32Rect(710, 640, 180, 80)));
             Assert.False(HasVisiblePixel(bitmap, new Int32Rect(680, 220, 280, 360)));
+        });
+    }
+
+    [Fact]
+    public void Hud1VerticalSpeed_UsesOneAndAHalfSecondTrailingAverageAndResets()
+    {
+        var start = DateTimeOffset.Parse("2026-07-18T12:00:00Z");
+        var smoother = new HudVerticalSpeedSmoother();
+
+        Assert.Equal(-900, smoother.Update(start, -900));
+        Assert.Equal(-750, smoother.Update(start.AddSeconds(.4), -600));
+        Assert.Equal(-900, smoother.Update(start.AddSeconds(1.4), -1_200));
+        Assert.Equal(-700, smoother.Update(start.AddSeconds(1.6), -300));
+
+        Assert.Null(smoother.Update(start.AddSeconds(1.7), double.NaN));
+        Assert.Equal(-500, smoother.Update(start.AddSeconds(1.8), -500));
+        Assert.Equal(-200, smoother.Update(start.AddSeconds(1.0), -200));
+    }
+
+    [Fact]
+    public void Hud1VerticalSpeed_UpdatesOncePerFrameAndClearsWhenDisconnected()
+    {
+        RunSta(() =>
+        {
+            var start = DateTimeOffset.Parse("2026-07-18T12:00:00Z");
+            var first = Frame(Sample(), Runway()) with
+            {
+                Sequence = 10,
+                CapturedAt = start,
+                Guidance = Frame(Sample(), Runway()).Guidance with { VerticalSpeedFpm = -1_000 },
+            };
+            var second = first with
+            {
+                Sequence = 11,
+                CapturedAt = start.AddSeconds(.5),
+                Guidance = first.Guidance with { VerticalSpeedFpm = -500 },
+            };
+            var visual = new HudVisual();
+
+            visual.UpdatePresentation(first);
+            Assert.Equal(-1_000, visual.DisplayVerticalSpeedFpm);
+            visual.UpdatePresentation(first with
+            {
+                Guidance = first.Guidance with { VerticalSpeedFpm = 5_000 },
+            });
+            Assert.Equal(-1_000, visual.DisplayVerticalSpeedFpm);
+            visual.UpdatePresentation(second);
+            Assert.Equal(-750, visual.DisplayVerticalSpeedFpm);
+
+            visual.UpdatePresentation(HudPresentationFrame.Disconnected(12));
+            Assert.Null(visual.DisplayVerticalSpeedFpm);
         });
     }
 
@@ -408,7 +510,9 @@ public sealed class ApproachHudTests
         double? groundTrackTrueDeg = null,
         double airspeedKts = 135,
         double windSpeedKts = 20,
-        double windDirectionDeg = 90) => new()
+        double windDirectionDeg = 90,
+        double radioHeightFeet = 1_000,
+        bool radioHeightAvailable = true) => new()
         {
             Timestamp = DateTimeOffset.Parse("2026-07-18T12:00:00Z"),
             Latitude = 0,
@@ -423,6 +527,8 @@ public sealed class ApproachHudTests
             VerticalSpeedFpm = -700,
             WindDirectionDeg = windDirectionDeg,
             WindVelocityKts = windSpeedKts,
+            RadioHeightFeet = radioHeightFeet,
+            RadioHeightAvailable = radioHeightAvailable,
             SimOnGround = false,
             AircraftTitle = "Test Aircraft",
             CameraState = cameraState,

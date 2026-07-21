@@ -3,7 +3,7 @@ namespace ChallengeLab.App;
 /// <summary>Visible build stamp for window title / diagnostics. Bump on every ship/test run.</summary>
 public static class AppBuild
 {
-    public const int Number = 2253;
+    public const int Number = 2254;
 
     public static string Tag => $"BUILD {Number}";
 

@@ -1517,9 +1517,15 @@
                                         <TextBlock Text="Loads the newest matching stored flight through the safe snapshot pipeline, leaves it paused, then sends IZW 109.75 / CRS 273 to the iniBuilds A320neo V2 MCDU."
                                                    TextWrapping="Wrap" LineHeight="19" Margin="0,8,0,14"
                                                    Foreground="{StaticResource BrushTextMuted}"/>
-                                        <Button Content="ZurichILS" Command="{Binding ZurichIlsCommand}"
-                                                Style="{StaticResource PrimaryButton}" Padding="16,9"
-                                                HorizontalAlignment="Left" FontWeight="SemiBold"/>
+                                        <WrapPanel>
+                                            <Button Content="ZurichILS" Command="{Binding ZurichIlsCommand}"
+                                                    Style="{StaticResource PrimaryButton}" Padding="16,9"
+                                                    Margin="0,0,10,0" FontWeight="SemiBold"/>
+                                            <Button Content="Resume now" Command="{Binding ResumeNowCommand}"
+                                                    Style="{StaticResource AmberButton}"
+                                                    ToolTip="Enabled after ZurichRnw28 is fully restored. Resumes, waits 0.5 seconds, then resends ILS 109.75 / CRS 273."
+                                                    Padding="16,9" FontWeight="SemiBold"/>
+                                        </WrapPanel>
                                     </StackPanel>
                                 </Border>
 

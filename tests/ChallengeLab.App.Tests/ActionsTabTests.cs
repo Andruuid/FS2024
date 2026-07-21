@@ -136,6 +136,41 @@ public sealed class ActionsTabTests
     }
 
     [Fact]
+    public void ZurichResumeNow_ResumesImmediately_WaitsHalfSecond_ThenResendsIls()
+    {
+        RunSta(() =>
+        {
+            using var env = new TestEnv();
+            env.SnapshotStore.Save(BuildSnapshot("ZurichRnw28", DateTimeOffset.UtcNow));
+            using var vm = env.CreateViewModel();
+            vm.IsConnected = true;
+
+            vm.ZurichIlsCommand.Execute(null);
+            WaitFor(() => !vm.IsActionRunning);
+            Assert.Equal(1, env.Sim.IlsCalls);
+            Assert.True(vm.ResumeNowCommand.CanExecute(null));
+
+            vm.ResumeNowCommand.Execute(null);
+
+            Assert.Equal(1, env.Sim.ResumeCalls);
+            Assert.True(vm.IsActionRunning);
+            Assert.False(vm.IsSnapshotResumeReady);
+            Assert.False(vm.ResumeNowCommand.CanExecute(null));
+            WaitFor(() => !vm.IsActionRunning);
+
+            Assert.Equal(2, env.Sim.IlsCalls);
+            Assert.Equal(109.75m, env.Sim.LastIlsFrequency);
+            Assert.Equal(273, env.Sim.LastIlsCourse);
+            Assert.NotNull(env.Sim.LastResumeUtc);
+            Assert.True(
+                env.Sim.IlsCallTimes[1] - env.Sim.LastResumeUtc.Value >= TimeSpan.FromMilliseconds(450),
+                "The ILS retry was sent before the requested half-second delay elapsed.");
+            Assert.Contains("sent again", vm.ActionsStatus, StringComparison.Ordinal);
+            Assert.Contains("flying", vm.ActionsStatus, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
     public void RunningAction_DisablesOtherActionAndStoreRestoreCommands()
     {
         RunSta(() =>
@@ -177,6 +212,8 @@ public sealed class ActionsTabTests
         Assert.Contains("SetIlsCommand", xaml, StringComparison.Ordinal);
         Assert.Contains("SetSelectedIlsCommand", xaml, StringComparison.Ordinal);
         Assert.Contains("IlsAmbiguityWarning", xaml, StringComparison.Ordinal);
+        Assert.Equal(2, xaml.Split("Command=\"{Binding ResumeNowCommand}\"", StringSplitOptions.None).Length - 1);
+        Assert.Contains("waits 0.5 seconds, then resends ILS", xaml, StringComparison.Ordinal);
         Assert.Contains("public const int ActionsTabIndex = 6;", viewModel, StringComparison.Ordinal);
     }
 
@@ -271,6 +308,9 @@ public sealed class ActionsTabTests
         public FlightStateSnapshot? LastRestoredSnapshot { get; private set; }
         public SnapshotRestoreOptions? LastRestoreOptions { get; private set; }
         public int IlsCalls { get; private set; }
+        public int ResumeCalls { get; private set; }
+        public DateTimeOffset? LastResumeUtc { get; private set; }
+        public List<DateTimeOffset> IlsCallTimes { get; } = new();
         public decimal? LastIlsFrequency { get; private set; }
         public int? LastIlsCourse { get; private set; }
         public Exception? IlsException { get; set; }
@@ -295,7 +335,11 @@ public sealed class ActionsTabTests
         public void ApplyWeather(WeatherConfig weather) { }
         public void ApplyTimeOfDay(TimeOfDayConfig? timeOfDay) { }
         public void Teleport(SpawnConfig spawn) { }
-        public void ResumeFlight() { }
+        public void ResumeFlight()
+        {
+            ResumeCalls++;
+            LastResumeUtc = DateTimeOffset.UtcNow;
+        }
         public Task<FlightStateSnapshot?> CaptureSnapshotAsync(CancellationToken ct = default) =>
             Task.FromResult<FlightStateSnapshot?>(null);
 
@@ -316,6 +360,7 @@ public sealed class ActionsTabTests
             IProgress<string>? progress = null, CancellationToken ct = default)
         {
             IlsCalls++;
+            IlsCallTimes.Add(DateTimeOffset.UtcNow);
             LastIlsFrequency = frequencyMhz;
             LastIlsCourse = courseDegrees;
             if (IlsException is not null)

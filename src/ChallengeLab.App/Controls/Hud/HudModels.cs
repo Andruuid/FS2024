@@ -16,6 +16,7 @@ internal sealed record HudPresentationFrame(
     RelativeWindReading Wind,
     double? CrabAngleDeg,
     double? TargetGlideslopeDeg,
+    double? RadioAltitudeFeet,
     HudViewContext View)
 {
     public static HudPresentationFrame Disconnected(long sequence) => new(
@@ -26,6 +27,7 @@ internal sealed record HudPresentationFrame(
         EmptyGuidance,
         default,
         default,
+        null,
         null,
         null,
         default);
@@ -75,8 +77,14 @@ internal sealed record HudPresentationFrame(
             runway is null
                 ? null
                 : RunwayPathGeometry.SanitizeGlideslopeDeg(runway.GlideslopeDeg),
+            ResolveRadioAltitudeFeet(sample),
             HudViewContext.FromSample(sample, runway));
     }
+
+    private static double? ResolveRadioAltitudeFeet(TelemetrySample sample) =>
+        sample.RadioHeightAvailable && double.IsFinite(sample.RadioHeightFeet)
+            ? Math.Max(0, sample.RadioHeightFeet)
+            : null;
 
     private static LandingMonitorReading EmptyGuidance { get; } = new(
         null,
@@ -135,13 +143,15 @@ internal sealed class HudViewGate
 {
     internal const double EnterHorizontalDegrees = CockpitLookVisibilityPolicy.EnterHorizontalDegrees;
     internal const double ExitHorizontalDegrees = CockpitLookVisibilityPolicy.ExitHorizontalDegrees;
-    internal const double EnterUpwardDegrees = CockpitLookVisibilityPolicy.EnterUpwardDegrees;
-    internal const double ExitUpwardDegrees = CockpitLookVisibilityPolicy.ExitUpwardDegrees;
+    internal const double EnterUpwardDegrees = 35;
+    internal const double ExitUpwardDegrees = 45;
     internal const double EnterDownwardDegrees = CockpitLookVisibilityPolicy.EnterDownwardDegrees;
     internal const double ExitDownwardDegrees = CockpitLookVisibilityPolicy.ExitDownwardDegrees;
     internal const double NearRunwayDistanceMeters = CockpitLookVisibilityPolicy.NearRunwayDistanceMeters;
 
-    private readonly CockpitLookVisibilityPolicy _policy = new();
+    private readonly CockpitLookVisibilityPolicy _policy = new(
+        EnterUpwardDegrees,
+        ExitUpwardDegrees);
 
     public bool ShouldShow(HudPresentationFrame? frame)
     {
@@ -169,5 +179,56 @@ internal sealed class HudViewGate
             frame?.IsConnected == true,
             frame?.IsFlightActive == true,
             context);
+    }
+}
+
+/// <summary>HUD1-only trailing sample average for the numeric vertical-speed readout.</summary>
+internal sealed class HudVerticalSpeedSmoother
+{
+    internal const double DefaultWindowSeconds = 1.5;
+
+    private readonly TimeSpan _window;
+    private readonly Queue<(DateTimeOffset Timestamp, double Value)> _samples = new();
+    private DateTimeOffset? _latestTimestamp;
+    private double _sum;
+
+    public HudVerticalSpeedSmoother(double windowSeconds = DefaultWindowSeconds)
+    {
+        if (!double.IsFinite(windowSeconds) || windowSeconds <= 0)
+            throw new ArgumentOutOfRangeException(nameof(windowSeconds));
+
+        _window = TimeSpan.FromSeconds(windowSeconds);
+    }
+
+    public double? Update(DateTimeOffset timestamp, double? verticalSpeedFpm)
+    {
+        if (verticalSpeedFpm is not { } value || !double.IsFinite(value))
+        {
+            Reset();
+            return null;
+        }
+
+        if (_latestTimestamp is { } latest && timestamp < latest)
+            Reset();
+
+        _latestTimestamp = timestamp;
+        _samples.Enqueue((timestamp, value));
+        _sum += value;
+
+        var cutoff = timestamp - _window;
+        while (_samples.TryPeek(out var sample) && sample.Timestamp < cutoff)
+        {
+            _samples.Dequeue();
+            _sum -= sample.Value;
+        }
+
+        return _samples.Count == 0 ? null : _sum / _samples.Count;
+    }
+
+    public void Reset()
+    {
+        _samples.Clear();
+        _latestTimestamp = null;
+        _sum = 0;
     }
 }
